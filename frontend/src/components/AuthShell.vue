@@ -16,25 +16,6 @@
           <h1>每一张发票，<br>都清晰可循。</h1>
         </div>
 
-        <div class="invoice-preview" aria-hidden="true">
-          <div class="invoice-preview-header">
-            <span class="invoice-preview-icon"><DocumentChecked /></span>
-            <span>INVOICE</span>
-            <small>NO. 20260818</small>
-          </div>
-          <div class="invoice-preview-lines">
-            <i /><i /><i />
-          </div>
-          <div class="invoice-preview-total">
-            <span>合计</span>
-            <strong>¥ 28,640.00</strong>
-          </div>
-          <div class="invoice-preview-status">
-            <CircleCheckFilled />
-            已完成
-          </div>
-        </div>
-
         <p class="auth-brand-footer">BOBAPI · 票据管理</p>
       </div>
     </aside>
@@ -53,7 +34,7 @@
 </template>
 
 <script setup lang="ts">
-import { CircleCheckFilled, DocumentChecked, Tickets } from '@element-plus/icons-vue'
+import { Tickets } from '@element-plus/icons-vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import DotGrid from '@/components/bits/DotGrid.vue'
 
@@ -157,102 +138,6 @@ defineProps<{
   letter-spacing: 0;
 }
 
-.invoice-preview {
-  width: min(100%, 360px);
-  margin-top: 52px;
-  padding: 22px;
-  color: var(--color-text);
-  background: rgba(255, 255, 255, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.34);
-  border-radius: 8px;
-  box-shadow: 0 28px 60px rgba(4, 25, 20, 0.24);
-  transform: rotate(-2deg);
-}
-
-.invoice-preview-header {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: var(--color-text);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.invoice-preview-header small {
-  margin-left: auto;
-  color: var(--color-text-muted);
-  font-size: 9px;
-  font-weight: 500;
-}
-
-.invoice-preview-icon {
-  display: grid;
-  width: 28px;
-  height: 28px;
-  place-items: center;
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-  border-radius: 6px;
-}
-
-.invoice-preview-icon :deep(svg) {
-  width: 16px;
-  height: 16px;
-}
-
-.invoice-preview-lines {
-  display: grid;
-  gap: 9px;
-  margin: 22px 0;
-}
-
-.invoice-preview-lines i {
-  display: block;
-  height: 5px;
-  background: #e8ecea;
-  border-radius: 2px;
-}
-
-.invoice-preview-lines i:nth-child(2) {
-  width: 72%;
-}
-
-.invoice-preview-lines i:nth-child(3) {
-  width: 86%;
-}
-
-.invoice-preview-total {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  padding-top: 16px;
-  border-top: 1px dashed var(--color-border-strong);
-}
-
-.invoice-preview-total span {
-  color: var(--color-text-muted);
-  font-size: 11px;
-}
-
-.invoice-preview-total strong {
-  color: var(--color-primary);
-  font-size: 18px;
-}
-
-.invoice-preview-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  margin-top: 16px;
-  color: var(--color-primary);
-  font-size: 11px;
-  font-weight: 600;
-}
-
-.invoice-preview-status :deep(svg) {
-  width: 14px;
-}
-
 .auth-brand-footer {
   margin-top: auto;
   padding-top: 36px;
@@ -326,7 +211,6 @@ defineProps<{
     font-size: 32px;
   }
 
-  .invoice-preview,
   .auth-brand-footer {
     display: none;
   }

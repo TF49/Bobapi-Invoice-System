@@ -1,0 +1,40 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e4]:
+    - complementary "发票管理系统" [ref=e5]:
+      - generic [ref=e6]:
+        - generic [ref=e11]:
+          - strong [ref=e12]: BOBAPI
+          - generic [ref=e13]: INVOICE SYSTEM
+        - generic [ref=e14]:
+          - paragraph [ref=e15]: 企业发票工作台
+          - heading "每一张发票， 都清晰可循。" [level=1] [ref=e16]: 每一张发票，都清晰可循。
+        - paragraph [ref=e17]: BOBAPI · 票据管理
+    - main [ref=e18]:
+      - generic [ref=e19]:
+        - generic [ref=e20]:
+          - generic [ref=e21]: 帐号访问
+          - heading "欢迎回来" [level=2] [ref=e22]
+          - paragraph [ref=e23]: 登录后继续处理您的发票事项。
+        - generic [ref=e24]:
+          - generic [ref=e25]:
+            - generic [ref=e26]: "*用户名"
+            - textbox "*用户名" [ref=e34]:
+              - /placeholder: 请输入用户名
+              - text: admin
+          - generic [ref=e35]:
+            - generic [ref=e36]: "*密码"
+            - generic [ref=e39]:
+              - textbox "*密码" [ref=e45]:
+                - /placeholder: 请输入密码
+                - text: admin123
+              - generic [ref=e60] [cursor=pointer]
+          - generic [ref=e47] [cursor=pointer]:
+            - generic [ref=e48]:
+              - checkbox "7 天内保持登录"
+            - generic [ref=e50]: 7 天内保持登录
+          - button "登录系统" [ref=e51] [cursor=pointer]
+          - paragraph [ref=e56]:
+            - text: 还没有账号？
+            - generic [ref=e57] [cursor=pointer]: 创建账号
+  - alert [ref=e67]:
+    - paragraph [ref=e71]: 请求失败

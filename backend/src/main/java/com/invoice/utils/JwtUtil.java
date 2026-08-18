@@ -30,18 +30,20 @@ public class JwtUtil {
     /**
      * 生成 token
      */
-    public String generateToken(Long userId, String username, String role) {
-        return generateToken(userId, username, role, false);
+    public String generateToken(Long userId, String username, String role, Long authVersion) {
+        return generateToken(userId, username, role, authVersion, false);
     }
     
     /**
      * 生成 token（支持记住我）
      */
-    public String generateToken(Long userId, String username, String role, Boolean rememberMe) {
+    public String generateToken(Long userId, String username, String role,
+                                Long authVersion, Boolean rememberMe) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("userId", userId);
         claims.put("username", username);
         claims.put("role", role);
+        claims.put("authVersion", authVersion);
         return createToken(claims, username, rememberMe);
     }
     
@@ -96,6 +98,11 @@ public class JwtUtil {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    public Long getAuthVersionFromToken(String token) {
+        Claims claims = getClaimsFromToken(token);
+        return claims.get("authVersion", Long.class);
     }
 
     public Claims parseClaims(String token) {

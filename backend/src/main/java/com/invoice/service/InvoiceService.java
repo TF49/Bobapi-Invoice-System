@@ -16,6 +16,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
+import javax.imageio.ImageIO;
+import javax.imageio.ImageReader;
+import javax.imageio.stream.ImageInputStream;
+import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
@@ -24,6 +28,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Iterator;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.UUID;
@@ -35,6 +40,15 @@ public class InvoiceService {
 
     private final InvoiceMapper invoiceMapper;
     private final Path uploadRoot;
+
+    @Value("${file.image.max-width:8000}")
+    private int maxImageWidth = 8000;
+
+    @Value("${file.image.max-height:8000}")
+    private int maxImageHeight = 8000;
+
+    @Value("${file.image.max-pixels:30000000}")
+    private long maxImagePixels = 30_000_000L;
 
     public InvoiceService(InvoiceMapper invoiceMapper, @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
@@ -83,13 +97,15 @@ public class InvoiceService {
     public List<InvoiceResponse> getInvoicesByUserId(Long userId) {
         LambdaQueryWrapper<Invoice> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Invoice::getUserId, userId).orderByDesc(Invoice::getCreatedAt);
-        return invoiceMapper.selectList(wrapper).stream().map(InvoiceResponse::from).toList();
+        return invoiceMapper.selectList(wrapper).stream()
+                .map(invoice -> InvoiceResponse.from(invoice, uploadRoot)).toList();
     }
 
     public List<InvoiceResponse> getAllInvoices() {
         LambdaQueryWrapper<Invoice> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(Invoice::getCreatedAt);
-        return invoiceMapper.selectList(wrapper).stream().map(InvoiceResponse::from).toList();
+        return invoiceMapper.selectList(wrapper).stream()
+                .map(invoice -> InvoiceResponse.from(invoice, uploadRoot)).toList();
     }
 
     public InvoiceResponse uploadInvoiceFile(Long invoiceId, MultipartFile file) {
@@ -118,7 +134,7 @@ public class InvoiceService {
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
                         "该发票已被处理，请刷新后重试");
             }
-            return InvoiceResponse.from(requireInvoice(invoiceId));
+            return InvoiceResponse.from(requireInvoice(invoiceId), uploadRoot);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -130,7 +146,15 @@ public class InvoiceService {
         }
     }
 
+    public InvoiceDownload previewInvoiceFile(Long invoiceId, Long currentUserId, boolean admin) {
+        return loadInvoiceFile(invoiceId, currentUserId, admin);
+    }
+
     public InvoiceDownload downloadInvoiceFile(Long invoiceId, Long currentUserId, boolean admin) {
+        return loadInvoiceFile(invoiceId, currentUserId, admin);
+    }
+
+    private InvoiceDownload loadInvoiceFile(Long invoiceId, Long currentUserId, boolean admin) {
         Invoice invoice = requireInvoice(invoiceId);
         if (!admin && !Objects.equals(invoice.getUserId(), currentUserId)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "不能下载其他用户的发票");
@@ -186,7 +210,7 @@ public class InvoiceService {
             throw new BusinessException(HttpStatus.CONFLICT, 40902,
                     "Idempotency-Key 已用于其他发票申请");
         }
-        return InvoiceResponse.from(existing);
+        return InvoiceResponse.from(existing, uploadRoot);
     }
 
     private ValidatedFile validateFile(MultipartFile file) {
@@ -201,7 +225,7 @@ public class InvoiceService {
         AllowedFileType expectedType = AllowedFileType.fromExtension(
                 StringUtils.getFilenameExtension(originalName));
         if (expectedType == null) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "只支持 PDF、JPG、JPEG 和 PNG 文件");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "只支持 JPG、JPEG 和 PNG 图片文件");
         }
 
         String contentType = file.getContentType() == null ? "" : file.getContentType().toLowerCase(Locale.ROOT);
@@ -218,7 +242,60 @@ public class InvoiceService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "无法读取上传文件");
         }
 
+        validateDecodedImage(file, expectedType);
         return new ValidatedFile(originalName, expectedType.storedExtension);
+    }
+
+    private void validateDecodedImage(MultipartFile file, AllowedFileType expectedType) {
+        try (InputStream inputStream = file.getInputStream();
+             ImageInputStream imageInput = ImageIO.createImageInputStream(inputStream)) {
+            if (imageInput == null) {
+                throw invalidImage("图片内容无法解码");
+            }
+
+            Iterator<ImageReader> readers = ImageIO.getImageReaders(imageInput);
+            if (!readers.hasNext()) {
+                throw invalidImage("图片内容无法解码");
+            }
+
+            ImageReader reader = readers.next();
+            try {
+                reader.setInput(imageInput, true, true);
+                if (!expectedType.matchesFormat(reader.getFormatName())) {
+                    throw invalidImage("图片实际格式与文件扩展名不匹配");
+                }
+
+                int width = reader.getWidth(0);
+                int height = reader.getHeight(0);
+                long pixels = (long) width * height;
+                if (width <= 0 || height <= 0) {
+                    throw invalidImage("图片尺寸不合法");
+                }
+                if (width > maxImageWidth || height > maxImageHeight || pixels > maxImagePixels) {
+                    throw new BusinessException(
+                            HttpStatus.PAYLOAD_TOO_LARGE,
+                            41301,
+                            "图片尺寸过大，最大允许 " + maxImageWidth + "x" + maxImageHeight
+                                    + " 且总像素不超过 " + maxImagePixels
+                    );
+                }
+
+                BufferedImage decoded = reader.read(0);
+                if (decoded == null || decoded.getWidth() != width || decoded.getHeight() != height) {
+                    throw invalidImage("图片内容不完整或已损坏");
+                }
+            } finally {
+                reader.dispose();
+            }
+        } catch (BusinessException exception) {
+            throw exception;
+        } catch (IOException | RuntimeException exception) {
+            throw invalidImage("图片内容不完整或已损坏");
+        }
+    }
+
+    private BusinessException invalidImage(String message) {
+        return new BusinessException(HttpStatus.BAD_REQUEST, 40003, message);
     }
 
     private String sanitizeOriginalFileName(String originalFilename) {
@@ -263,17 +340,18 @@ public class InvoiceService {
     }
 
     private enum AllowedFileType {
-        PDF("pdf", "application/pdf", new byte[]{'%', 'P', 'D', 'F', '-'}),
-        JPEG("jpg", "image/jpeg", new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}),
-        PNG("png", "image/png", new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A});
+        JPEG("jpg", "image/jpeg", "JPEG", new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF}),
+        PNG("png", "image/png", "PNG", new byte[]{(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A});
 
         private final String storedExtension;
         private final String mediaType;
+        private final String imageFormat;
         private final byte[] signature;
 
-        AllowedFileType(String storedExtension, String mediaType, byte[] signature) {
+        AllowedFileType(String storedExtension, String mediaType, String imageFormat, byte[] signature) {
             this.storedExtension = storedExtension;
             this.mediaType = mediaType;
+            this.imageFormat = imageFormat;
             this.signature = signature;
         }
 
@@ -282,7 +360,6 @@ public class InvoiceService {
                 return null;
             }
             return switch (extension.toLowerCase(Locale.ROOT)) {
-                case "pdf" -> PDF;
                 case "jpg", "jpeg" -> JPEG;
                 case "png" -> PNG;
                 default -> null;
@@ -292,6 +369,11 @@ public class InvoiceService {
         private boolean acceptsContentType(String declaredContentType) {
             return mediaType.equals(declaredContentType)
                     || (this == JPEG && "image/jpg".equals(declaredContentType));
+        }
+
+        private boolean matchesFormat(String decodedFormat) {
+            return imageFormat.equalsIgnoreCase(decodedFormat)
+                    || (this == JPEG && "JPG".equalsIgnoreCase(decodedFormat));
         }
 
         private boolean matchesSignature(byte[] header) {

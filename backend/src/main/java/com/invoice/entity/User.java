@@ -2,7 +2,6 @@ package com.invoice.entity;
 
 import com.baomidou.mybatisplus.annotation.*;
 import lombok.Data;
-import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -23,6 +22,10 @@ public class User {
      * 角色：USER-普通用户，ADMIN-管理员
      */
     private String role;
+
+    private Boolean enabled;
+
+    private Long authVersion;
     
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

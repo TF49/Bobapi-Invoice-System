@@ -7,6 +7,8 @@ import com.invoice.exception.BusinessException;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.security.RateLimitService;
 import com.invoice.service.InvoiceService;
+import com.invoice.utils.WebUtils;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import org.springframework.core.io.Resource;
@@ -76,15 +78,46 @@ public class InvoiceController {
     }
 
     @PostMapping("/admin/{id}/upload")
-    public ApiResponse<InvoiceResponse> uploadInvoice(@PathVariable Long id,
-                                                       @RequestParam("file") MultipartFile file) {
+    public ApiResponse<InvoiceResponse> uploadInvoice(
+            @PathVariable Long id,
+            @RequestParam("file") MultipartFile file,
+            @AuthenticationPrincipal JwtUserPrincipal principal,
+            HttpServletRequest request) {
+        enforceRateLimit(
+                "invoice-upload:user:" + principal.userId(),
+                20, Duration.ofMinutes(5), 42903, "发票上传过于频繁，请稍后再试");
+        enforceRateLimit(
+                "invoice-upload:ip:" + WebUtils.extractClientIp(request),
+                40, Duration.ofMinutes(5), 42903, "当前网络上传过于频繁，请稍后再试");
         return ApiResponse.success("上传成功", invoiceService.uploadInvoiceFile(id, file));
+    }
+
+    @GetMapping("/{id}/preview")
+    public ResponseEntity<Resource> previewInvoice(
+            @PathVariable Long id,
+            @AuthenticationPrincipal JwtUserPrincipal principal,
+            HttpServletRequest request) {
+        enforceFileReadLimits(id, principal.userId(), WebUtils.extractClientIp(request));
+        InvoiceService.InvoiceDownload download = invoiceService.previewInvoiceFile(
+                id, principal.userId(), "ADMIN".equals(principal.role()));
+
+        ContentDisposition disposition = ContentDisposition.inline()
+                .filename(download.fileName(), StandardCharsets.UTF_8)
+                .build();
+        return ResponseEntity.ok()
+                .contentType(MediaType.parseMediaType(download.contentType()))
+                .contentLength(download.contentLength())
+                .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
+                .body(download.resource());
     }
 
     @GetMapping("/{id}/download")
     public ResponseEntity<Resource> downloadInvoice(
             @PathVariable Long id,
-            @AuthenticationPrincipal JwtUserPrincipal principal) {
+            @AuthenticationPrincipal JwtUserPrincipal principal,
+            HttpServletRequest request) {
+        enforceFileReadLimits(id, principal.userId(), WebUtils.extractClientIp(request));
         InvoiceService.InvoiceDownload download = invoiceService.downloadInvoiceFile(
                 id, principal.userId(), "ADMIN".equals(principal.role()));
 
@@ -95,6 +128,27 @@ public class InvoiceController {
                 .contentType(MediaType.parseMediaType(download.contentType()))
                 .contentLength(download.contentLength())
                 .header(HttpHeaders.CONTENT_DISPOSITION, disposition.toString())
+                .header("X-Content-Type-Options", "nosniff")
                 .body(download.resource());
+    }
+
+    private void enforceFileReadLimits(Long invoiceId, Long userId, String remoteAddress) {
+        enforceRateLimit(
+                "invoice-file:user:" + userId,
+                120, Duration.ofMinutes(1), 42904, "发票文件访问过于频繁，请稍后再试");
+        enforceRateLimit(
+                "invoice-file:ip:" + remoteAddress,
+                240, Duration.ofMinutes(1), 42904, "当前网络访问发票文件过于频繁，请稍后再试");
+        enforceRateLimit(
+                "invoice-file:item:" + userId + ":" + invoiceId,
+                30, Duration.ofMinutes(1), 42904, "该发票访问过于频繁，请稍后再试");
+    }
+
+    private void enforceRateLimit(String key, int limit, Duration window, int code, String message) {
+        RateLimitService.RateLimitResult result = rateLimitService.tryAcquire(key, limit, window);
+        if (!result.allowed()) {
+            throw new BusinessException(
+                    HttpStatus.TOO_MANY_REQUESTS, code, message, result.retryAfterSeconds());
+        }
     }
 }

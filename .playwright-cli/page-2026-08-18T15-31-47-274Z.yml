@@ -1,0 +1,36 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e182]:
+    - complementary "发票管理系统" [ref=e183]:
+      - generic [ref=e184]:
+        - generic [ref=e189]:
+          - strong [ref=e190]: BOBAPI
+          - generic [ref=e191]: INVOICE SYSTEM
+        - generic [ref=e192]:
+          - paragraph [ref=e193]: 企业发票工作台
+          - heading "每一张发票， 都清晰可循。" [level=1] [ref=e194]: 每一张发票，都清晰可循。
+        - paragraph [ref=e195]: BOBAPI · 票据管理
+    - main [ref=e196]:
+      - generic [ref=e197]:
+        - generic [ref=e198]:
+          - generic [ref=e199]: 帐号访问
+          - heading "欢迎回来" [level=2] [ref=e200]
+          - paragraph [ref=e201]: 登录后继续处理您的发票事项。
+        - generic [ref=e202]:
+          - generic [ref=e203]:
+            - generic [ref=e204]: "*用户名"
+            - textbox "*用户名" [ref=e212]:
+              - /placeholder: 请输入用户名
+          - generic [ref=e213]:
+            - generic [ref=e214]: "*密码"
+            - textbox "*密码" [ref=e223]:
+              - /placeholder: 请输入密码
+          - generic [ref=e225] [cursor=pointer]:
+            - generic [ref=e226]:
+              - checkbox "7 天内保持登录"
+            - generic [ref=e228]: 7 天内保持登录
+          - button "登录系统" [ref=e229] [cursor=pointer]
+          - paragraph [ref=e234]:
+            - text: 还没有账号？
+            - generic [ref=e235] [cursor=pointer]: 创建账号
+  - alert [ref=e237]:
+    - paragraph [ref=e241]: 已退出登录

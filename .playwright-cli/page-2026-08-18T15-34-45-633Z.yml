@@ -1,0 +1,82 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e510]:
+    - banner [ref=e511]:
+      - generic [ref=e516]:
+        - generic [ref=e517]: BOBAPI 发票管理系统
+        - heading "发票管理" [level=1] [ref=e518]
+      - navigation "管理员功能导航" [ref=e519]:
+        - link "发票管理" [ref=e520] [cursor=pointer]:
+          - /url: /admin
+        - link "用户管理" [ref=e524] [cursor=pointer]:
+          - /url: /admin/users
+      - generic [ref=e528]:
+        - generic [ref=e529]:
+          - generic [ref=e530]: A
+          - generic [ref=e531]:
+            - strong [ref=e532]: admin
+            - generic [ref=e533]: 管理员
+        - button "退出登录" [ref=e534] [cursor=pointer]
+    - main [ref=e540]:
+      - generic [ref=e541]:
+        - article [ref=e542]:
+          - generic [ref=e543]:
+            - generic [ref=e547]:
+              - generic [ref=e548]: 申请总数
+              - strong [ref=e549]: "1"
+            - paragraph [ref=e550]: 当前全部申请
+        - article [ref=e551]:
+          - generic [ref=e552]:
+            - generic [ref=e558]:
+              - generic [ref=e559]: 待处理
+              - strong [ref=e560]: "0"
+            - paragraph [ref=e561]: 等待上传发票
+        - article [ref=e562]:
+          - generic [ref=e563]:
+            - generic [ref=e568]:
+              - generic [ref=e569]: 已完成
+              - strong [ref=e570]: "1"
+            - paragraph [ref=e571]: 已交付电子凭证
+        - article [ref=e572]:
+          - generic [ref=e573]:
+            - generic [ref=e579]:
+              - generic [ref=e580]: 申请总金额
+              - strong [ref=e581]: ¥128.50
+            - paragraph [ref=e582]: 全部申请合计
+      - generic [ref=e583]:
+        - generic [ref=e584]:
+          - generic [ref=e589]:
+            - heading "发票申请" [level=2] [ref=e590]
+            - paragraph [ref=e591]: 审核申请并上传电子发票
+          - generic [ref=e592]:
+            - generic [ref=e593]:
+              - generic [ref=e594]: 状态
+              - generic [ref=e598] [cursor=pointer]:
+                - generic:
+                  - combobox "筛选发票状态" [ref=e600]
+                  - generic [ref=e601]: 全部状态
+            - button "刷新列表" [ref=e606] [cursor=pointer]
+        - generic [ref=e612]:
+          - table [ref=e614]:
+            - rowgroup [ref=e623]:
+              - row [ref=e624]:
+                - columnheader "编号" [ref=e625]
+                - columnheader "公司名称" [ref=e627]
+                - columnheader "税号" [ref=e629]
+                - columnheader "金额" [ref=e631]
+                - columnheader "状态" [ref=e633]
+                - columnheader "申请时间" [ref=e635]
+                - columnheader "操作" [ref=e637]
+          - table [ref=e643]:
+            - rowgroup [ref=e652]:
+              - row [ref=e693]:
+                - cell "1" [ref=e654]
+                - cell [ref=e656]:
+                  - strong [ref=e658]: Codex 测试公司
+                - cell "91350100TEST123" [ref=e659]
+                - cell "¥128.50" [ref=e661]
+                - cell "已开票" [ref=e694]
+                - cell "2026/08/18 23:32" [ref=e667]
+                - cell [ref=e695]:
+                  - button "下载" [ref=e696] [cursor=pointer]
+  - alert [ref=e701]:
+    - paragraph [ref=e705]: 上传成功

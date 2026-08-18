@@ -49,6 +49,21 @@ export function normalizeResponse<T>(response: AxiosResponse<ApiEnvelope<T> | Bl
   return payload.data
 }
 
+export async function parseErrorPayload(data: unknown): Promise<Partial<ApiEnvelope<unknown>> | undefined> {
+  if (data instanceof Blob) {
+    try {
+      const text = await data.text()
+      return JSON.parse(text) as Partial<ApiEnvelope<unknown>>
+    } catch {
+      return undefined
+    }
+  }
+  if (data && typeof data === 'object') {
+    return data as Partial<ApiEnvelope<unknown>>
+  }
+  return undefined
+}
+
 instance.interceptors.response.use(
   (response: AxiosResponse) => {
     try {
@@ -59,9 +74,13 @@ instance.interceptors.response.use(
       return Promise.reject(error)
     }
   },
-  (error) => {
+  async (error) => {
+    if (axios.isCancel(error)) {
+      return Promise.reject(error)
+    }
+
     const status = error.response?.status
-    const payload = error.response?.data as Partial<ApiEnvelope<unknown>> | undefined
+    const payload = await parseErrorPayload(error.response?.data)
     let message = payload?.message || '请求失败'
 
     if (!error.response) {

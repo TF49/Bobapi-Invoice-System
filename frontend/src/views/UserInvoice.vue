@@ -137,18 +137,29 @@
               <el-table-column prop="createdAt" label="申请时间" width="168">
                 <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
               </el-table-column>
-              <el-table-column label="操作" width="132" align="center" fixed="right">
+              <el-table-column label="操作" width="180" align="center" fixed="right">
                 <template #default="{ row }">
-                  <el-button
-                    v-if="row.downloadable"
-                    type="primary"
-                    plain
-                    size="small"
-                    :icon="Download"
-                    @click="handleDownload(row)"
-                  >
-                    下载
-                  </el-button>
+                  <template v-if="row.downloadable && row.fileExists">
+                    <el-button
+                      type="primary"
+                      size="small"
+                      :icon="ZoomIn"
+                      :loading="previewingId === row.id"
+                      @click="handlePreview(row)"
+                    >
+                      查看
+                    </el-button>
+                    <el-button
+                      type="primary"
+                      plain
+                      size="small"
+                      :icon="Download"
+                      style="margin-left: 6px;"
+                      @click="handleDownload(row)"
+                    >
+                      下载
+                    </el-button>
+                  </template>
                   <span v-else class="empty-action">暂不可用</span>
                 </template>
               </el-table-column>
@@ -157,11 +168,40 @@
         </AnimatedContent>
       </div>
     </main>
+
+    <!-- 发票图片预览弹窗 -->
+    <el-dialog
+      v-model="previewVisible"
+      :title="previewTitle"
+      width="90%"
+      class="invoice-preview-dialog"
+      destroy-on-close
+      @close="onPreviewClose"
+      @closed="onPreviewClosed"
+    >
+      <div class="preview-body">
+        <div v-if="previewError" class="preview-error">
+          <span class="preview-error-icon"><PictureRounded /></span>
+          <p>图片加载失败，请稍后重试或使用下载功能</p>
+        </div>
+        <img
+          v-else-if="previewSrc"
+          :src="previewSrc"
+          class="preview-image"
+          alt="发票图片"
+          @error="previewError = true"
+        />
+        <div v-else class="preview-loading">
+          <el-icon class="is-loading"><Loading /></el-icon>
+          <span>加载中…</span>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import {
   CircleCheck,
@@ -170,11 +210,14 @@ import {
   Download,
   Files,
   List,
+  Loading,
   OfficeBuilding,
+  PictureRounded,
   Postcard,
   Promotion,
   Tickets,
-  Wallet
+  Wallet,
+  ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
 import AppHeader from '@/components/AppHeader.vue'
@@ -188,6 +231,15 @@ const loading = ref(false)
 const submitting = ref(false)
 const invoices = ref<Invoice[]>([])
 const pendingIdempotencyKey = ref<string | null>(null)
+
+// 预览相关状态
+const previewVisible = ref(false)
+const previewingId = ref<number | null>(null)
+const previewSrc = ref<string | null>(null)
+const previewTitle = ref('')
+const previewError = ref(false)
+let previewController: AbortController | null = null
+let previewRequestId = 0
 
 const form = reactive<InvoiceRequest>({
   companyName: '',
@@ -268,6 +320,57 @@ const handleSubmit = async () => {
   }
 }
 
+const handlePreview = async (row: Invoice) => {
+  if (previewingId.value !== null) return
+  const requestId = ++previewRequestId
+  previewController = new AbortController()
+  previewingId.value = row.id
+  previewTitle.value = `发票预览 — ${row.companyName}`
+  previewError.value = false
+  previewSrc.value = null
+  previewVisible.value = true
+
+  try {
+    const response = await invoiceApi.previewInvoice(row.id, previewController.signal)
+    const blob = response.data
+    const objectUrl = URL.createObjectURL(blob)
+    if (requestId !== previewRequestId || !previewVisible.value) {
+      URL.revokeObjectURL(objectUrl)
+      return
+    }
+    releasePreviewUrl()
+    previewSrc.value = objectUrl
+  } catch {
+    if (requestId === previewRequestId && !previewController?.signal.aborted) {
+      previewError.value = true
+    }
+  } finally {
+    if (requestId === previewRequestId) {
+      previewController = null
+      previewingId.value = null
+    }
+  }
+}
+
+const releasePreviewUrl = () => {
+  if (previewSrc.value) {
+    URL.revokeObjectURL(previewSrc.value)
+    previewSrc.value = null
+  }
+}
+
+const onPreviewClose = () => {
+  previewRequestId += 1
+  previewController?.abort()
+  previewController = null
+  previewingId.value = null
+  releasePreviewUrl()
+}
+
+const onPreviewClosed = () => {
+  previewError.value = false
+}
+
 const handleDownload = async (row: Invoice) => {
   try {
     const response = await invoiceApi.downloadInvoice(row.id)
@@ -286,6 +389,7 @@ watch(
 )
 
 onMounted(loadInvoices)
+onBeforeUnmount(onPreviewClose)
 </script>
 
 <style scoped>
@@ -328,6 +432,62 @@ onMounted(loadInvoices)
 
 .amount-stat {
   font-size: 22px;
+}
+
+/* 预览弹窗 */
+:global(.invoice-preview-dialog) {
+  max-width: 960px;
+}
+
+:global(.invoice-preview-dialog .el-dialog__body) {
+  padding: 12px 20px 20px;
+}
+
+.preview-body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 200px;
+}
+
+.preview-image {
+  display: block;
+  max-width: 100%;
+  max-height: 80vh;
+  border-radius: 8px;
+  object-fit: contain;
+}
+
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.preview-loading .el-icon {
+  font-size: 28px;
+}
+
+.preview-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.preview-error-icon {
+  font-size: 40px;
+  opacity: 0.5;
+}
+
+.preview-error p {
+  font-size: 14px;
+  margin: 0;
 }
 
 @media (max-width: 1180px) {

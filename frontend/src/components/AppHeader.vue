@@ -7,6 +7,16 @@
         <h1>{{ title }}</h1>
       </div>
     </div>
+    <nav v-if="userStore.role === 'ADMIN'" class="admin-nav" aria-label="管理员功能导航">
+      <router-link to="/admin" exact-active-class="is-active">
+        <Files />
+        <span>发票管理</span>
+      </router-link>
+      <router-link to="/admin/users" exact-active-class="is-active">
+        <UserFilled />
+        <span>用户管理</span>
+      </router-link>
+    </nav>
     <div class="header-actions">
       <div class="user-chip">
         <span class="user-avatar">{{ userInitial }}</span>
@@ -24,7 +34,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { SwitchButton, Tickets } from '@element-plus/icons-vue'
+import { Files, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 defineProps<{ title: string }>()
@@ -55,7 +65,9 @@ const handleLogout = async () => {
 
 .header-brand,
 .header-actions,
-.user-chip {
+.user-chip,
+.admin-nav,
+.admin-nav a {
   display: flex;
   align-items: center;
 }
@@ -110,6 +122,41 @@ h1 {
   gap: 14px;
 }
 
+.admin-nav {
+  flex: 0 0 auto;
+  padding: 3px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+}
+
+.admin-nav a {
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--color-text-muted);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.admin-nav a:hover {
+  color: var(--color-primary);
+}
+
+.admin-nav a.is-active {
+  color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgba(24, 39, 34, 0.1);
+}
+
+.admin-nav svg {
+  width: 15px;
+  height: 15px;
+}
+
 .user-chip {
   gap: 9px;
 }
@@ -150,6 +197,7 @@ h1 {
 
 @media (max-width: 600px) {
   .app-header {
+    flex-wrap: wrap;
     gap: 12px;
     min-height: 72px;
     padding: 12px 16px;
@@ -176,6 +224,16 @@ h1 {
   .header-actions :deep(.el-button) {
     width: 42px;
     padding: 0;
+  }
+
+  .admin-nav {
+    order: 3;
+    width: 100%;
+  }
+
+  .admin-nav a {
+    flex: 1;
+    justify-content: center;
   }
 }
 </style>

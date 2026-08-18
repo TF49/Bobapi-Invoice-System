@@ -9,6 +9,7 @@ import com.invoice.security.LoginAttemptService;
 import com.invoice.security.RateLimitService;
 import com.invoice.service.UserService;
 import com.invoice.utils.JwtUtil;
+import com.invoice.utils.WebUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -74,7 +75,8 @@ public class AuthController {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, 40101, "用户名或密码错误");
         }
         
-        if (!userService.validatePassword(request.getPassword(), user.getPassword())) {
+        if (!Boolean.TRUE.equals(user.getEnabled())
+                || !userService.validatePassword(request.getPassword(), user.getPassword())) {
             loginAttemptService.loginFailed(clientKey);
             throw new BusinessException(HttpStatus.UNAUTHORIZED, 40101, "用户名或密码错误");
         }
@@ -83,7 +85,8 @@ public class AuthController {
         loginAttemptService.loginSucceeded(clientKey);
         
         // 生成 token（支持记住我）
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole(), request.getRememberMe());
+        String token = jwtUtil.generateToken(
+                user.getId(), user.getUsername(), user.getRole(), user.getAuthVersion(), request.getRememberMe());
         LoginResponse response = new LoginResponse(token, user.getUsername(), user.getRole());
         
         return ApiResponse.success("登录成功", response);
@@ -93,7 +96,17 @@ public class AuthController {
      * 用户注册
      */
     @PostMapping("/register")
-    public ApiResponse<LoginResponse> register(@Valid @RequestBody com.invoice.dto.RegisterRequest request) {
+    public ApiResponse<LoginResponse> register(@Valid @RequestBody com.invoice.dto.RegisterRequest request,
+                                               HttpServletRequest httpRequest) {
+        // 按客户端 IP 限流，防止批量注册
+        String clientIp = WebUtils.extractClientIp(httpRequest);
+        RateLimitService.RateLimitResult registerLimit = rateLimitService.tryAcquire(
+                "register:ip:" + clientIp, 5, Duration.ofMinutes(1));
+        if (!registerLimit.allowed()) {
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42906,
+                    "注册请求过于频繁，请稍后再试", registerLimit.retryAfterSeconds());
+        }
+
         // 检查用户名是否已存在
         if (userService.findByUsername(request.getUsername()) != null) {
             throw new BusinessException(HttpStatus.CONFLICT, 40901, "用户名已存在");
@@ -103,16 +116,17 @@ public class AuthController {
         User user = userService.createUser(request.getUsername(), request.getPassword(), "USER");
         
         // 生成 token
-        String token = jwtUtil.generateToken(user.getId(), user.getUsername(), user.getRole());
+        String token = jwtUtil.generateToken(
+                user.getId(), user.getUsername(), user.getRole(), user.getAuthVersion());
         LoginResponse response = new LoginResponse(token, user.getUsername(), user.getRole());
         
         return ApiResponse.success("注册成功", response);
     }
     
     /**
-     * 获取客户端 IP
+     * 获取客户端 IP，支持反向代理（X-Forwarded-For / X-Real-IP）。
      */
     private String getClientIP(HttpServletRequest request) {
-        return request.getRemoteAddr();
+        return WebUtils.extractClientIp(request);
     }
 }

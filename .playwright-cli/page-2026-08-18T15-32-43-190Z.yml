@@ -1,0 +1,90 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e242]:
+    - banner [ref=e243]:
+      - generic [ref=e248]:
+        - generic [ref=e249]: BOBAPI 发票管理系统
+        - heading "我的发票" [level=1] [ref=e250]
+      - generic [ref=e251]:
+        - generic [ref=e252]:
+          - generic [ref=e253]: U
+          - generic [ref=e254]:
+            - strong [ref=e255]: user
+            - generic [ref=e256]: 普通用户
+        - button "退出登录" [ref=e257] [cursor=pointer]
+    - main [ref=e263]:
+      - generic [ref=e264]:
+        - article [ref=e265]:
+          - generic [ref=e266]:
+            - generic [ref=e270]:
+              - generic [ref=e271]: 申请总数
+              - strong [ref=e272]: "1"
+            - paragraph [ref=e273]: 全部开票记录
+        - article [ref=e274]:
+          - generic [ref=e275]:
+            - generic [ref=e281]:
+              - generic [ref=e282]: 待开票
+              - strong [ref=e283]: "1"
+            - paragraph [ref=e284]: 等待管理员处理
+        - article [ref=e285]:
+          - generic [ref=e286]:
+            - generic [ref=e291]:
+              - generic [ref=e292]: 已开票
+              - strong [ref=e293]: "0"
+            - paragraph [ref=e294]: 可下载电子凭证
+        - article [ref=e295]:
+          - generic [ref=e296]:
+            - generic [ref=e302]:
+              - generic [ref=e303]: 已开票金额
+              - strong [ref=e304]: ¥0.00
+            - paragraph [ref=e305]: 已完成申请合计
+      - generic [ref=e306]:
+        - generic [ref=e307]:
+          - generic [ref=e313]:
+            - heading "提交发票申请" [level=2] [ref=e314]
+            - paragraph [ref=e315]: 填写本次开票信息
+          - generic [ref=e317]:
+            - generic [ref=e318]:
+              - generic [ref=e319]: "*公司名称"
+              - textbox "*公司名称" [ref=e329]:
+                - /placeholder: 请输入公司名称
+            - generic [ref=e330]:
+              - generic [ref=e331]: "*税号"
+              - textbox "*税号" [ref=e340]:
+                - /placeholder: 15-20 位大写字母或数字
+            - generic [ref=e341]:
+              - generic [ref=e342]: "*开票金额"
+              - generic [ref=e344]:
+                - button "decrease number" [ref=e345]
+                - button "increase number" [ref=e349] [cursor=pointer]
+                - spinbutton "*开票金额" [ref=e355]: "0.01"
+            - button "提交申请" [ref=e356] [cursor=pointer]
+        - generic [ref=e361]:
+          - generic [ref=e362]:
+            - generic [ref=e367]:
+              - heading "发票记录" [level=2] [ref=e368]
+              - paragraph [ref=e369]: 查看申请进度与电子凭证
+            - generic [ref=e370]: 共 1 条
+          - generic [ref=e386]:
+            - table [ref=e388]:
+              - rowgroup [ref=e397]:
+                - row [ref=e398]:
+                  - columnheader "编号" [ref=e399]
+                  - columnheader "公司名称" [ref=e401]
+                  - columnheader "税号" [ref=e403]
+                  - columnheader "金额" [ref=e405]
+                  - columnheader "状态" [ref=e407]
+                  - columnheader "申请时间" [ref=e409]
+                  - columnheader "操作" [ref=e411]
+            - table [ref=e417]:
+              - rowgroup [ref=e426]:
+                - row [ref=e427]:
+                  - cell "1" [ref=e428]
+                  - cell [ref=e430]:
+                    - strong [ref=e432]: Codex 测试公司
+                  - cell "91350100TEST123" [ref=e433]
+                  - cell "¥128.50" [ref=e435]
+                  - cell "待开票" [ref=e437]
+                  - cell "2026/08/18 23:32" [ref=e441]
+                  - cell "暂不可用" [ref=e443]
+  - alert [ref=e445]:
+    - paragraph [ref=e449]: 提交成功

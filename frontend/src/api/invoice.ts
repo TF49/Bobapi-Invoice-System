@@ -11,6 +11,7 @@ export interface Invoice {
   createdAt: string
   updatedAt: string
   downloadable: boolean
+  fileExists: boolean
   fileName?: string
 }
 
@@ -42,12 +43,18 @@ export const invoiceApi = {
   uploadInvoice(id: number, file: File) {
     const formData = new FormData()
     formData.append('file', file)
-    return request.post<any, Invoice>(`/invoices/admin/${id}/upload`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+    return request.post<any, Invoice>(`/invoices/admin/${id}/upload`, formData)
+  },
+
+  // 预览发票图片（inline，用于弹窗展示）
+  previewInvoice(id: number, signal?: AbortSignal) {
+    return request.get<Blob, AxiosResponse<Blob>>(`/invoices/${id}/preview`, {
+      responseType: 'blob',
+      signal
     })
   },
   
-  // 下载发票文件
+  // 下载发票文件（attachment，触发另存为）
   downloadInvoice(id: number) {
     return request.get<Blob, AxiosResponse<Blob>>(`/invoices/${id}/download`, { responseType: 'blob' })
   }
