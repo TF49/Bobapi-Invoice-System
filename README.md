@@ -46,7 +46,7 @@
 
 ```yaml
 username: root
-password: 200649
+password: 200
 ```
 
 后端第一次启动会自动创建 `invoice_system` 数据库、数据表和默认账号。SQL 可重复执行，不会重复插入账号。

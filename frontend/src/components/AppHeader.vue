@@ -1,10 +1,22 @@
 <template>
   <header class="app-header">
-    <div>
-      <h1>{{ title }}</h1>
-      <span>{{ userStore.username }} · {{ roleLabel }}</span>
+    <div class="header-brand">
+      <span class="header-brand-mark"><Tickets /></span>
+      <div class="header-copy">
+        <span class="product-name">BOBAPI 发票管理系统</span>
+        <h1>{{ title }}</h1>
+      </div>
     </div>
-    <el-button :icon="SwitchButton" @click="handleLogout">退出登录</el-button>
+    <div class="header-actions">
+      <div class="user-chip">
+        <span class="user-avatar">{{ userInitial }}</span>
+        <span class="user-copy">
+          <strong>{{ userStore.username }}</strong>
+          <small>{{ roleLabel }}</small>
+        </span>
+      </div>
+      <el-button :icon="SwitchButton" plain aria-label="退出登录" @click="handleLogout">退出登录</el-button>
+    </div>
   </header>
 </template>
 
@@ -12,7 +24,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { SwitchButton } from '@element-plus/icons-vue'
+import { SwitchButton, Tickets } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 defineProps<{ title: string }>()
@@ -20,6 +32,7 @@ defineProps<{ title: string }>()
 const router = useRouter()
 const userStore = useUserStore()
 const roleLabel = computed(() => userStore.role === 'ADMIN' ? '管理员' : '普通用户')
+const userInitial = computed(() => userStore.username.trim().slice(0, 1).toUpperCase() || 'U')
 
 const handleLogout = async () => {
   userStore.logout()
@@ -33,30 +46,136 @@ const handleLogout = async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid #dcdfe6;
+  gap: 24px;
+  min-height: 82px;
+  padding: 14px 32px;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.header-brand,
+.header-actions,
+.user-chip {
+  display: flex;
+  align-items: center;
+}
+
+.header-brand {
+  min-width: 0;
+  gap: 13px;
+}
+
+.header-brand-mark {
+  display: grid;
+  flex: 0 0 auto;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  color: #fff;
+  background: var(--color-primary);
+  border-radius: 7px;
+}
+
+.header-brand-mark :deep(svg) {
+  width: 22px;
+  height: 22px;
+}
+
+.header-copy {
+  min-width: 0;
+}
+
+.product-name {
+  display: block;
+  margin-bottom: 2px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 650;
 }
 
 h1 {
-  margin: 0 0 6px;
-  font-size: 22px;
+  overflow: hidden;
+  margin: 0;
+  color: var(--color-text);
+  font-size: 19px;
+  font-weight: 680;
+  line-height: 1.35;
   letter-spacing: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-span {
-  color: #606266;
-  font-size: 14px;
+.header-actions {
+  flex: 0 0 auto;
+  gap: 14px;
+}
+
+.user-chip {
+  gap: 9px;
+}
+
+.user-avatar {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border: 1px solid #d5e6e0;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.user-copy {
+  display: grid;
+  gap: 1px;
+  min-width: 72px;
+}
+
+.user-copy strong {
+  overflow: hidden;
+  max-width: 136px;
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-copy small {
+  color: var(--color-text-muted);
+  font-size: 10px;
 }
 
 @media (max-width: 600px) {
   .app-header {
-    align-items: flex-start;
+    gap: 12px;
+    min-height: 72px;
+    padding: 12px 16px;
+  }
+
+  .header-brand-mark {
+    width: 38px;
+    height: 38px;
+  }
+
+  .product-name,
+  .user-chip {
+    display: none;
   }
 
   h1 {
-    font-size: 18px;
+    font-size: 17px;
+  }
+
+  .header-actions :deep(.el-button span) {
+    display: none;
+  }
+
+  .header-actions :deep(.el-button) {
+    width: 42px;
+    padding: 0;
   }
 }
 </style>

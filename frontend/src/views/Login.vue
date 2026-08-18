@@ -1,40 +1,41 @@
 <template>
-  <div class="login-container">
-    <el-card class="login-card">
-      <template #header>
-        <h2>发票管理系统 - 登录</h2>
-      </template>
-      <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="handleLogin">
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名" />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" />
-        </el-form-item>
-        <el-form-item>
-          <el-checkbox v-model="form.rememberMe">记住我（7天内免登录）</el-checkbox>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleLogin" :loading="loading" style="width: 100%">
-            登录
-          </el-button>
-        </el-form-item>
-        <el-form-item>
-          <div class="register-link">
-            还没有账号？<el-link type="primary" @click="goToRegister">立即注册</el-link>
-          </div>
-        </el-form-item>
-      </el-form>
-    </el-card>
-  </div>
+  <AuthShell eyebrow="帐号访问" title="欢迎回来" subtitle="登录后继续处理您的发票事项。">
+    <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="handleLogin">
+      <el-form-item label="用户名" prop="username">
+        <el-input v-model="form.username" :prefix-icon="User" placeholder="请输入用户名" autocomplete="username" />
+      </el-form-item>
+      <el-form-item label="密码" prop="password">
+        <el-input
+          v-model="form.password"
+          :prefix-icon="Lock"
+          type="password"
+          show-password
+          placeholder="请输入密码"
+          autocomplete="current-password"
+        />
+      </el-form-item>
+      <div class="form-options">
+        <el-checkbox v-model="form.rememberMe">7 天内保持登录</el-checkbox>
+      </div>
+      <el-button class="submit-button" type="primary" :icon="Right" native-type="submit" :loading="loading">
+        登录系统
+      </el-button>
+      <p class="auth-switch">
+        还没有账号？
+        <el-link type="primary" underline="never" @click="goToRegister">创建账号</el-link>
+      </p>
+    </el-form>
+  </AuthShell>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Lock, Right, User } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { authApi } from '@/api/auth'
+import AuthShell from '@/components/AuthShell.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -83,25 +84,21 @@ const goToRegister = () => {
 </script>
 
 <style scoped>
-.login-container {
+.form-options {
   display: flex;
-  justify-content: center;
   align-items: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  justify-content: space-between;
+  margin: -4px 0 24px;
 }
 
-.login-card {
-  width: 400px;
-}
-
-h2 {
-  text-align: center;
-  margin: 0;
-}
-
-.register-link {
-  text-align: center;
+.submit-button {
   width: 100%;
+}
+
+.auth-switch {
+  margin: 22px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  text-align: center;
 }
 </style>

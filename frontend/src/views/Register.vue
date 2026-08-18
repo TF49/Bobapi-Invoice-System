@@ -1,40 +1,48 @@
 <template>
-  <div class="register-container">
-    <el-card class="register-card">
-      <template #header>
-        <h2>发票管理系统 - 注册</h2>
-      </template>
-      <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="handleRegister">
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名（3-20位）" />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password placeholder="请输入密码（6-20位，包含字母和数字）" />
-        </el-form-item>
-        <el-form-item label="确认密码" prop="confirmPassword">
-          <el-input v-model="form.confirmPassword" type="password" show-password placeholder="请再次输入密码" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleRegister" :loading="loading" style="width: 100%">
-            注册
-          </el-button>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="default" @click="goToLogin" style="width: 100%">
-            返回登录
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
-  </div>
+  <AuthShell eyebrow="新建帐号" title="创建您的账号" subtitle="注册完成后即可进入个人发票工作台。">
+    <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="handleRegister">
+      <el-form-item label="用户名" prop="username">
+        <el-input v-model="form.username" :prefix-icon="User" placeholder="3-20 位字母、数字或下划线" autocomplete="username" />
+      </el-form-item>
+      <el-form-item label="密码" prop="password">
+        <el-input
+          v-model="form.password"
+          :prefix-icon="Lock"
+          type="password"
+          show-password
+          placeholder="6-20 位，须包含字母和数字"
+          autocomplete="new-password"
+        />
+      </el-form-item>
+      <el-form-item label="确认密码" prop="confirmPassword">
+        <el-input
+          v-model="form.confirmPassword"
+          :prefix-icon="Key"
+          type="password"
+          show-password
+          placeholder="再次输入密码"
+          autocomplete="new-password"
+        />
+      </el-form-item>
+      <el-button class="submit-button" type="primary" :icon="Right" native-type="submit" :loading="loading">
+        创建账号
+      </el-button>
+      <p class="auth-switch">
+        已有账号？
+        <el-link type="primary" underline="never" @click="goToLogin">返回登录</el-link>
+      </p>
+    </el-form>
+  </AuthShell>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { Key, Lock, Right, User } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { authApi, type RegisterRequest } from '@/api/auth'
+import AuthShell from '@/components/AuthShell.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -100,20 +108,15 @@ const goToLogin = () => {
 </script>
 
 <style scoped>
-.register-container {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+.submit-button {
+  width: 100%;
+  margin-top: 4px;
 }
 
-.register-card {
-  width: 400px;
-}
-
-h2 {
+.auth-switch {
+  margin: 22px 0 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
   text-align: center;
-  margin: 0;
 }
 </style>
