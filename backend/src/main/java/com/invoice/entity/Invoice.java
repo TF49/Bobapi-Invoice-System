@@ -49,7 +49,17 @@ public class Invoice {
      * 用户维度的创建请求幂等键
      */
     private String idempotencyKey;
-    
+
+    /**
+     * 批次ID（批量申请时关联）
+     */
+    private Long batchId;
+
+    /**
+     * 批次内原始行号（用于审计）
+     */
+    private Integer batchRowNumber;
+
     /**
      * 用户ID
      */
@@ -60,6 +70,11 @@ public class Invoice {
     
     @TableField(fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
+
+    /**
+     * 实际完成开票的时间；待开票时为空
+     */
+    private LocalDateTime completedAt;
     
     @TableLogic
     private Integer deleted;

@@ -1,0 +1,80 @@
+- generic [ref=f1e4]:
+  - banner [ref=f1e5]:
+    - generic [ref=f1e10]:
+      - generic [ref=f1e11]: BOBAPI 发票管理系统
+      - heading "发票管理" [level=1] [ref=f1e12]
+    - navigation "管理员功能导航" [ref=f1e13]:
+      - link "数据概览" [ref=f1e14] [cursor=pointer]:
+        - /url: /dashboard
+      - link "发票管理" [ref=f1e18] [cursor=pointer]:
+        - /url: /admin
+      - link "用户管理" [ref=f1e22] [cursor=pointer]:
+        - /url: /admin/users
+    - generic [ref=f1e26]:
+      - generic [ref=f1e27]:
+        - generic [ref=f1e28]: A
+        - generic [ref=f1e29]:
+          - strong [ref=f1e30]: admin
+          - generic [ref=f1e31]: 管理员
+      - button "退出登录" [ref=f1e32] [cursor=pointer]
+  - main [ref=f1e38]:
+    - generic [ref=f1e39]:
+      - article [ref=f1e40]:
+        - generic [ref=f1e41]:
+          - generic [ref=f1e45]:
+            - generic [ref=f1e46]: 申请总数
+            - strong [ref=f1e47]: "1"
+          - paragraph [ref=f1e48]: 当前全部申请
+      - article [ref=f1e49]:
+        - generic [ref=f1e50]:
+          - generic [ref=f1e56]:
+            - generic [ref=f1e57]: 待处理
+            - strong [ref=f1e58]: "0"
+          - paragraph [ref=f1e59]: 等待上传发票
+      - article [ref=f1e60]:
+        - generic [ref=f1e61]:
+          - generic [ref=f1e66]:
+            - generic [ref=f1e67]: 已完成
+            - strong [ref=f1e68]: "1"
+          - paragraph [ref=f1e69]: 已交付电子凭证
+      - article [ref=f1e70]:
+        - generic [ref=f1e71]:
+          - generic [ref=f1e77]:
+            - generic [ref=f1e78]: 申请总金额
+            - strong [ref=f1e79]: ¥88.75
+          - paragraph [ref=f1e80]: 全部申请合计
+    - generic [ref=f1e81]:
+      - generic [ref=f1e82]:
+        - generic [ref=f1e87]:
+          - heading "发票申请" [level=2] [ref=f1e88]
+          - paragraph [ref=f1e89]: 审核申请并上传电子发票
+        - generic [ref=f1e90]:
+          - generic [ref=f1e91]:
+            - generic [ref=f1e92]: 状态
+            - generic [ref=f1e96] [cursor=pointer]:
+              - generic:
+                - combobox "筛选发票状态" [ref=f1e98]
+                - generic [ref=f1e99]: 全部状态
+          - button "刷新列表" [ref=f1e104] [cursor=pointer]
+      - generic [ref=f1e110]:
+        - table [ref=f1e112]:
+          - rowgroup [ref=f1e121]:
+            - row [ref=f1e122]:
+              - columnheader "编号" [ref=f1e123]
+              - columnheader "公司名称" [ref=f1e125]
+              - columnheader "税号" [ref=f1e127]
+              - columnheader "金额" [ref=f1e129]
+              - columnheader "状态" [ref=f1e131]
+              - columnheader "申请时间" [ref=f1e133]
+              - columnheader "操作" [ref=f1e135]
+        - table [ref=f1e141]:
+          - rowgroup [ref=f1e150]:
+            - row [ref=f1e151]:
+              - cell "9001" [ref=f1e152]
+              - cell [ref=f1e154]:
+                - strong [ref=f1e156]: 历史完成记录
+              - cell "HISTORY202608190" [ref=f1e157]
+              - cell "¥88.88" [ref=f1e159]
+              - cell "已开票" [ref=f1e161]
+              - cell "2026/01/01 08:00" [ref=f1e165]
+              - cell "暂不可用" [ref=f1e167]

@@ -1,21 +1,73 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import ElementPlus from 'element-plus'
+import {
+  ElButton,
+  ElCard,
+  ElCheckbox,
+  ElCol,
+  ElDialog,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElIcon,
+  ElInput,
+  ElInputNumber,
+  ElLink,
+  ElLoading,
+  ElOption,
+  ElPagination,
+  ElRadio,
+  ElRow,
+  ElSegmented,
+  ElSelect,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+  ElTooltip,
+  ElUpload
+} from 'element-plus'
 import 'element-plus/dist/index.css'
 import './styles/theme.css'
-import * as ElementPlusIconsVue from '@element-plus/icons-vue'
 import router from './router'
 import App from './App.vue'
 
 const app = createApp(App)
 const pinia = createPinia()
 
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-  app.component(key, component)
+const elementComponents = [
+  ElButton,
+  ElCard,
+  ElCheckbox,
+  ElCol,
+  ElDialog,
+  ElEmpty,
+  ElForm,
+  ElFormItem,
+  ElIcon,
+  ElInput,
+  ElInputNumber,
+  ElLink,
+  ElOption,
+  ElPagination,
+  ElRadio,
+  ElRow,
+  ElSegmented,
+  ElSelect,
+  ElSwitch,
+  ElTable,
+  ElTableColumn,
+  ElTag,
+  ElTooltip,
+  ElUpload
+]
+
+for (const component of elementComponents) {
+  app.use(component)
 }
 
 app.use(pinia)
 app.use(router)
-app.use(ElementPlus)
+app.use(ElLoading)
 
 app.mount('#app')

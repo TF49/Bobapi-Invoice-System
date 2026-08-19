@@ -2,9 +2,14 @@ package com.invoice.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.invoice.dto.BatchInvoiceItemRequest;
+import com.invoice.dto.BatchInvoiceItemResult;
+import com.invoice.dto.BatchInvoiceResponse;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.entity.Invoice;
+import com.invoice.entity.InvoiceBatch;
 import com.invoice.exception.BusinessException;
+import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -13,6 +18,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -30,8 +36,10 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Iterator;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 public class InvoiceService {
@@ -39,6 +47,7 @@ public class InvoiceService {
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
 
     private final InvoiceMapper invoiceMapper;
+    private final InvoiceBatchMapper invoiceBatchMapper;
     private final Path uploadRoot;
 
     @Value("${file.image.max-width:8000}")
@@ -50,8 +59,9 @@ public class InvoiceService {
     @Value("${file.image.max-pixels:30000000}")
     private long maxImagePixels = 30_000_000L;
 
-    public InvoiceService(InvoiceMapper invoiceMapper, @Value("${file.upload-path}") String uploadDirectory) {
+    public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper, @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
+        this.invoiceBatchMapper = invoiceBatchMapper;
         this.uploadRoot = Path.of(uploadDirectory).toAbsolutePath().normalize();
     }
 
@@ -94,6 +104,150 @@ public class InvoiceService {
         }
     }
 
+    @Transactional
+    public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey, 
+                                                    List<BatchInvoiceItemRequest> items) {
+        // 检查同批次幂等键
+        InvoiceBatch existingBatch = findBatchByIdempotencyKey(userId, idempotencyKey);
+        if (existingBatch != null) {
+            return handleExistingBatch(existingBatch, items);
+        }
+
+        // 规范化并计算请求哈希
+        String requestHash = computeRequestHash(items);
+        BigDecimal totalAmount = items.stream()
+                .map(BatchInvoiceItemRequest::getAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 检查同批次幂等键与不同内容的冲突
+        InvoiceBatch conflictingBatch = findBatchByHash(userId, requestHash);
+        if (conflictingBatch != null && !conflictingBatch.getIdempotencyKey().equals(idempotencyKey)) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, "该批次内容已使用不同的幂等键提交");
+        }
+
+        // 创建批次和发票记录
+        InvoiceBatch batch = new InvoiceBatch();
+        batch.setUserId(userId);
+        batch.setIdempotencyKey(idempotencyKey);
+        batch.setRequestHash(requestHash);
+        batch.setTotalCount(items.size());
+        batch.setTotalAmount(totalAmount);
+        batch.setStatus("COMPLETED");
+
+        try {
+            invoiceBatchMapper.insert(batch);
+        } catch (DuplicateKeyException exception) {
+            InvoiceBatch concurrentlyCreated = findBatchByIdempotencyKey(userId, idempotencyKey);
+            if (concurrentlyCreated == null) {
+                throw exception;
+            }
+            return handleExistingBatch(concurrentlyCreated, items);
+        }
+
+        // 批量创建发票记录
+        List<BatchInvoiceItemResult> results = new java.util.ArrayList<>();
+        for (int i = 0; i < items.size(); i++) {
+            BatchInvoiceItemRequest item = items.get(i);
+            int rowNumber = i + 2; // Excel 行号从2开始（第1行是表头）
+
+            Invoice invoice = new Invoice();
+            invoice.setCompanyName(item.getCompanyName().trim());
+            invoice.setTaxNumber(item.getTaxNumber().trim().toUpperCase(Locale.ROOT));
+            invoice.setAmount(item.getAmount());
+            invoice.setStatus("PENDING");
+            invoice.setUserId(userId);
+            invoice.setBatchId(batch.getId());
+            invoice.setBatchRowNumber(rowNumber);
+            // 批量申请不使用单条幂等键，避免违反唯一索引
+            invoice.setIdempotencyKey("batch-" + batch.getId() + "-" + rowNumber);
+
+            try {
+                invoiceMapper.insert(invoice);
+                results.add(new BatchInvoiceItemResult(rowNumber, invoice.getId(), "SUCCESS", "申请成功"));
+            } catch (Exception exception) {
+                throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000, 
+                        "批量创建失败，已回滚所有记录");
+            }
+        }
+
+        BatchInvoiceResponse response = new BatchInvoiceResponse();
+        response.setBatchId(batch.getId());
+        response.setTotal(items.size());
+        response.setSuccessCount(results.size());
+        response.setFailureCount(0);
+        response.setTotalAmount(totalAmount.toPlainString());
+        response.setItems(results);
+        return response;
+    }
+
+    private InvoiceBatch findBatchByIdempotencyKey(Long userId, String idempotencyKey) {
+        LambdaQueryWrapper<InvoiceBatch> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(InvoiceBatch::getUserId, userId)
+                .eq(InvoiceBatch::getIdempotencyKey, idempotencyKey);
+        return invoiceBatchMapper.selectOne(wrapper);
+    }
+
+    private InvoiceBatch findBatchByHash(Long userId, String requestHash) {
+        LambdaQueryWrapper<InvoiceBatch> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(InvoiceBatch::getUserId, userId)
+                .eq(InvoiceBatch::getRequestHash, requestHash);
+        return invoiceBatchMapper.selectOne(wrapper);
+    }
+
+    private String computeRequestHash(List<BatchInvoiceItemRequest> items) {
+        StringBuilder sb = new StringBuilder();
+        for (BatchInvoiceItemRequest item : items) {
+            sb.append(item.getCompanyName().trim())
+              .append("|")
+              .append(item.getTaxNumber().trim().toUpperCase(Locale.ROOT))
+              .append("|")
+              .append(item.getAmount().toPlainString())
+              .append("\n");
+        }
+        try {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (java.security.NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 算法不可用", exception);
+        }
+    }
+
+    private BatchInvoiceResponse handleExistingBatch(InvoiceBatch existingBatch, 
+                                                     List<BatchInvoiceItemRequest> currentItems) {
+        String currentHash = computeRequestHash(currentItems);
+        if (!existingBatch.getRequestHash().equals(currentHash)) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, 
+                    "该幂等键已用于不同的批次内容");
+        }
+
+        // 返回原批次结果
+        List<Invoice> invoices = invoiceMapper.selectByBatchId(existingBatch.getId());
+        List<BatchInvoiceItemResult> results = invoices.stream()
+                .map(invoice -> new BatchInvoiceItemResult(
+                        invoice.getBatchRowNumber(),
+                        invoice.getId(),
+                        "SUCCESS",
+                        "申请成功"
+                ))
+                .toList();
+
+        BatchInvoiceResponse response = new BatchInvoiceResponse();
+        response.setBatchId(existingBatch.getId());
+        response.setTotal(existingBatch.getTotalCount());
+        response.setSuccessCount(results.size());
+        response.setFailureCount(0);
+        response.setTotalAmount(existingBatch.getTotalAmount().toPlainString());
+        response.setItems(results);
+        return response;
+    }
+
     public List<InvoiceResponse> getInvoicesByUserId(Long userId) {
         LambdaQueryWrapper<Invoice> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Invoice::getUserId, userId).orderByDesc(Invoice::getCreatedAt);
@@ -106,6 +260,49 @@ public class InvoiceService {
         wrapper.orderByDesc(Invoice::getCreatedAt);
         return invoiceMapper.selectList(wrapper).stream()
                 .map(invoice -> InvoiceResponse.from(invoice, uploadRoot)).toList();
+    }
+
+    public com.invoice.dto.DashboardStats getDashboardStats() {
+        // 1. 使用一条 SQL 一次性查询总体统计指标（总数、待开数、已开数、已完成总金额），保证并发一致性并减少 RTT 开销。
+        // 注意：totalAmount 仅统计 COMPLETED 状态发票金额。AdminInvoice 页面展示的「申请总金额」包含所有状态，两者口径不同。
+        InvoiceMapper.OverallStat overallStat = invoiceMapper.selectOverallStat();
+
+        // 2. 查询各用户统计
+        List<InvoiceMapper.UserInvoiceStat> userStats = invoiceMapper.selectUserInvoiceStats();
+
+        // 3. 批量一次性查询所有用户的时间线数据（已限制最近 90 天，仅 COMPLETED 状态），消除 N+1 问题。
+        Map<Long, List<InvoiceMapper.TimelineStatWithUser>> timelineByUser =
+                invoiceMapper.selectAllTimelineStats().stream()
+                        .collect(Collectors.groupingBy(InvoiceMapper.TimelineStatWithUser::userId));
+
+        List<com.invoice.dto.DashboardStats.UserInvoiceStats> userInvoiceStats = userStats.stream()
+                .map(stat -> {
+                    List<com.invoice.dto.DashboardStats.TimelineData> timeline =
+                            timelineByUser.getOrDefault(stat.userId(), List.of()).stream()
+                                    .map(ts -> new com.invoice.dto.DashboardStats.TimelineData(
+                                            ts.date(),
+                                            ts.count(),
+                                            ts.amount()
+                                    ))
+                                    .toList();
+                    return new com.invoice.dto.DashboardStats.UserInvoiceStats(
+                            stat.userId(),
+                            stat.username(),
+                            stat.completedCount(),
+                            stat.pendingCount(),
+                            stat.totalAmount(),
+                            timeline
+                    );
+                })
+                .toList();
+
+        return new com.invoice.dto.DashboardStats(
+                overallStat.totalInvoices(),
+                overallStat.pendingInvoices(),
+                overallStat.completedInvoices(),
+                overallStat.totalAmount(),
+                userInvoiceStats
+        );
     }
 
     public InvoiceResponse uploadInvoiceFile(Long invoiceId, MultipartFile file) {
@@ -121,13 +318,15 @@ public class InvoiceService {
         try (InputStream inputStream = file.getInputStream()) {
             Files.copy(inputStream, target);
 
+            LocalDateTime completedAt = LocalDateTime.now();
             LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
             update.eq(Invoice::getId, invoiceId)
                     .eq(Invoice::getStatus, "PENDING")
                     .set(Invoice::getFilePath, storedFileName)
                     .set(Invoice::getFileName, validatedFile.originalFileName())
                     .set(Invoice::getStatus, "COMPLETED")
-                    .set(Invoice::getUpdatedAt, LocalDateTime.now());
+                    .set(Invoice::getCompletedAt, completedAt)
+                    .set(Invoice::getUpdatedAt, completedAt);
 
             if (invoiceMapper.update(null, update) != 1) {
                 Files.deleteIfExists(target);

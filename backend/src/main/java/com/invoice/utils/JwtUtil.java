@@ -3,6 +3,7 @@ package com.invoice.utils;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -26,6 +27,16 @@ public class JwtUtil {
     
     @Value("${jwt.remember-me-expiration}")
     private Long rememberMeExpiration;
+
+    private volatile SecretKey signingKey;
+
+    /**
+     * 在应用启动阶段校验并初始化签名密钥，避免服务启动后第一次登录才发现配置错误。
+     */
+    @PostConstruct
+    void initializeSigningKey() {
+        signingKey = createSigningKey(secret);
+    }
     
     /**
      * 生成 token
@@ -124,7 +135,29 @@ public class JwtUtil {
      * 获取签名密钥
      */
     private SecretKey getSigningKey() {
-        byte[] keyBytes = secret.getBytes(StandardCharsets.UTF_8);
+        SecretKey currentKey = signingKey;
+        // 兼容不经过 Spring 容器直接实例化 JwtUtil 的单元测试。
+        if (currentKey == null) {
+            synchronized (this) {
+                currentKey = signingKey;
+                if (currentKey == null) {
+                    currentKey = createSigningKey(secret);
+                    signingKey = currentKey;
+                }
+            }
+        }
+        return currentKey;
+    }
+
+    private SecretKey createSigningKey(String configuredSecret) {
+        if (configuredSecret == null || configuredSecret.isBlank()) {
+            throw new IllegalStateException("JWT_SECRET 不能为空，请配置至少 32 字节的随机密钥");
+        }
+
+        byte[] keyBytes = configuredSecret.getBytes(StandardCharsets.UTF_8);
+        if (keyBytes.length < 32) {
+            throw new IllegalStateException("JWT_SECRET 长度不足，至少需要 32 字节");
+        }
         return Keys.hmacShaKeyFor(keyBytes);
     }
 }

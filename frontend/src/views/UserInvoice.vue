@@ -89,6 +89,9 @@
               <el-button class="form-submit" type="primary" :icon="Promotion" :loading="submitting" @click="handleSubmit">
                 提交申请
               </el-button>
+              <el-button class="form-submit" type="success" :icon="Upload" @click="showBatchImportDialog">
+                批量导入
+              </el-button>
             </el-form>
           </div>
         </AnimatedContent>
@@ -197,6 +200,12 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 批量导入弹窗 -->
+    <InvoiceBatchImportDialog
+      v-model="batchImportVisible"
+      @success="handleBatchImportSuccess"
+    />
   </div>
 </template>
 
@@ -216,6 +225,7 @@ import {
   Postcard,
   Promotion,
   Tickets,
+  Upload,
   Wallet,
   ZoomIn
 } from '@element-plus/icons-vue'
@@ -224,6 +234,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
+import InvoiceBatchImportDialog from '@/components/InvoiceBatchImportDialog.vue'
 import { saveBlobResponse } from '@/utils/download'
 
 const formRef = ref()
@@ -231,6 +242,9 @@ const loading = ref(false)
 const submitting = ref(false)
 const invoices = ref<Invoice[]>([])
 const pendingIdempotencyKey = ref<string | null>(null)
+
+// 批量导入相关
+const batchImportVisible = ref(false)
 
 // 预览相关状态
 const previewVisible = ref(false)
@@ -379,6 +393,16 @@ const handleDownload = async (row: Invoice) => {
   } catch {
     // 错误提示由请求拦截器统一处理
   }
+}
+
+const showBatchImportDialog = () => {
+  batchImportVisible.value = true
+}
+
+const handleBatchImportSuccess = async () => {
+  batchImportVisible.value = false
+  await loadInvoices()
+  ElMessage.success('批量导入成功')
 }
 
 watch(

@@ -1,6 +1,8 @@
 package com.invoice.controller;
 
 import com.invoice.dto.ApiResponse;
+import com.invoice.dto.BatchInvoiceRequest;
+import com.invoice.dto.BatchInvoiceResponse;
 import com.invoice.dto.InvoiceRequest;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.exception.BusinessException;
@@ -66,6 +68,25 @@ public class InvoiceController {
         return ApiResponse.success("申请成功", invoice);
     }
 
+    @PostMapping("/batch")
+    public ApiResponse<BatchInvoiceResponse> createInvoicesBatch(
+            @Valid @RequestBody BatchInvoiceRequest request,
+            @RequestHeader("Idempotency-Key")
+            @Pattern(regexp = "^[A-Za-z0-9._:-]{16,64}$", message = "Idempotency-Key 格式不正确")
+            String idempotencyKey,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        RateLimitService.RateLimitResult rateLimit = rateLimitService.tryAcquire(
+                "invoice-batch:" + principal.userId(), 3, Duration.ofMinutes(1));
+        if (!rateLimit.allowed()) {
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42902,
+                    "批量申请提交过于频繁，请稍后再试", rateLimit.retryAfterSeconds());
+        }
+
+        BatchInvoiceResponse response = invoiceService.createInvoicesBatch(
+                principal.userId(), idempotencyKey, request.getItems());
+        return ApiResponse.success("批量申请成功", response);
+    }
+
     @GetMapping("/my")
     public ApiResponse<List<InvoiceResponse>> getMyInvoices(
             @AuthenticationPrincipal JwtUserPrincipal principal) {
@@ -75,6 +96,11 @@ public class InvoiceController {
     @GetMapping("/admin/all")
     public ApiResponse<List<InvoiceResponse>> getAllInvoices() {
         return ApiResponse.success(invoiceService.getAllInvoices());
+    }
+
+    @GetMapping("/admin/dashboard")
+    public ApiResponse<com.invoice.dto.DashboardStats> getDashboardStats() {
+        return ApiResponse.success(invoiceService.getDashboardStats());
     }
 
     @PostMapping("/admin/{id}/upload")

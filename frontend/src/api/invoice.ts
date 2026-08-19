@@ -21,6 +21,28 @@ export interface InvoiceRequest {
   amount: number
 }
 
+export interface BatchInvoiceItemRequest {
+  companyName: string
+  taxNumber: string
+  amount: string
+}
+
+export interface BatchInvoiceItemResult {
+  rowNumber: number
+  invoiceId: number
+  status: string
+  message: string
+}
+
+export interface BatchInvoiceResponse {
+  batchId: number
+  total: number
+  successCount: number
+  failureCount: number
+  totalAmount: string
+  items: BatchInvoiceItemResult[]
+}
+
 export const invoiceApi = {
   // 用户创建发票申请
   createInvoice(data: InvoiceRequest, idempotencyKey: string) {
@@ -57,5 +79,12 @@ export const invoiceApi = {
   // 下载发票文件（attachment，触发另存为）
   downloadInvoice(id: number) {
     return request.get<Blob, AxiosResponse<Blob>>(`/invoices/${id}/download`, { responseType: 'blob' })
+  },
+
+  // 批量创建发票申请
+  createInvoicesBatch(items: BatchInvoiceItemRequest[], idempotencyKey: string) {
+    return request.post<any, BatchInvoiceResponse>('/invoices/batch', { items }, {
+      headers: { 'Idempotency-Key': idempotencyKey }
+    })
   }
 }

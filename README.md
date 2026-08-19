@@ -42,7 +42,17 @@
 - Node.js 18+
 - MySQL 8.0+
 
-启动后端前必须注入数据库密码和 JWT 密钥。其中 `DB_USERNAME` 和 `DB_PASSWORD` 已在 **系统环境变量** 中配置，无需每次手动设置：
+启动后端前必须配置数据库密码和 JWT 密钥。其中 `DB_USERNAME` 和 `DB_PASSWORD` 已在 **系统环境变量** 中配置，无需每次手动设置。
+
+本机开发推荐使用项目根目录的启动脚本。脚本会在首次启动时生成随机 JWT 密钥，保存到被 Git 忽略的 `backend/.local/jwt-secret`，后续启动自动复用：
+
+```powershell
+.\start-local.ps1
+```
+
+生产环境不要使用本地密钥文件，必须通过部署平台或密钥管理服务注入 `JWT_SECRET`。
+
+如果不使用启动脚本，也可以手动注入：
 
 ```powershell
 # 如未在系统环境变量中配置，则需手动注入
@@ -55,7 +65,7 @@ $env:JWT_SECRET  = '<至少 32 字节的随机密钥>'
 | 变量 | 默认值 | 是否必填 | 用途 |
 | --- | --- | --- | --- |
 | `DB_PASSWORD` | 无 | **必填**（系统级已配置） | 数据库密码 |
-| `JWT_SECRET` | 无 | **必填** | JWT 签名密钥（至少 32 字节） |
+| `JWT_SECRET` | 本地脚本自动生成；生产环境无默认值 | **必填** | JWT 签名密钥（至少 32 字节） |
 | `DB_URL` | 本机 `invoice_system` 数据库完整 JDBC 地址 | 可选 | 覆盖完整 JDBC URL（优先级高于 DB_NAME） |
 | `DB_NAME` | `invoice_system` | 可选 | 数据库名（仅在未设置 DB_URL 时生效） |
 | `DB_USERNAME` | `root` | 可选（系统级已配置） | 数据库账号 |

@@ -3,9 +3,11 @@ package com.invoice.service;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.invoice.dto.DashboardStats;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.entity.Invoice;
 import com.invoice.exception.BusinessException;
+import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -24,6 +26,7 @@ import java.io.ByteArrayOutputStream;
 import java.math.BigDecimal;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +49,9 @@ class InvoiceServiceTest {
     @Mock
     private InvoiceMapper invoiceMapper;
 
+    @Mock
+    private InvoiceBatchMapper invoiceBatchMapper;
+
     @TempDir
     Path uploadDirectory;
 
@@ -53,7 +59,7 @@ class InvoiceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new InvoiceService(invoiceMapper, uploadDirectory.toString());
+        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, uploadDirectory.toString());
         service.initializeUploadDirectory();
     }
 
@@ -115,6 +121,32 @@ class InvoiceServiceTest {
         try (var files = Files.list(uploadDirectory)) {
             assertThat(files.count()).isEqualTo(1);
         }
+    }
+
+    @Test
+    void assemblesDashboardStatsFromTheThreeAggregateQueries() {
+        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
+                3L, 1L, 2L, new BigDecimal("2300.75")));
+        when(invoiceMapper.selectUserInvoiceStats()).thenReturn(List.of(
+                new InvoiceMapper.UserInvoiceStat(
+                        8L, "user", 2L, 1L, new BigDecimal("2300.75"))));
+        when(invoiceMapper.selectAllTimelineStats()).thenReturn(List.of(
+                new InvoiceMapper.TimelineStatWithUser(
+                        8L, LocalDate.of(2026, 8, 19), 2L, new BigDecimal("2300.75"))));
+
+        DashboardStats stats = service.getDashboardStats();
+
+        assertThat(stats.totalInvoices()).isEqualTo(3L);
+        assertThat(stats.pendingInvoices()).isEqualTo(1L);
+        assertThat(stats.completedInvoices()).isEqualTo(2L);
+        assertThat(stats.totalAmount()).isEqualByComparingTo("2300.75");
+        assertThat(stats.userStats()).singleElement().satisfies(user -> {
+            assertThat(user.username()).isEqualTo("user");
+            assertThat(user.timeline()).singleElement().satisfies(point -> {
+                assertThat(point.date()).isEqualTo(LocalDate.of(2026, 8, 19));
+                assertThat(point.count()).isEqualTo(2L);
+            });
+        });
     }
 
     @Test

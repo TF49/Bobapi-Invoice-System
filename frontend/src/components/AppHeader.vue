@@ -8,6 +8,10 @@
       </div>
     </div>
     <nav v-if="userStore.role === 'ADMIN'" class="admin-nav" aria-label="管理员功能导航">
+      <router-link to="/dashboard" exact-active-class="is-active">
+        <DataAnalysis />
+        <span>数据概览</span>
+      </router-link>
       <router-link to="/admin" exact-active-class="is-active">
         <Files />
         <span>发票管理</span>
@@ -34,7 +38,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Files, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
+import { DataAnalysis, Files, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 defineProps<{ title: string }>()
