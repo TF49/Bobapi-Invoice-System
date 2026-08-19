@@ -42,7 +42,7 @@
 - Node.js 18+
 - MySQL 8.0+
 
-启动后端前必须配置数据库密码和 JWT 密钥。其中 `DB_USERNAME` 和 `DB_PASSWORD` 已在 **系统环境变量** 中配置，无需每次手动设置。
+启动后端前必须配置数据库密码和 JWT 密钥。其中 `DB_PASSWORD` 已在 **系统环境变量** 中配置，无需每次手动设置。
 
 本机开发推荐使用项目根目录的启动脚本。脚本会在首次启动时生成随机 JWT 密钥，保存到被 Git 忽略的 `backend/.local/jwt-secret`，后续启动自动复用：
 
@@ -66,17 +66,15 @@ $env:JWT_SECRET  = '<至少 32 字节的随机密钥>'
 | --- | --- | --- | --- |
 | `DB_PASSWORD` | 无 | **必填**（系统级已配置） | 数据库密码 |
 | `JWT_SECRET` | 本地脚本自动生成；生产环境无默认值 | **必填** | JWT 签名密钥（至少 32 字节） |
-| `DB_URL` | 本机 `invoice_system` 数据库完整 JDBC 地址 | 可选 | 覆盖完整 JDBC URL（优先级高于 DB_NAME） |
-| `DB_NAME` | `invoice_system` | 可选 | 数据库名（仅在未设置 DB_URL 时生效） |
-| `DB_USERNAME` | `root` | 可选（系统级已配置） | 数据库账号 |
 | `FILE_UPLOAD_PATH` | `./uploads` | 可选 | 发票图片存储目录 |
 | `CORS_ALLOWED_ORIGINS` | 本机前端两个地址 | 可选 | 允许的前端来源，逗号分隔 |
 | `INVOICE_IMAGE_MAX_WIDTH` | `8000` | 可选 | 图片最大宽度（像素） |
 | `INVOICE_IMAGE_MAX_HEIGHT` | `8000` | 可选 | 图片最大高度（像素） |
 | `INVOICE_IMAGE_MAX_PIXELS` | `30000000` | 可选 | 图片最大总像素数 |
 
-后端第一次启动会由 Flyway 创建数据表和默认账号；后续结构升级记录在
-`backend/src/main/resources/db/migration`，不会覆盖已修改的账号密码。
+后端第一次启动会由 Flyway 按 V1→V4 创建数据表和默认账号；后续结构升级记录在
+`backend/src/main/resources/db/migration`，不会覆盖已修改的账号密码。新环境只需预先创建空数据库，
+不要先执行 `init.sql`。
 
 默认账号：
 
@@ -84,6 +82,15 @@ $env:JWT_SECRET  = '<至少 32 字节的随机密钥>'
 | --- | --- | --- |
 | 管理员 | `admin` | `admin123` |
 | 普通用户 | `user` | `user123` |
+
+#### 数据库部署方式
+
+- **推荐的新服务器部署**：创建字符集为 `utf8mb4`、排序规则为 `utf8mb4_unicode_ci` 的空数据库
+  `invoice_system`，配置 `DB_PASSWORD` 和 `JWT_SECRET` 后启动后端。Flyway 会依次执行 V1、V2、V3、V4。
+- **已有数据库升级**：先备份数据库，再直接启动新版后端；Flyway 只执行尚未应用的增量脚本。
+- **手工全量初始化**：`backend/src/main/resources/init.sql` 已整合 V1-V4 的最终结构，但会先删除
+  `invoice_system` 及其全部数据。执行后，首次启动后端前临时设置
+  `SPRING_FLYWAY_BASELINE_VERSION=4`，待 Flyway 建立版本记录后即可移除该变量。
 
 ### 2. 启动后端
 

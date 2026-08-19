@@ -1,5 +1,8 @@
 -- 发票管理系统数据库初始化脚本
+-- 已整合 Flyway V1-V4 的最终数据库结构，适用于全新安装或彻底重置。
 -- 警告：执行本脚本会删除 invoice_system 数据库及其中的全部数据。
+-- 推荐部署方式：创建空数据库后直接启动后端，由 Flyway 按 V1-V4 自动初始化。
+-- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 4。
 
 DROP DATABASE IF EXISTS `invoice_system`;
 

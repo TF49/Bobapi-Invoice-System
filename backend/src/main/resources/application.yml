@@ -7,13 +7,12 @@ spring:
       fail-on-unknown-properties: true
   
   # 数据库配置
-  # 必填环境变量：DB_PASSWORD、JWT_SECRET
-  # 系统级已配置：DB_USERNAME=root、DB_NAME=invoice_system
+  # 宝塔面板数据库服务器
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
-    url: ${DB_URL:jdbc:mysql://localhost:3306/${DB_NAME:invoice_system}?createDatabaseIfNotExist=true&useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai}
-    username: ${DB_USERNAME:root}
-    password: ${DB_PASSWORD}
+    url: jdbc:mysql://127.0.0.1:3306/invoice_system?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: '123456'
+    password: '123456'
 
   sql:
     init:
@@ -45,6 +44,8 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
+#图片上传
+  uploadpath: /home/images/
 
 # JWT 配置
 jwt:
@@ -62,7 +63,7 @@ file:
 
 app:
   cors:
-    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080}
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://your-domain.com,https://your-domain.com}
   invoice:
     batch:
       user-limit: ${INVOICE_BATCH_USER_LIMIT:3}
