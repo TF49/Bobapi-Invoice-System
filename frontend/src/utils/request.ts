@@ -12,12 +12,14 @@ export interface ApiEnvelope<T> {
 export class ApiRequestError extends Error {
   code?: number
   traceId?: string
+  data?: unknown
 
-  constructor(message: string, code?: number, traceId?: string) {
+  constructor(message: string, code?: number, traceId?: string, data?: unknown) {
     super(message)
     this.name = 'ApiRequestError'
     this.code = code
     this.traceId = traceId
+    this.data = data
   }
 }
 
@@ -44,7 +46,7 @@ export function normalizeResponse<T>(response: AxiosResponse<ApiEnvelope<T> | Bl
     throw new ApiRequestError('服务器响应格式不正确')
   }
   if (payload.code !== 200) {
-    throw new ApiRequestError(payload.message || '请求失败', payload.code, payload.traceId)
+    throw new ApiRequestError(payload.message || '请求失败', payload.code, payload.traceId, payload.data)
   }
   return payload.data
 }
@@ -96,7 +98,7 @@ instance.interceptors.response.use(
     }
 
     ElMessage.error(message)
-    return Promise.reject(new ApiRequestError(message, payload?.code, payload?.traceId))
+    return Promise.reject(new ApiRequestError(message, payload?.code, payload?.traceId, payload?.data))
   }
 )
 

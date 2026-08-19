@@ -5,9 +5,11 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.invoice.dto.BatchInvoiceItemRequest;
 import com.invoice.dto.BatchInvoiceItemResult;
 import com.invoice.dto.BatchInvoiceResponse;
+import com.invoice.dto.BatchInvoiceRowError;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.entity.Invoice;
 import com.invoice.entity.InvoiceBatch;
+import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
@@ -29,22 +31,34 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Iterator;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Service
 public class InvoiceService {
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
+    private static final Pattern TAX_NUMBER_PATTERN = Pattern.compile("^[A-Z0-9]{15,20}$");
+    private static final Pattern DECIMAL_AMOUNT_PATTERN = Pattern.compile("^\\d+(?:\\.\\d{1,2})?$");
+    private static final BigDecimal MIN_INVOICE_AMOUNT = new BigDecimal("0.01");
 
     private final InvoiceMapper invoiceMapper;
     private final InvoiceBatchMapper invoiceBatchMapper;
@@ -58,6 +72,9 @@ public class InvoiceService {
 
     @Value("${file.image.max-pixels:30000000}")
     private long maxImagePixels = 30_000_000L;
+
+    @Value("${app.invoice.batch.max-items:100}")
+    private int maxBatchItems = 100;
 
     public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper, @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
@@ -76,18 +93,21 @@ public class InvoiceService {
 
     public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
                                          String taxNumber, BigDecimal amount) {
-        String normalizedCompanyName = companyName.trim();
-        String normalizedTaxNumber = taxNumber.trim().toUpperCase(Locale.ROOT);
+        String normalizedCompanyName = normalizeCompanyName(companyName);
+        String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount);
+        BigDecimal normalizedAmount = normalizeAmount(amount);
 
         Invoice existing = findByIdempotencyKey(userId, idempotencyKey);
         if (existing != null) {
-            return validateRepeatedRequest(existing, normalizedCompanyName, normalizedTaxNumber, amount);
+            return validateRepeatedRequest(
+                    existing, normalizedCompanyName, normalizedTaxNumber, normalizedAmount);
         }
 
         Invoice invoice = new Invoice();
         invoice.setCompanyName(normalizedCompanyName);
         invoice.setTaxNumber(normalizedTaxNumber);
-        invoice.setAmount(amount);
+        invoice.setAmount(normalizedAmount);
         invoice.setStatus("PENDING");
         invoice.setUserId(userId);
         invoice.setIdempotencyKey(idempotencyKey);
@@ -100,84 +120,102 @@ public class InvoiceService {
             if (concurrentlyCreated == null) {
                 throw exception;
             }
-            return validateRepeatedRequest(concurrentlyCreated, normalizedCompanyName, normalizedTaxNumber, amount);
+            return validateRepeatedRequest(
+                    concurrentlyCreated, normalizedCompanyName, normalizedTaxNumber, normalizedAmount);
+        }
+    }
+
+    /**
+     * 标准化公司名称：去除首尾空白
+     */
+    private String normalizeCompanyName(String companyName) {
+        return companyName == null ? "" : companyName.trim();
+    }
+
+    /**
+     * 标准化税号：去除首尾空白并转大写
+     */
+    private String normalizeTaxNumber(String taxNumber) {
+        return taxNumber == null ? "" : taxNumber.trim().toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * 标准化金额：设置为两位小数
+     */
+    private BigDecimal normalizeAmount(BigDecimal amount) {
+        return amount == null ? null : amount.setScale(2, RoundingMode.UNNECESSARY);
+    }
+
+    private void validateSingleInvoice(String companyName, String taxNumber, BigDecimal amount) {
+        String validationMessage = validateCompanyName(companyName);
+        if (validationMessage == null) {
+            validationMessage = validateTaxNumber(taxNumber);
+        }
+        if (validationMessage == null) {
+            validationMessage = validateAmount(amount);
+        }
+        if (validationMessage != null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, validationMessage);
         }
     }
 
     @Transactional
-    public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey, 
-                                                    List<BatchInvoiceItemRequest> items) {
-        // 检查同批次幂等键
+    public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
+                                                     List<BatchInvoiceItemRequest> items) {
+        List<NormalizedBatchItem> normalizedItems = validateAndNormalizeBatch(items);
+        String requestHash = computeRequestHash(normalizedItems);
+
         InvoiceBatch existingBatch = findBatchByIdempotencyKey(userId, idempotencyKey);
         if (existingBatch != null) {
-            return handleExistingBatch(existingBatch, items);
+            return handleExistingBatch(existingBatch, requestHash);
         }
 
-        // 规范化并计算请求哈希
-        String requestHash = computeRequestHash(items);
-        BigDecimal totalAmount = items.stream()
-                .map(BatchInvoiceItemRequest::getAmount)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal totalAmount = normalizedItems.stream()
+                .map(NormalizedBatchItem::amount)
+                .reduce(BigDecimal.ZERO.setScale(2), BigDecimal::add);
 
-        // 检查同批次幂等键与不同内容的冲突
-        InvoiceBatch conflictingBatch = findBatchByHash(userId, requestHash);
-        if (conflictingBatch != null && !conflictingBatch.getIdempotencyKey().equals(idempotencyKey)) {
-            throw new BusinessException(HttpStatus.CONFLICT, 40902, "该批次内容已使用不同的幂等键提交");
-        }
-
-        // 创建批次和发票记录
         InvoiceBatch batch = new InvoiceBatch();
         batch.setUserId(userId);
         batch.setIdempotencyKey(idempotencyKey);
         batch.setRequestHash(requestHash);
-        batch.setTotalCount(items.size());
+        batch.setTotalCount(normalizedItems.size());
         batch.setTotalAmount(totalAmount);
         batch.setStatus("COMPLETED");
 
         try {
             invoiceBatchMapper.insert(batch);
         } catch (DuplicateKeyException exception) {
-            InvoiceBatch concurrentlyCreated = findBatchByIdempotencyKey(userId, idempotencyKey);
+            InvoiceBatch concurrentlyCreated = invoiceBatchMapper.selectByIdempotencyKeyForUpdate(
+                    userId, idempotencyKey);
             if (concurrentlyCreated == null) {
                 throw exception;
             }
-            return handleExistingBatch(concurrentlyCreated, items);
+            return handleExistingBatch(concurrentlyCreated, requestHash);
         }
 
-        // 批量创建发票记录
-        List<BatchInvoiceItemResult> results = new java.util.ArrayList<>();
-        for (int i = 0; i < items.size(); i++) {
-            BatchInvoiceItemRequest item = items.get(i);
-            int rowNumber = i + 2; // Excel 行号从2开始（第1行是表头）
-
+        List<Invoice> invoices = normalizedItems.stream().map(item -> {
             Invoice invoice = new Invoice();
-            invoice.setCompanyName(item.getCompanyName().trim());
-            invoice.setTaxNumber(item.getTaxNumber().trim().toUpperCase(Locale.ROOT));
-            invoice.setAmount(item.getAmount());
+            invoice.setCompanyName(item.companyName());
+            invoice.setTaxNumber(item.taxNumber());
+            invoice.setAmount(item.amount());
             invoice.setStatus("PENDING");
             invoice.setUserId(userId);
             invoice.setBatchId(batch.getId());
-            invoice.setBatchRowNumber(rowNumber);
-            // 批量申请不使用单条幂等键，避免违反唯一索引
-            invoice.setIdempotencyKey("batch-" + batch.getId() + "-" + rowNumber);
+            invoice.setBatchRowNumber(item.rowNumber());
+            invoice.setIdempotencyKey(null);
+            return invoice;
+        }).toList();
 
-            try {
-                invoiceMapper.insert(invoice);
-                results.add(new BatchInvoiceItemResult(rowNumber, invoice.getId(), "SUCCESS", "申请成功"));
-            } catch (Exception exception) {
-                throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000, 
-                        "批量创建失败，已回滚所有记录");
+        try {
+            if (invoiceMapper.insertBatch(invoices) != invoices.size()) {
+                throw new IllegalStateException("批量写入数量不一致");
             }
+        } catch (RuntimeException exception) {
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000,
+                    "批量创建失败，已回滚所有记录");
         }
 
-        BatchInvoiceResponse response = new BatchInvoiceResponse();
-        response.setBatchId(batch.getId());
-        response.setTotal(items.size());
-        response.setSuccessCount(results.size());
-        response.setFailureCount(0);
-        response.setTotalAmount(totalAmount.toPlainString());
-        response.setItems(results);
-        return response;
+        return buildBatchResponse(batch, invoiceMapper.selectByBatchId(batch.getId()));
     }
 
     private InvoiceBatch findBatchByIdempotencyKey(Long userId, String idempotencyKey) {
@@ -187,48 +225,167 @@ public class InvoiceService {
         return invoiceBatchMapper.selectOne(wrapper);
     }
 
-    private InvoiceBatch findBatchByHash(Long userId, String requestHash) {
-        LambdaQueryWrapper<InvoiceBatch> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(InvoiceBatch::getUserId, userId)
-                .eq(InvoiceBatch::getRequestHash, requestHash);
-        return invoiceBatchMapper.selectOne(wrapper);
+    private List<NormalizedBatchItem> validateAndNormalizeBatch(List<BatchInvoiceItemRequest> items) {
+        if (items == null || items.isEmpty() || items.size() > maxBatchItems) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001,
+                    "单次批量申请数量为 1～" + maxBatchItems + " 条");
+        }
+
+        List<BatchInvoiceRowError> errors = new ArrayList<>();
+        List<NormalizedBatchItem> normalizedItems = new ArrayList<>(items.size());
+        Set<Integer> rowNumbers = new HashSet<>();
+        Set<String> rowFingerprints = new HashSet<>();
+
+        for (int index = 0; index < items.size(); index++) {
+            BatchInvoiceItemRequest item = items.get(index);
+            int rowNumber = item != null && item.getRowNumber() != null
+                    ? item.getRowNumber() : index + 2;
+            int initialErrorCount = errors.size();
+
+            if (rowNumber < 2) {
+                addBatchError(errors, rowNumber, "rowNumber", "原始行号必须大于等于 2");
+            }
+            if (!rowNumbers.add(rowNumber)) {
+                addBatchError(errors, rowNumber, "rowNumber", "原始行号在批次内重复");
+            }
+
+            String companyName = normalizeCompanyName(
+                    item == null ? null : item.getCompanyName());
+            String companyNameError = validateCompanyName(companyName);
+            if (companyNameError != null) {
+                addBatchError(errors, rowNumber, "companyName", companyNameError);
+            }
+
+            String taxNumber = normalizeTaxNumber(
+                    item == null ? null : item.getTaxNumber());
+            String taxNumberError = validateTaxNumber(taxNumber);
+            if (taxNumberError != null) {
+                addBatchError(errors, rowNumber, "taxNumber", taxNumberError);
+            }
+
+            String amountValue = item == null || item.getAmount() == null
+                    ? "" : item.getAmount().trim();
+            BigDecimal amount = null;
+            BigDecimal normalizedAmount = null;
+            String amountError;
+            if (amountValue.isEmpty()) {
+                amountError = "开票金额不能为空";
+            } else if (!DECIMAL_AMOUNT_PATTERN.matcher(amountValue).matches()) {
+                amountError = "开票金额格式不正确，应为最多 10 位整数和 2 位小数";
+            } else {
+                amount = new BigDecimal(amountValue);
+                amountError = validateAmount(amount);
+            }
+            if (amountError != null) {
+                addBatchError(errors, rowNumber, "amount", amountError);
+            } else {
+                normalizedAmount = normalizeAmount(amount);
+            }
+
+            if (errors.size() == initialErrorCount) {
+                String fingerprint = companyName + '\u0000' + taxNumber + '\u0000'
+                        + normalizedAmount.toPlainString();
+                if (!rowFingerprints.add(fingerprint)) {
+                    addBatchError(errors, rowNumber, "row", "该行与批次内其他行完全重复");
+                }
+                normalizedItems.add(new NormalizedBatchItem(
+                        rowNumber, companyName, taxNumber, normalizedAmount));
+            }
+        }
+
+        if (!errors.isEmpty()) {
+            throw new BatchValidationException(errors);
+        }
+        return List.copyOf(normalizedItems);
+    }
+    /**
+     * 校验公司名称，返回错误信息或 null
+     */
+    private String validateCompanyName(String companyName) {
+        if (companyName == null || companyName.isEmpty()) {
+            return "公司名称不能为空";
+        }
+        if (companyName.length() > 200) {
+            return "公司名称不能超过 200 个字符";
+        }
+        return null;
     }
 
-    private String computeRequestHash(List<BatchInvoiceItemRequest> items) {
-        StringBuilder sb = new StringBuilder();
-        for (BatchInvoiceItemRequest item : items) {
-            sb.append(item.getCompanyName().trim())
-              .append("|")
-              .append(item.getTaxNumber().trim().toUpperCase(Locale.ROOT))
-              .append("|")
-              .append(item.getAmount().toPlainString())
-              .append("\n");
+    /**
+     * 校验税号，返回错误信息或 null
+     */
+    private String validateTaxNumber(String taxNumber) {
+        if (taxNumber == null || taxNumber.isEmpty()) {
+            return "税号不能为空";
         }
+        if (!TAX_NUMBER_PATTERN.matcher(taxNumber).matches()) {
+            return "税号应为 15～20 位字母或数字";
+        }
+        return null;
+    }
+
+    /**
+     * 校验金额，返回错误信息或 null
+     */
+    private String validateAmount(BigDecimal amount) {
+        if (amount == null) {
+            return "开票金额不能为空";
+        }
+        if (amount.compareTo(MIN_INVOICE_AMOUNT) < 0) {
+            return "开票金额必须大于等于 0.01";
+        }
+        if (amount.scale() > 2) {
+            return "开票金额最多 2 位小数";
+        }
+        if (Math.max(0, amount.precision() - amount.scale()) > 10) {
+            return "开票金额最多 10 位整数";
+        }
+        return null;
+    }
+
+
+    private void addBatchError(List<BatchInvoiceRowError> errors, int rowNumber,
+                               String field, String message) {
+        errors.add(new BatchInvoiceRowError(rowNumber, field, 42202, message));
+    }
+
+    private String computeRequestHash(List<NormalizedBatchItem> items) {
         try {
-            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(sb.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            StringBuilder hexString = new StringBuilder();
-            for (byte b : hash) {
-                String hex = Integer.toHexString(0xff & b);
-                if (hex.length() == 1) hexString.append('0');
-                hexString.append(hex);
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            for (NormalizedBatchItem item : items) {
+                updateDigest(digest, Integer.toString(item.rowNumber()));
+                updateDigest(digest, item.companyName());
+                updateDigest(digest, item.taxNumber());
+                updateDigest(digest, item.amount().toPlainString());
             }
-            return hexString.toString();
-        } catch (java.security.NoSuchAlgorithmException exception) {
+            return java.util.HexFormat.of().formatHex(digest.digest());
+        } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 算法不可用", exception);
         }
     }
 
-    private BatchInvoiceResponse handleExistingBatch(InvoiceBatch existingBatch, 
-                                                     List<BatchInvoiceItemRequest> currentItems) {
-        String currentHash = computeRequestHash(currentItems);
+    private void updateDigest(MessageDigest digest, String value) {
+        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
+        digest.update(bytes);
+    }
+
+    private BatchInvoiceResponse handleExistingBatch(InvoiceBatch existingBatch,
+                                                      String currentHash) {
         if (!existingBatch.getRequestHash().equals(currentHash)) {
-            throw new BusinessException(HttpStatus.CONFLICT, 40902, 
+            throw new BusinessException(HttpStatus.CONFLICT, 40902,
                     "该幂等键已用于不同的批次内容");
         }
 
-        // 返回原批次结果
-        List<Invoice> invoices = invoiceMapper.selectByBatchId(existingBatch.getId());
+        return buildBatchResponse(
+                existingBatch, invoiceMapper.selectByBatchId(existingBatch.getId()));
+    }
+
+    private BatchInvoiceResponse buildBatchResponse(InvoiceBatch batch, List<Invoice> invoices) {
+        if (invoices.size() != batch.getTotalCount()) {
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000,
+                    "批次结果不完整，请联系管理员");
+        }
         List<BatchInvoiceItemResult> results = invoices.stream()
                 .map(invoice -> new BatchInvoiceItemResult(
                         invoice.getBatchRowNumber(),
@@ -239,13 +396,21 @@ public class InvoiceService {
                 .toList();
 
         BatchInvoiceResponse response = new BatchInvoiceResponse();
-        response.setBatchId(existingBatch.getId());
-        response.setTotal(existingBatch.getTotalCount());
+        response.setBatchId(batch.getId());
+        response.setTotal(batch.getTotalCount());
         response.setSuccessCount(results.size());
         response.setFailureCount(0);
-        response.setTotalAmount(existingBatch.getTotalAmount().toPlainString());
+        response.setTotalAmount(batch.getTotalAmount().setScale(2).toPlainString());
         response.setItems(results);
         return response;
+    }
+
+    private record NormalizedBatchItem(
+            int rowNumber,
+            String companyName,
+            String taxNumber,
+            BigDecimal amount
+    ) {
     }
 
     public List<InvoiceResponse> getInvoicesByUserId(Long userId) {

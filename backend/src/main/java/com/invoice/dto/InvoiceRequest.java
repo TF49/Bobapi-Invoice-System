@@ -5,7 +5,6 @@ import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
-import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.math.BigDecimal;
 
@@ -20,7 +19,6 @@ public class InvoiceRequest {
     private String companyName;
     
     @NotBlank(message = "税号不能为空")
-    @Pattern(regexp = "^[A-Z0-9]{15,20}$", message = "税号格式不正确")
     private String taxNumber;
     
     @NotNull(message = "开票金额不能为空")

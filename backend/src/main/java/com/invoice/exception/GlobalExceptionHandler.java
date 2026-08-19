@@ -22,6 +22,13 @@ public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
+    @ExceptionHandler(BatchValidationException.class)
+    public ResponseEntity<ApiResponse<java.util.List<com.invoice.dto.BatchInvoiceRowError>>>
+            handleBatchValidation(BatchValidationException exception) {
+        return ResponseEntity.unprocessableEntity().body(
+                ApiResponse.error(exception.getCode(), exception.getMessage(), exception.getErrors()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
         HttpHeaders headers = new HttpHeaders();

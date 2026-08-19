@@ -3,7 +3,6 @@ package com.invoice.dto;
 import lombok.Data;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
@@ -13,7 +12,6 @@ import java.util.List;
 public class BatchInvoiceRequest {
     
     @NotEmpty(message = "申请列表不能为空")
-    @Size(min = 1, max = 100, message = "单次批量申请数量为 1～100 条")
     @Valid
     private List<BatchInvoiceItemRequest> items;
 }

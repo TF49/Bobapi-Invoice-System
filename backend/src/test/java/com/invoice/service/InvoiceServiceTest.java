@@ -4,8 +4,12 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.invoice.dto.DashboardStats;
+import com.invoice.dto.BatchInvoiceItemRequest;
+import com.invoice.dto.BatchInvoiceResponse;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.entity.Invoice;
+import com.invoice.entity.InvoiceBatch;
+import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
@@ -32,7 +36,9 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -98,6 +104,85 @@ class InvoiceServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("code")
                 .isEqualTo(40902);
+    }
+
+    @Test
+    void rejectsDuplicateNormalizedBatchRowsWithTheOriginalRowNumber() {
+        List<BatchInvoiceItemRequest> items = List.of(
+                batchItem(2, "示例公司", "abcde12345678901", "100"),
+                batchItem(5, " 示例公司 ", "ABCDE12345678901", "100.00")
+        );
+
+        assertThatThrownBy(() -> service.createInvoicesBatch(
+                8L, "batch-1234567890123456", items))
+                .isInstanceOfSatisfying(BatchValidationException.class, exception ->
+                        assertThat(exception.getErrors()).singleElement().satisfies(error -> {
+                            assertThat(error.rowNumber()).isEqualTo(5);
+                            assertThat(error.field()).isEqualTo("row");
+                            assertThat(error.code()).isEqualTo(42202);
+                        }));
+
+        verify(invoiceBatchMapper, never()).insert(any(InvoiceBatch.class));
+        verify(invoiceMapper, never()).insertBatch(anyList());
+    }
+
+    @Test
+    void reportsInvalidDecimalTextAsAStructuredRowError() {
+        List<BatchInvoiceItemRequest> items = List.of(
+                batchItem(3, "示例公司", "ABCDE12345678901", "1e3"),
+                batchItem(6, "示例公司", "ABCDE12345678902", "100abc")
+        );
+
+        assertThatThrownBy(() -> service.createInvoicesBatch(
+                8L, "batch-1234567890123456", items))
+                .isInstanceOfSatisfying(BatchValidationException.class, exception -> {
+                    assertThat(exception.getErrors()).extracting("rowNumber", "field", "code")
+                            .containsExactly(
+                                    org.assertj.core.groups.Tuple.tuple(3, "amount", 42202),
+                                    org.assertj.core.groups.Tuple.tuple(6, "amount", 42202));
+                    assertThat(exception.getErrors()).allMatch(error ->
+                            error.message().contains("格式不正确"));
+                });
+    }
+
+    @Test
+    void createsAWholeBatchWithNormalizedValuesAndReturnsInvoiceIds() {
+        doAnswer(invocation -> {
+            InvoiceBatch batch = invocation.getArgument(0);
+            batch.setId(50L);
+            return 1;
+        }).when(invoiceBatchMapper).insert(any(InvoiceBatch.class));
+        when(invoiceMapper.insertBatch(anyList())).thenReturn(2);
+
+        Invoice first = batchInvoice(101L, 50L, 2, "示例公司 A", "ABCDE12345678901", "100.00");
+        Invoice second = batchInvoice(102L, 50L, 4, "示例公司 B", "ABCDE12345678902", "20.50");
+        when(invoiceMapper.selectByBatchId(50L)).thenReturn(List.of(first, second));
+
+        BatchInvoiceResponse response = service.createInvoicesBatch(
+                8L,
+                "batch-1234567890123456",
+                List.of(
+                        batchItem(2, " 示例公司 A ", "abcde12345678901", "100"),
+                        batchItem(4, "示例公司 B", "ABCDE12345678902", "20.5")
+                ));
+
+        assertThat(response.getBatchId()).isEqualTo(50L);
+        assertThat(response.getTotalAmount()).isEqualTo("120.50");
+        assertThat(response.getItems()).extracting("rowNumber", "invoiceId")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple(2, 101L),
+                        org.assertj.core.groups.Tuple.tuple(4, 102L));
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Invoice>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(invoiceMapper).insertBatch(captor.capture());
+        assertThat(captor.getValue()).first().satisfies(invoice -> {
+            assertThat(invoice.getCompanyName()).isEqualTo("示例公司 A");
+            assertThat(invoice.getTaxNumber()).isEqualTo("ABCDE12345678901");
+            assertThat(invoice.getAmount()).isEqualByComparingTo("100.00");
+            assertThat(invoice.getStatus()).isEqualTo("PENDING");
+            assertThat(invoice.getIdempotencyKey()).isNull();
+        });
     }
 
     @Test
@@ -262,6 +347,27 @@ class InvoiceServiceTest {
         invoice.setCompanyName("示例公司");
         invoice.setTaxNumber("ABCDEFGHIJKLMNO");
         invoice.setAmount(new BigDecimal("100.00"));
+        return invoice;
+    }
+
+    private BatchInvoiceItemRequest batchItem(int rowNumber, String companyName,
+                                              String taxNumber, String amount) {
+        BatchInvoiceItemRequest item = new BatchInvoiceItemRequest();
+        item.setRowNumber(rowNumber);
+        item.setCompanyName(companyName);
+        item.setTaxNumber(taxNumber);
+        item.setAmount(amount);
+        return item;
+    }
+
+    private Invoice batchInvoice(Long id, Long batchId, int rowNumber, String companyName,
+                                 String taxNumber, String amount) {
+        Invoice invoice = invoice(id, 8L, "PENDING");
+        invoice.setBatchId(batchId);
+        invoice.setBatchRowNumber(rowNumber);
+        invoice.setCompanyName(companyName);
+        invoice.setTaxNumber(taxNumber);
+        invoice.setAmount(new BigDecimal(amount));
         return invoice;
     }
 }

@@ -37,7 +37,7 @@ CREATE TABLE `invoice` (
     `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待开票，COMPLETED-已开票',
     `file_path` VARCHAR(500) DEFAULT NULL COMMENT '服务端存储文件名',
     `file_name` VARCHAR(255) DEFAULT NULL COMMENT '原始发票文件名',
-    `idempotency_key` VARCHAR(64) NOT NULL COMMENT '创建请求幂等键',
+    `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT '单条创建请求幂等键；批量申请明细为空',
     `batch_id` BIGINT DEFAULT NULL COMMENT '批次ID（批量申请时关联）',
     `batch_row_number` INT DEFAULT NULL COMMENT '批次内原始行号（用于审计）',
     `user_id` BIGINT NOT NULL COMMENT '用户ID',

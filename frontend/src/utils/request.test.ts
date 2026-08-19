@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { AxiosResponse } from 'axios'
-import { ApiRequestError, normalizeResponse, parseErrorPayload, type ApiEnvelope } from './request'
+import { normalizeResponse, parseErrorPayload, type ApiEnvelope } from './request'
 
 function response<T>(data: ApiEnvelope<T> | Blob, responseType?: string): AxiosResponse<ApiEnvelope<T> | Blob> {
   return {
@@ -19,8 +19,15 @@ describe('normalizeResponse', () => {
   })
 
   it('rejects application-level errors', () => {
-    expect(() => normalizeResponse(response({ code: 40902, message: '幂等键冲突', data: null })))
-      .toThrow(ApiRequestError)
+    expect(() => normalizeResponse(response({
+      code: 42202,
+      message: '批量申请包含无效数据',
+      data: [{ rowNumber: 3, field: 'amount', code: 42202, message: '金额错误' }]
+    }))).toThrow(expect.objectContaining({
+      name: 'ApiRequestError',
+      code: 42202,
+      data: [{ rowNumber: 3, field: 'amount', code: 42202, message: '金额错误' }]
+    }))
   })
 
   it('keeps the complete Axios response for blob downloads', () => {

@@ -400,9 +400,7 @@ const showBatchImportDialog = () => {
 }
 
 const handleBatchImportSuccess = async () => {
-  batchImportVisible.value = false
   await loadInvoices()
-  ElMessage.success('批量导入成功')
 }
 
 watch(

@@ -1,6 +1,10 @@
 spring:
   application:
     name: invoice-system
+
+  jackson:
+    deserialization:
+      fail-on-unknown-properties: true
   
   # 数据库配置
   # 必填环境变量：DB_PASSWORD、JWT_SECRET
@@ -59,6 +63,14 @@ file:
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://127.0.0.1:8080}
+  invoice:
+    batch:
+      user-limit: ${INVOICE_BATCH_USER_LIMIT:3}
+      user-window-minutes: ${INVOICE_BATCH_USER_WINDOW_MINUTES:1}
+      ip-limit: ${INVOICE_BATCH_IP_LIMIT:20}
+      ip-window-minutes: ${INVOICE_BATCH_IP_WINDOW_MINUTES:5}
+      max-items: ${INVOICE_BATCH_MAX_ITEMS:100}
+      max-request-bytes: ${INVOICE_BATCH_MAX_REQUEST_BYTES:524288}
 
 # 服务器配置
 server:

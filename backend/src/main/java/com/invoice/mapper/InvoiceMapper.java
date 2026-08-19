@@ -3,6 +3,8 @@ package com.invoice.mapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.invoice.entity.Invoice;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 
 import java.math.BigDecimal;
@@ -14,6 +16,19 @@ import java.util.List;
  */
 @Mapper
 public interface InvoiceMapper extends BaseMapper<Invoice> {
+
+    @Insert({
+            "<script>",
+            "INSERT INTO invoice (company_name, tax_number, amount, status, idempotency_key, ",
+            "batch_id, batch_row_number, user_id, created_at, updated_at, deleted) VALUES ",
+            "<foreach collection='invoices' item='invoice' separator=','>",
+            "(#{invoice.companyName}, #{invoice.taxNumber}, #{invoice.amount}, #{invoice.status}, ",
+            "#{invoice.idempotencyKey}, #{invoice.batchId}, #{invoice.batchRowNumber}, ",
+            "#{invoice.userId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
+            "</foreach>",
+            "</script>"
+    })
+    int insertBatch(@Param("invoices") List<Invoice> invoices);
 
     /**
      * 一次性查询全局发票汇总指标（总数、待开数、已开数、已完成总金额），避免多次 SQL 查询导致的潜在并发不一致与网络 I/O 开销。

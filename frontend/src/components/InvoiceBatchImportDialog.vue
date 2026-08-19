@@ -4,7 +4,8 @@
     title="批量导入发票申请"
     width="900px"
     :close-on-click-modal="false"
-    @close="handleClose"
+    :before-close="handleBeforeClose"
+    @closed="resetDialogState"
   >
     <div class="batch-import-container">
       <!-- 文件选择区域 -->
@@ -19,7 +20,7 @@
           :auto-upload="false"
           :show-file-list="false"
           :on-change="handleFileChange"
-          accept=".csv,.xlsx,.xls"
+          accept=".csv,.xlsx"
           class="upload-area"
         >
           <el-button type="success">
@@ -92,6 +93,11 @@
               <p>成功: {{ submitResult.successCount }}</p>
               <p>失败: {{ submitResult.failureCount }}</p>
               <p>总金额: ¥{{ submitResult.totalAmount }}</p>
+              <el-table :data="submitResult.items" size="small" border>
+                <el-table-column prop="rowNumber" label="原始行号" width="90" />
+                <el-table-column prop="invoiceId" label="申请 ID" width="100" />
+                <el-table-column prop="status" label="状态" width="90" />
+              </el-table>
             </div>
           </template>
         </el-result>
@@ -99,7 +105,7 @@
     </div>
 
     <template #footer>
-      <el-button @click="handleClose">取消</el-button>
+      <el-button @click="handleClose">{{ submitResult ? '关闭' : '取消' }}</el-button>
       <el-button
         v-if="parsedData.length > 0 && !submitResult"
         type="primary"
@@ -115,16 +121,18 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { ElMessage } from 'element-plus';
+import { ElMessage, type UploadFile, type UploadInstance } from 'element-plus';
 import { Download, Upload } from '@element-plus/icons-vue';
 import {
   parseInvoiceFile,
   validateAllRows,
   findDuplicateRows,
+  normalizeAmount,
   downloadTemplate as downloadTemplateUtil,
   type ParsedInvoiceRow
 } from '../utils/invoiceImport';
-import { invoiceApi } from '../api/invoice';
+import { invoiceApi, type BatchInvoiceRowError } from '../api/invoice';
+import { ApiRequestError } from '../utils/request';
 
 const visible = defineModel<boolean>({ required: true });
 
@@ -133,7 +141,7 @@ const emit = defineEmits<{
 }>();
 
 // 文件相关
-const uploadRef = ref();
+const uploadRef = ref<UploadInstance>();
 const selectedFile = ref<File | null>(null);
 const parseStatus = ref<'IDLE' | 'PARSING' | 'PREVIEW' | 'ERROR'>('IDLE');
 const parseError = ref('');
@@ -147,9 +155,10 @@ const submitResult = ref<{
   successCount: number;
   failureCount: number;
   totalAmount: string;
+  items: Array<{ rowNumber: number; invoiceId: number; status: string; message: string }>;
 } | null>(null);
 
-// 批次幂等键
+// 当前预览数据对应的批次幂等键
 const idempotencyKey = ref('');
 
 // 计算属性
@@ -162,7 +171,17 @@ const downloadTemplate = () => {
 };
 
 // 文件选择
-const handleFileChange = async (file: File) => {
+const handleFileChange = async (uploadFile: UploadFile) => {
+  const file = uploadFile.raw;
+  if (!file) {
+    parseStatus.value = 'ERROR';
+    parseError.value = '未读取到文件内容，请重新选择';
+    return;
+  }
+
+  // 每次更换文件都创建新批次；网络重试不会再次触发文件选择，因此会复用该 Key。
+  idempotencyKey.value = generateIdempotencyKey();
+
   selectedFile.value = file;
   parseStatus.value = 'PARSING';
   parseError.value = '';
@@ -179,7 +198,7 @@ const handleFileChange = async (file: File) => {
 
   // 前端校验
   const validatedRows = validateAllRows(result.data);
-  
+
   // 检查重复行
   const duplicateRows = findDuplicateRows(validatedRows);
   duplicateRows.forEach(rowNumber => {
@@ -192,10 +211,6 @@ const handleFileChange = async (file: File) => {
   parsedData.value = validatedRows;
   parseStatus.value = 'PREVIEW';
 
-  // 生成批次幂等键
-  if (!idempotencyKey.value) {
-    idempotencyKey.value = generateIdempotencyKey();
-  }
 };
 
 // 生成幂等键
@@ -214,9 +229,10 @@ const handleSubmit = async () => {
 
   try {
     const items = parsedData.value.map(row => ({
-      companyName: row.companyName,
+      rowNumber: row.rowNumber,
+      companyName: row.companyName.trim(),
       taxNumber: row.taxNumber.toUpperCase(),
-      amount: row.amount
+      amount: normalizeAmount(row.amount) || row.amount
     }));
 
     const response = await invoiceApi.createInvoicesBatch(items, idempotencyKey.value);
@@ -226,13 +242,15 @@ const handleSubmit = async () => {
       total: response.total,
       successCount: response.successCount,
       failureCount: response.failureCount,
-      totalAmount: response.totalAmount
+      totalAmount: response.totalAmount,
+      items: response.items
     };
 
-    ElMessage.success('批量导入成功');
     emit('success');
-  } catch (error: any) {
-    ElMessage.error(error.response?.data?.message || '批量导入失败');
+  } catch (error: unknown) {
+    if (error instanceof ApiRequestError && error.code === 42202 && Array.isArray(error.data)) {
+      applyServerRowErrors(error.data as BatchInvoiceRowError[]);
+    }
   } finally {
     submitting.value = false;
   }
@@ -244,18 +262,41 @@ const handleClose = () => {
     ElMessage.warning('正在提交中，请稍候');
     return;
   }
-  
+
   visible.value = false;
-  
-  // 延迟重置状态
-  setTimeout(() => {
-    selectedFile.value = null;
-    parseStatus.value = 'IDLE';
-    parseError.value = '';
-    parsedData.value = [];
-    submitResult.value = null;
-    uploadRef.value?.clearFiles();
-  }, 300);
+};
+
+const handleBeforeClose = (done: () => void) => {
+  if (submitting.value) {
+    ElMessage.warning('正在提交中，请稍候');
+    return;
+  }
+  done();
+};
+
+const resetDialogState = () => {
+  selectedFile.value = null;
+  parseStatus.value = 'IDLE';
+  parseError.value = '';
+  parsedData.value = [];
+  submitResult.value = null;
+  idempotencyKey.value = '';
+  uploadRef.value?.clearFiles();
+};
+
+const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
+  const messagesByRow = new Map<number, string[]>();
+  for (const error of errors) {
+    if (!Number.isInteger(error.rowNumber) || typeof error.message !== 'string') continue;
+    const messages = messagesByRow.get(error.rowNumber) || [];
+    messages.push(error.message);
+    messagesByRow.set(error.rowNumber, messages);
+  }
+
+  parsedData.value = parsedData.value.map(row => {
+    const messages = messagesByRow.get(row.rowNumber);
+    return messages ? { ...row, error: messages.join('；') } : row;
+  });
 };
 </script>
 

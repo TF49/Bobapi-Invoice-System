@@ -13,6 +13,7 @@ import com.invoice.utils.WebUtils;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -39,6 +40,18 @@ import java.util.List;
 @Validated
 @RequestMapping("/invoices")
 public class InvoiceController {
+
+    @Value("${app.invoice.batch.user-limit:3}")
+    private int batchUserLimit = 3;
+
+    @Value("${app.invoice.batch.user-window-minutes:1}")
+    private int batchUserWindowMinutes = 1;
+
+    @Value("${app.invoice.batch.ip-limit:20}")
+    private int batchIpLimit = 20;
+
+    @Value("${app.invoice.batch.ip-window-minutes:5}")
+    private int batchIpWindowMinutes = 5;
 
     private final InvoiceService invoiceService;
     private final RateLimitService rateLimitService;
@@ -74,12 +87,22 @@ public class InvoiceController {
             @RequestHeader("Idempotency-Key")
             @Pattern(regexp = "^[A-Za-z0-9._:-]{16,64}$", message = "Idempotency-Key 格式不正确")
             String idempotencyKey,
-            @AuthenticationPrincipal JwtUserPrincipal principal) {
+            @AuthenticationPrincipal JwtUserPrincipal principal,
+            HttpServletRequest httpRequest) {
         RateLimitService.RateLimitResult rateLimit = rateLimitService.tryAcquire(
-                "invoice-batch:" + principal.userId(), 3, Duration.ofMinutes(1));
+                "invoice-batch:user:" + principal.userId(), batchUserLimit,
+                Duration.ofMinutes(batchUserWindowMinutes));
         if (!rateLimit.allowed()) {
             throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42902,
                     "批量申请提交过于频繁，请稍后再试", rateLimit.retryAfterSeconds());
+        }
+
+        RateLimitService.RateLimitResult ipRateLimit = rateLimitService.tryAcquire(
+                "invoice-batch:ip:" + WebUtils.extractClientIp(httpRequest), batchIpLimit,
+                Duration.ofMinutes(batchIpWindowMinutes));
+        if (!ipRateLimit.allowed()) {
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42902,
+                    "当前网络批量申请过于频繁，请稍后再试", ipRateLimit.retryAfterSeconds());
         }
 
         BatchInvoiceResponse response = invoiceService.createInvoicesBatch(

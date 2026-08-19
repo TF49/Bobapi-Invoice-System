@@ -22,6 +22,7 @@ export interface InvoiceRequest {
 }
 
 export interface BatchInvoiceItemRequest {
+  rowNumber: number
   companyName: string
   taxNumber: string
   amount: string
@@ -31,6 +32,13 @@ export interface BatchInvoiceItemResult {
   rowNumber: number
   invoiceId: number
   status: string
+  message: string
+}
+
+export interface BatchInvoiceRowError {
+  rowNumber: number
+  field: string
+  code: number
   message: string
 }
 

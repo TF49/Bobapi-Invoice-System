@@ -42,7 +42,7 @@ export async function parseInvoiceFile(file: File): Promise<ParseResult> {
 
     const extension = file.name.split('.').pop()?.toLowerCase();
     
-    if (extension === 'xlsx' || extension === 'xls') {
+    if (extension === 'xlsx') {
       return parseExcelFile(file);
     } else if (extension === 'csv') {
       return parseCsvFile(file);
@@ -79,7 +79,11 @@ async function parseExcelFile(file: File): Promise<ParseResult> {
         const worksheet = workbook.Sheets[firstSheetName];
         
         // 转换为 JSON（第一行为表头）
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          raw: false,
+          defval: ''
+        }) as any[][];
         
         const result = processSheetData(jsonData);
         resolve(result);
@@ -120,7 +124,11 @@ async function parseCsvFile(file: File): Promise<ParseResult> {
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
         
-        const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
+        const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+          header: 1,
+          raw: false,
+          defval: ''
+        }) as any[][];
         
         const result = processSheetData(jsonData);
         resolve(result);
@@ -158,18 +166,14 @@ function processSheetData(data: any[][]): ParseResult {
   }
 
   // 检查表头
-  const headers = data[0].map((h: any) => String(h).trim());
-  const headerMap = {
-    companyName: headers.findIndex(h => h === HEADERS.COMPANY_NAME),
-    taxNumber: headers.findIndex(h => h === HEADERS.TAX_NUMBER),
-    amount: headers.findIndex(h => h === HEADERS.AMOUNT)
-  };
-
-  if (headerMap.companyName === -1 || headerMap.taxNumber === -1 || headerMap.amount === -1) {
+  const headers = data[0].map((h: any) => String(h ?? '').replace(/^\uFEFF/, '').trim());
+  const expectedHeaders = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT];
+  if (headers.length !== expectedHeaders.length
+      || headers.some((header, index) => header !== expectedHeaders[index])) {
     return {
       success: false,
       data: [],
-      error: `表头不正确，必须包含：${HEADERS.COMPANY_NAME}、${HEADERS.TAX_NUMBER}、${HEADERS.AMOUNT}`
+      error: `表头不正确，必须按顺序使用：${HEADERS.COMPANY_NAME}、${HEADERS.TAX_NUMBER}、${HEADERS.AMOUNT}`
     };
   }
 
@@ -184,9 +188,10 @@ function processSheetData(data: any[][]): ParseResult {
       continue;
     }
 
-    const companyName = String(row[headerMap.companyName] || '').trim();
-    const taxNumber = String(row[headerMap.taxNumber] || '').trim();
-    const amount = String(row[headerMap.amount] || '').trim();
+    const cellToString = (value: any) => String(value ?? '').trim();
+    const companyName = cellToString(row[0]);
+    const taxNumber = cellToString(row[1]);
+    const amount = cellToString(row[2]);
 
     rows.push({
       rowNumber,
@@ -244,27 +249,35 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
   if (!row.amount) {
     return '开票金额不能为空';
   }
-  const amountNum = parseFloat(row.amount);
-  if (isNaN(amountNum)) {
+  const normalizedAmount = normalizeAmount(row.amount);
+  if (!normalizedAmount) {
     return '开票金额格式不正确';
   }
-  if (amountNum < 0.01) {
+  if (normalizedAmount === '0.00') {
     return '开票金额必须大于等于 0.01';
-  }
-  // 检查小数位数
-  if (row.amount.includes('.')) {
-    const decimalPart = row.amount.split('.')[1];
-    if (decimalPart && decimalPart.length > 2) {
-      return '开票金额最多 2 位小数';
-    }
-  }
-  // 检查整数位数
-  const integerPart = row.amount.split('.')[0];
-  if (integerPart.length > 10) {
-    return '开票金额最多 10 位整数';
   }
 
   return null;
+}
+
+/**
+ * 返回用于请求、hash 和重复行比较的两位小数金额；格式不合法时返回 null。
+ */
+export function normalizeAmount(value: string): string | null {
+  const input = value.trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(input)) {
+    return null;
+  }
+
+  const [integerPart, decimalPart = ''] = input.split('.');
+  const normalizedIntegerPart = integerPart.replace(/^0+(?=\d)/, '');
+  if (normalizedIntegerPart.length > 10) {
+    return null;
+  }
+
+  const normalized = `${normalizedIntegerPart}.${decimalPart.padEnd(2, '0')}`;
+  const [whole, cents] = normalized.split('.');
+  return whole === '0' && cents === '00' ? '0.00' : normalized;
 }
 
 /**
@@ -288,7 +301,11 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
   const duplicates: number[] = [];
 
   for (const row of rows) {
-    const key = `${row.companyName}|${row.taxNumber.toUpperCase()}|${row.amount}`;
+    if (row.error) {
+      continue;
+    }
+    const normalizedAmount = normalizeAmount(row.amount) || row.amount.trim();
+    const key = `${row.companyName.trim()}|${row.taxNumber.trim().toUpperCase()}|${normalizedAmount}`;
     if (seen.has(key)) {
       duplicates.push(row.rowNumber);
     } else {
