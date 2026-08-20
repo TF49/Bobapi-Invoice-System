@@ -67,8 +67,9 @@ const handleLogin = async () => {
   loading.value = true
   try {
     const response = await authApi.login(form)
-    userStore.setToken(response.token)
+    // 先写 role，再写 token，确保路由守卫触发时 role 已存在
     userStore.setUser({ username: response.username, role: response.role })
+    userStore.setToken(response.token)
     ElMessage.success('登录成功')
     router.push(response.role === 'ADMIN' ? '/admin' : '/user')
   } catch {

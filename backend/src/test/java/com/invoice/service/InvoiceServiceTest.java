@@ -13,6 +13,7 @@ import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
+import com.invoice.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,9 @@ class InvoiceServiceTest {
     @Mock
     private InvoiceBatchMapper invoiceBatchMapper;
 
+    @Mock
+    private UserQuotaService userQuotaService;
+
     @TempDir
     Path uploadDirectory;
 
@@ -65,7 +69,7 @@ class InvoiceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, uploadDirectory.toString());
+        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, uploadDirectory.toString());
         service.initializeUploadDirectory();
     }
 

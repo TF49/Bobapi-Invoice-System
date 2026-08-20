@@ -24,10 +24,12 @@ public class UserService {
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
+    private final UserQuotaService userQuotaService;
 
-    public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder) {
+    public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder, UserQuotaService userQuotaService) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
+        this.userQuotaService = userQuotaService;
     }
     
     /**
@@ -46,6 +48,7 @@ public class UserService {
     /**
      * 创建用户
      */
+    @Transactional
     public User createUser(String username, String password, String role) {
         User user = new User();
         user.setUsername(username);
@@ -55,6 +58,8 @@ public class UserService {
         user.setAuthVersion(0L);
         try {
             userMapper.insert(user);
+            // 为新用户创建初始额度记录
+            userQuotaService.createInitialQuota(user.getId());
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(HttpStatus.CONFLICT, 40901, "用户名已存在");
         }

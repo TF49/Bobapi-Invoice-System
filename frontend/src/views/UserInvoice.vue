@@ -47,6 +47,17 @@
             <p class="stat-note">已完成申请合计</p>
           </div>
         </SpotlightCard>
+
+        <SpotlightCard class="stat-card">
+          <div class="stat-card-content">
+            <span class="stat-icon success"><Coin /></span>
+            <div class="stat-copy">
+              <span class="stat-label">我的额度</span>
+              <strong class="stat-value quota-stat"><CountUp :value="quotaBalance" :decimals="2" prefix="¥" /></strong>
+            </div>
+            <p class="stat-note">可用于开票的余额</p>
+          </div>
+        </SpotlightCard>
       </AnimatedContent>
 
       <div class="user-work-grid">
@@ -293,6 +304,7 @@ import { ElMessage, type FormInstance } from 'element-plus'
 import {
   CircleCheck,
   Clock,
+  Coin,
   DocumentAdd,
   Download,
   Files,
@@ -308,6 +320,7 @@ import {
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
+import { quotaApi } from '@/api/quota'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
@@ -325,6 +338,9 @@ const pendingIdempotencyKey = ref<string | null>(null)
 
 // 批量导入相关
 const batchImportVisible = ref(false)
+
+// 额度相关状态
+const quotaBalance = ref(0)
 
 // 预览相关状态
 const previewVisible = ref(false)
@@ -407,6 +423,15 @@ const loadInvoices = async () => {
   }
 }
 
+const loadQuota = async () => {
+  try {
+    const quota = await quotaApi.getMyQuota()
+    quotaBalance.value = quota.balance
+  } catch (error) {
+    console.error('加载额度信息失败', error)
+  }
+}
+
 const handleSubmit = async () => {
   if (submitting.value) return
   submitting.value = true
@@ -414,6 +439,12 @@ const handleSubmit = async () => {
     const valid = await formRef.value?.validate().catch(() => false)
     if (!valid) {
       ElMessage.warning('请检查并完善申请信息')
+      return
+    }
+
+    // 检查额度是否充足
+    if (form.amount > quotaBalance.value) {
+      ElMessage.error(`额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，需要 ¥${form.amount.toFixed(2)}`)
       return
     }
 
@@ -428,6 +459,7 @@ const handleSubmit = async () => {
     pendingIdempotencyKey.value = null
     formRef.value?.resetFields()
     await loadInvoices()
+    await loadQuota() // 刷新额度
   } catch (error) {
     // 保留幂等键，网络失败后再次提交会复用同一请求
     console.error('提交发票申请失败', error)
@@ -515,7 +547,10 @@ watch(
   }
 )
 
-onMounted(loadInvoices)
+onMounted(() => {
+  loadInvoices()
+  loadQuota()
+})
 onBeforeUnmount(onPreviewClose)
 </script>
 

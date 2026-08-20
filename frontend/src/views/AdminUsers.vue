@@ -160,6 +160,18 @@
                 </el-tooltip>
               </template>
             </el-table-column>
+            <el-table-column prop="quota" label="额度" width="120" align="center">
+              <template #default="{ row }">
+                <el-button 
+                  size="small" 
+                  type="primary" 
+                  link
+                  @click="openQuotaDialog(row)"
+                >
+                  管理额度
+                </el-button>
+              </template>
+            </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="172">
               <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
             </el-table-column>
@@ -233,6 +245,87 @@
         <el-button type="danger" :loading="passwordSubmitting" @click="submitPasswordReset">确认重置</el-button>
       </template>
     </el-dialog>
+
+    <!-- 额度管理对话框 -->
+    <el-dialog v-model="quotaDialogVisible" title="额度管理" width="min(92vw, 700px)" destroy-on-close>
+      <template v-if="quotaTarget && quotaInfo">
+        <p class="dialog-context">
+          正在管理 <strong>{{ quotaTarget.username }}</strong> 的额度。
+        </p>
+        
+        <div class="quota-summary">
+          <div class="quota-summary-item">
+            <span class="label">当前余额</span>
+            <span class="value balance">{{ quotaInfo.balance.toFixed(2) }}</span>
+          </div>
+          <div class="quota-summary-item">
+            <span class="label">总充值</span>
+            <span class="value">{{ quotaInfo.totalRecharged.toFixed(2) }}</span>
+          </div>
+          <div class="quota-summary-item">
+            <span class="label">总扣除</span>
+            <span class="value">{{ quotaInfo.totalDeducted.toFixed(2) }}</span>
+          </div>
+        </div>
+
+        <el-tabs v-model="quotaActiveTab">
+          <el-tab-pane label="充值" name="recharge">
+            <el-form ref="quotaFormRef" :model="quotaForm" label-position="top">
+              <el-form-item label="充值金额" prop="amount" :rules="[{ required: true, message: '请输入充值金额' }, { type: 'number', min: 0.01, message: '充值金额必须大于0' }]">
+                <el-input-number v-model="quotaForm.amount" :min="0.01" :max="999999.99" :precision="2" :step="100" controls-position="right" style="width: 100%" />
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input v-model="quotaForm.remark" maxlength="200" placeholder="可选，最多200个字符" />
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+          <el-tab-pane label="调整" name="adjust">
+            <el-form ref="quotaFormRef" :model="quotaForm" label-position="top">
+              <el-form-item label="调整金额" prop="amount" :rules="[{ required: true, message: '请输入调整金额' }]">
+                <el-input-number v-model="quotaForm.amount" :precision="2" :step="100" controls-position="right" style="width: 100%" />
+                <div class="form-tip">正数表示增加，负数表示减少</div>
+              </el-form-item>
+              <el-form-item label="备注">
+                <el-input v-model="quotaForm.remark" maxlength="200" placeholder="可选，最多200个字符" />
+              </el-form-item>
+            </el-form>
+          </el-tab-pane>
+          <el-tab-pane label="历史记录" name="history">
+            <el-table :data="quotaTransactions" stripe max-height="300">
+              <el-table-column prop="transactionType" label="类型" width="100">
+                <template #default="{ row }">
+                  <el-tag :type="getTransactionTypeTag(row.transactionType)" size="small">
+                    {{ getTransactionTypeLabel(row.transactionType) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="amount" label="金额" width="120">
+                <template #default="{ row }">
+                  <span :class="row.amount > 0 ? 'amount-positive' : 'amount-negative'">
+                    {{ row.amount > 0 ? '+' : '' }}{{ row.amount.toFixed(2) }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="balanceBefore" label="变更前" width="100">
+                <template #default="{ row }">{{ row.balanceBefore.toFixed(2) }}</template>
+              </el-table-column>
+              <el-table-column prop="balanceAfter" label="变更后" width="100">
+                <template #default="{ row }">{{ row.balanceAfter.toFixed(2) }}</template>
+              </el-table-column>
+              <el-table-column prop="remark" label="备注" />
+              <el-table-column prop="createdAt" label="时间" width="160">
+                <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+              </el-table-column>
+            </el-table>
+          </el-tab-pane>
+        </el-tabs>
+      </template>
+      <template #footer>
+        <el-button @click="quotaDialogVisible = false">关闭</el-button>
+        <el-button v-if="quotaActiveTab === 'recharge'" type="primary" :loading="quotaSubmitting" @click="submitRechargeQuota">确认充值</el-button>
+        <el-button v-if="quotaActiveTab === 'adjust'" type="warning" :loading="quotaSubmitting" @click="submitAdjustQuota">确认调整</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -253,6 +346,7 @@ import {
   UserFilled
 } from '@element-plus/icons-vue'
 import { userApi, type ManagedUser, type UserQuery, type UserRole, type UserStats } from '@/api/user'
+import { quotaApi, type UserQuota, type QuotaTransaction, type RechargeQuotaRequest, type AdjustQuotaRequest } from '@/api/quota'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
@@ -298,6 +392,19 @@ const passwordSubmitting = ref(false)
 const passwordFormRef = ref<FormInstance>()
 const passwordTarget = ref<ManagedUser | null>(null)
 const passwordForm = reactive({ password: '', confirmPassword: '' })
+
+// 额度管理相关状态
+const quotaDialogVisible = ref(false)
+const quotaSubmitting = ref(false)
+const quotaFormRef = ref<FormInstance>()
+const quotaTarget = ref<ManagedUser | null>(null)
+const quotaInfo = ref<UserQuota | null>(null)
+const quotaTransactions = ref<QuotaTransaction[]>([])
+const quotaActiveTab = ref('recharge')
+const quotaForm = reactive<{ amount: number; remark: string }>({
+  amount: 0,
+  remark: ''
+})
 
 const fieldValidator = (validator: (value: string) => string | null) =>
   (_rule: unknown, value: string, callback: (error?: Error) => void) => {
@@ -473,6 +580,93 @@ const formatDate = (value: string) => {
   }).format(date)
 }
 
+// 额度管理相关函数
+const openQuotaDialog = async (user: ManagedUser) => {
+  quotaTarget.value = user
+  quotaActiveTab.value = 'recharge'
+  quotaForm.amount = 0
+  quotaForm.remark = ''
+  
+  try {
+    quotaInfo.value = await quotaApi.getUserQuota(user.id)
+    quotaTransactions.value = await quotaApi.getUserTransactions(user.id)
+    quotaDialogVisible.value = true
+  } catch (error) {
+    console.error('加载额度信息失败', error)
+    ElMessage.error('加载额度信息失败')
+  }
+}
+
+const submitRechargeQuota = async () => {
+  if (!quotaFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
+  const valid = await quotaFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  const target = quotaTarget.value
+  quotaSubmitting.value = true
+  try {
+    const data: RechargeQuotaRequest = {
+      amount: quotaForm.amount,
+      remark: quotaForm.remark || undefined
+    }
+    await quotaApi.rechargeQuota(target.id, data)
+    quotaInfo.value = await quotaApi.getUserQuota(target.id)
+    quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+    ElMessage.success('充值成功')
+    quotaForm.amount = 0
+    quotaForm.remark = ''
+  } catch (error) {
+    console.error('充值失败', error)
+    ElMessage.error('充值失败')
+  } finally {
+    quotaSubmitting.value = false
+  }
+}
+
+const submitAdjustQuota = async () => {
+  if (!quotaFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
+  const valid = await quotaFormRef.value.validate().catch(() => false)
+  if (!valid) return
+
+  const target = quotaTarget.value
+  quotaSubmitting.value = true
+  try {
+    const data: AdjustQuotaRequest = {
+      amount: quotaForm.amount,
+      remark: quotaForm.remark || undefined
+    }
+    await quotaApi.adjustQuota(target.id, data)
+    quotaInfo.value = await quotaApi.getUserQuota(target.id)
+    quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+    ElMessage.success('调整成功')
+    quotaForm.amount = 0
+    quotaForm.remark = ''
+  } catch (error) {
+    console.error('调整失败', error)
+    ElMessage.error('调整失败')
+  } finally {
+    quotaSubmitting.value = false
+  }
+}
+
+const getTransactionTypeLabel = (type: string) => {
+  const labels: Record<string, string> = {
+    RECHARGE: '充值',
+    DEDUCT: '扣除',
+    ADJUST: '调整'
+  }
+  return labels[type] || type
+}
+
+const getTransactionTypeTag = (type: string) => {
+  const tags: Record<string, any> = {
+    RECHARGE: 'success',
+    DEDUCT: 'danger',
+    ADJUST: 'warning'
+  }
+  return tags[type] || 'info'
+}
+
 onMounted(loadUsers)
 </script>
 
@@ -586,6 +780,54 @@ onMounted(loadUsers)
 
 :deep(.el-segmented) {
   width: 100%;
+}
+
+/* 额度管理对话框样式 */
+.quota-summary {
+  display: flex;
+  gap: 20px;
+  margin-bottom: 20px;
+  padding: 16px;
+  background: var(--color-surface-muted);
+  border-radius: 8px;
+}
+
+.quota-summary-item {
+  flex: 1;
+  text-align: center;
+}
+
+.quota-summary-item .label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.quota-summary-item .value {
+  display: block;
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.quota-summary-item .value.balance {
+  color: var(--color-primary);
+  font-size: 24px;
+}
+
+.form-tip {
+  margin-top: 4px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.amount-positive {
+  color: var(--color-success);
+}
+
+.amount-negative {
+  color: var(--color-danger);
 }
 
 @media (max-width: 820px) {

@@ -8,6 +8,7 @@ import com.invoice.exception.GlobalExceptionHandler;
 import com.invoice.security.JwtAuthenticationFilter;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.security.RateLimitService;
+import com.invoice.service.UserQuotaService;
 import com.invoice.service.UserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,6 +58,9 @@ class UserAdminControllerTest {
 
     @MockBean
     private UserService userService;
+
+    @MockBean
+    private UserQuotaService userQuotaService;
 
     @MockBean
     private RateLimitService rateLimitService;

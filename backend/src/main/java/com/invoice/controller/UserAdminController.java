@@ -1,15 +1,20 @@
 package com.invoice.controller;
 
+import com.invoice.dto.AdminAdjustQuotaRequest;
 import com.invoice.dto.AdminCreateUserRequest;
+import com.invoice.dto.AdminRechargeQuotaRequest;
 import com.invoice.dto.AdminResetPasswordRequest;
 import com.invoice.dto.AdminUpdateRoleRequest;
 import com.invoice.dto.AdminUpdateStatusRequest;
 import com.invoice.dto.AdminUserPageResponse;
 import com.invoice.dto.AdminUserResponse;
 import com.invoice.dto.ApiResponse;
+import com.invoice.dto.UserQuotaResponse;
+import com.invoice.dto.UserQuotaTransactionResponse;
 import com.invoice.exception.BusinessException;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.security.RateLimitService;
+import com.invoice.service.UserQuotaService;
 import com.invoice.service.UserService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -30,6 +35,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.stream.Collectors;
 
 @Validated
 @RestController
@@ -39,10 +46,12 @@ public class UserAdminController {
     private static final Duration RATE_WINDOW = Duration.ofMinutes(1);
 
     private final UserService userService;
+    private final UserQuotaService userQuotaService;
     private final RateLimitService rateLimitService;
 
-    public UserAdminController(UserService userService, RateLimitService rateLimitService) {
+    public UserAdminController(UserService userService, UserQuotaService userQuotaService, RateLimitService rateLimitService) {
         this.userService = userService;
+        this.userQuotaService = userQuotaService;
         this.rateLimitService = rateLimitService;
     }
 
@@ -100,6 +109,47 @@ public class UserAdminController {
         enforceRateLimit("password", principal.userId(), 10, 42905, "密码重置操作过于频繁，请稍后再试");
         return ApiResponse.success("密码重置成功",
                 userService.resetPassword(id, request.getPassword(), principal.userId()));
+    }
+
+    @PostMapping("/{id}/quota/recharge")
+    public ApiResponse<UserQuotaResponse> rechargeQuota(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @Valid @RequestBody AdminRechargeQuotaRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("quota", principal.userId(), 30, 42906, "额度管理操作过于频繁，请稍后再试");
+        userQuotaService.rechargeQuota(id, request.getAmount(), principal.userId(), request.getRemark());
+        return ApiResponse.success("充值成功", UserQuotaResponse.from(userQuotaService.getUserQuota(id)));
+    }
+
+    @PutMapping("/{id}/quota/adjust")
+    public ApiResponse<UserQuotaResponse> adjustQuota(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @Valid @RequestBody AdminAdjustQuotaRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("quota", principal.userId(), 30, 42906, "额度管理操作过于频繁，请稍后再试");
+        userQuotaService.adjustQuota(id, request.getAmount(), principal.userId(), request.getRemark());
+        return ApiResponse.success("调整成功", UserQuotaResponse.from(userQuotaService.getUserQuota(id)));
+    }
+
+    @GetMapping("/{id}/quota")
+    public ApiResponse<UserQuotaResponse> getUserQuota(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");
+        return ApiResponse.success(UserQuotaResponse.from(userQuotaService.getUserQuota(id)));
+    }
+
+    @GetMapping("/{id}/quota/transactions")
+    public ApiResponse<List<UserQuotaTransactionResponse>> getUserQuotaTransactions(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @RequestParam(required = false) String transactionType,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");
+        List<UserQuotaTransactionResponse> transactions = userQuotaService.getTransactionHistory(id, transactionType)
+                .stream()
+                .map(UserQuotaTransactionResponse::from)
+                .collect(Collectors.toList());
+        return ApiResponse.success(transactions);
     }
 
     private void enforceRateLimit(String operation, Long userId, int limit, int code, String message) {

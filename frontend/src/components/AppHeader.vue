@@ -21,6 +21,16 @@
         <span>用户管理</span>
       </router-link>
     </nav>
+    <nav v-else class="user-nav" aria-label="用户功能导航">
+      <router-link to="/user" exact-active-class="is-active">
+        <Files />
+        <span>我的发票</span>
+      </router-link>
+      <router-link to="/user/quota" exact-active-class="is-active">
+        <Wallet />
+        <span>我的额度</span>
+      </router-link>
+    </nav>
     <div class="header-actions">
       <div class="user-chip">
         <span class="user-avatar">{{ userInitial }}</span>
@@ -38,7 +48,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { DataAnalysis, Files, SwitchButton, Tickets, UserFilled } from '@element-plus/icons-vue'
+import { DataAnalysis, Files, SwitchButton, Tickets, UserFilled, Wallet } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 
 defineProps<{ title: string }>()
@@ -157,6 +167,41 @@ h1 {
 }
 
 .admin-nav svg {
+  width: 15px;
+  height: 15px;
+}
+
+.user-nav {
+  flex: 0 0 auto;
+  padding: 3px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 7px;
+}
+
+.user-nav a {
+  gap: 6px;
+  min-height: 34px;
+  padding: 0 12px;
+  color: var(--color-text-muted);
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 650;
+  text-decoration: none;
+  transition: color 160ms ease, background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.user-nav a:hover {
+  color: var(--color-primary);
+}
+
+.user-nav a.is-active {
+  color: var(--color-primary);
+  background: var(--color-surface);
+  box-shadow: 0 1px 3px rgba(24, 39, 34, 0.1);
+}
+
+.user-nav svg {
   width: 15px;
   height: 15px;
 }

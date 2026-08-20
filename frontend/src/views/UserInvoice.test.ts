@@ -5,6 +5,7 @@ import ElementPlus, { ElMessage } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UserInvoice from './UserInvoice.vue'
 import { invoiceApi, type Invoice } from '@/api/invoice'
+import { quotaApi } from '@/api/quota'
 
 vi.mock('@/api/invoice', () => ({
   invoiceApi: {
@@ -14,6 +15,14 @@ vi.mock('@/api/invoice', () => ({
     downloadInvoice: vi.fn()
   }
 }))
+
+vi.mock('@/api/quota', () => ({
+  quotaApi: {
+    getMyQuota: vi.fn()
+  }
+}))
+
+const mockedQuotaApi = vi.mocked(quotaApi)
 
 const mockedApi = vi.mocked(invoiceApi)
 let wrapper: VueWrapper | null = null
@@ -54,6 +63,13 @@ describe('UserInvoice', () => {
   beforeEach(() => {
     mockedApi.getMyInvoices.mockResolvedValue([])
     mockedApi.createInvoice.mockResolvedValue({} as never)
+    // 默认提供足够的额度，避免提交时被额度检查拦截
+    mockedQuotaApi.getMyQuota.mockResolvedValue({
+      userId: 1,
+      balance: 99999,
+      totalRecharged: 99999,
+      totalDeducted: 0
+    })
     vi.stubGlobal('crypto', {
       getRandomValues: (values: Uint32Array) => {
         values.set([11, 22, 33, 44])

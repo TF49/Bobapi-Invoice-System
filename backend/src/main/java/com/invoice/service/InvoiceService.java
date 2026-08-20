@@ -62,6 +62,7 @@ public class InvoiceService {
 
     private final InvoiceMapper invoiceMapper;
     private final InvoiceBatchMapper invoiceBatchMapper;
+    private final UserQuotaService userQuotaService;
     private final Path uploadRoot;
 
     @Value("${file.image.max-width:8000}")
@@ -76,9 +77,11 @@ public class InvoiceService {
     @Value("${app.invoice.batch.max-items:100}")
     private int maxBatchItems = 100;
 
-    public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper, @Value("${file.upload-path}") String uploadDirectory) {
+    public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper, 
+                          UserQuotaService userQuotaService, @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
         this.invoiceBatchMapper = invoiceBatchMapper;
+        this.userQuotaService = userQuotaService;
         this.uploadRoot = Path.of(uploadDirectory).toAbsolutePath().normalize();
     }
 
@@ -91,6 +94,7 @@ public class InvoiceService {
         }
     }
 
+    @Transactional
     public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
                                          String taxNumber, BigDecimal amount) {
         String normalizedCompanyName = normalizeCompanyName(companyName);
@@ -114,6 +118,8 @@ public class InvoiceService {
 
         try {
             invoiceMapper.insert(invoice);
+            // 插入发票成功后扣除额度并关联发票ID
+            userQuotaService.deductQuota(userId, normalizedAmount, invoice.getId());
             return InvoiceResponse.from(invoice);
         } catch (DuplicateKeyException exception) {
             Invoice concurrentlyCreated = findByIdempotencyKey(userId, idempotencyKey);
