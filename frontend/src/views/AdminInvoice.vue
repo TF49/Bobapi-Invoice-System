@@ -49,7 +49,7 @@
         </SpotlightCard>
       </AnimatedContent>
 
-      <AnimatedContent tag="section" class="surface-panel" :delay="80">
+      <AnimatedContent tag="section" class="surface-panel records-panel" :delay="80">
         <div class="panel-header">
           <div class="panel-heading">
             <span class="panel-heading-icon"><List /></span>
@@ -60,6 +60,14 @@
           </div>
 
           <div class="table-tools">
+            <span class="result-count"><i></i>共 {{ filteredInvoices.length }} 条</span>
+            <el-input
+              v-model="searchKeyword"
+              placeholder="搜索公司名称或税号"
+              :prefix-icon="Search"
+              clearable
+              class="search-input"
+            />
             <div class="filter-control">
               <span class="filter-label"><Filter />状态</span>
               <el-select v-model="statusFilter" aria-label="筛选发票状态" class="status-select">
@@ -76,17 +84,19 @@
 
         <div v-if="!loading && filteredInvoices.length === 0" class="table-empty-state">
           <span><Files /></span>
-          <strong>{{ statusFilter === 'ALL' ? '暂无发票申请' : '当前状态下暂无申请' }}</strong>
+          <strong>{{ emptyText }}</strong>
         </div>
-        <div v-else class="table-scroll">
-          <el-table :data="filteredInvoices" v-loading="loading">
-            <el-table-column prop="id" label="编号" width="76" />
-            <el-table-column prop="companyName" label="公司名称" min-width="190">
+        <div v-else class="table-scroll desktop-records">
+          <el-table :data="filteredInvoices" v-loading="loading" class="records-table">
+            <el-table-column prop="companyName" label="公司名称" min-width="210">
               <template #default="{ row }">
-                <strong class="company-name">{{ row.companyName }}</strong>
+                <div class="company-cell">
+                  <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
+                  <strong class="company-name">{{ row.companyName }}</strong>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column prop="taxNumber" label="税号" min-width="176">
+            <el-table-column prop="taxNumber" label="税号" min-width="180">
               <template #default="{ row }">
                 <span class="tax-number-cell">{{ row.taxNumber }}</span>
               </template>
@@ -98,86 +108,167 @@
             </el-table-column>
             <el-table-column prop="invoiceType" label="开票类型" width="120">
               <template #default="{ row }">
-                <el-tag size="small" type="info" effect="plain">{{ row.invoiceType || '技术服务费' }}</el-tag>
+                <el-tag size="small" type="info" effect="plain" class="type-tag">{{ row.invoiceType || '技术服务费' }}</el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
-                <span>{{ row.remark || '-' }}</span>
+                <span class="remark-text">{{ row.remark || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="106" align="center">
+            <el-table-column prop="status" label="状态" width="110" align="center">
               <template #default="{ row }">
                 <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
+                  <i class="status-dot"></i>
                   {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="createdAt" label="申请时间" width="170">
-              <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
-            </el-table-column>
-            <el-table-column label="操作" width="250" align="center" fixed="right">
+            <el-table-column prop="createdAt" label="申请时间" width="160">
               <template #default="{ row }">
-                <template v-if="row.status === 'PENDING'">
-                  <!-- 剪贴板粘贴区域 -->
-                  <el-tooltip content="点击此处后按 Ctrl+V 粘贴图片" placement="top">
-                    <div
-                      :id="`paste-zone-${row.id}`"
-                      class="paste-zone"
-                      tabindex="0"
-                      role="button"
-                      :aria-label="`为申请 ${row.id} 粘贴发票图片`"
-                      :class="{ 'paste-zone--active': pasteActiveId === row.id, 'paste-zone--uploading': uploadingId === row.id }"
-                      @click="focusPasteZone(row.id)"
-                      @focus="pasteActiveId = row.id"
-                      @blur="pasteActiveId = null"
-                      @paste="handlePaste($event, row)"
+                <div class="date-cell">
+                  <span>{{ formatDateParts(row.createdAt).date }}</span>
+                  <small>{{ formatDateParts(row.createdAt).time }}</small>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="220" align="center" fixed="right">
+              <template #default="{ row }">
+                <div class="action-cell-wrapper">
+                  <template v-if="row.status === 'PENDING'">
+                    <!-- 剪贴板粘贴区域 -->
+                    <el-tooltip content="点击此处后按 Ctrl+V 粘贴图片" placement="top">
+                      <div
+                        :id="`paste-zone-${row.id}`"
+                        class="paste-zone"
+                        tabindex="0"
+                        role="button"
+                        :aria-label="`粘贴发票图片`"
+                        :class="{ 'paste-zone--active': pasteActiveId === row.id, 'paste-zone--uploading': uploadingId === row.id }"
+                        @click="focusPasteZone(row.id)"
+                        @focus="pasteActiveId = row.id"
+                        @blur="pasteActiveId = null"
+                        @paste="handlePaste($event, row)"
+                      >
+                        <CopyDocument class="paste-icon" />
+                        <span>{{ uploadingId === row.id ? '上传中…' : '粘贴图片' }}</span>
+                      </div>
+                    </el-tooltip>
+                    <!-- 文件选择（备用入口） -->
+                    <el-upload
+                      :key="`upload-${row.id}`"
+                      :show-file-list="false"
+                      :before-upload="createUploadHandler(row)"
+                      :disabled="uploadingId !== null"
+                      accept=".jpg,.jpeg,.png"
+                      class="upload-btn-wrapper"
                     >
-                      <CopyDocument class="paste-icon" />
-                      <span>{{ uploadingId === row.id ? '上传中…' : '粘贴图片' }}</span>
-                    </div>
-                  </el-tooltip>
-                  <!-- 文件选择（备用入口） -->
-                  <el-upload
-                    :key="`upload-${row.id}`"
-                    :show-file-list="false"
-                    :before-upload="createUploadHandler(row)"
-                    :disabled="uploadingId !== null"
-                    accept=".jpg,.jpeg,.png"
-                    class="upload-btn-wrapper"
-                  >
-                    <el-button type="primary" size="small" :icon="UploadFilled" :loading="uploadingId === row.id" plain>
-                      选择
+                      <el-button type="primary" size="small" :icon="UploadFilled" :loading="uploadingId === row.id" plain>
+                        选择
+                      </el-button>
+                    </el-upload>
+                  </template>
+                  <template v-else-if="row.downloadable && row.fileExists">
+                    <el-button
+                      :key="`preview-${row.id}`"
+                      type="primary"
+                      size="small"
+                      :icon="ZoomIn"
+                      :loading="previewingId === row.id"
+                      @click="handlePreview(row)"
+                    >
+                      查看
                     </el-button>
-                  </el-upload>
-                </template>
-                <template v-else-if="row.downloadable && row.fileExists">
-                  <el-button
-                    :key="`preview-${row.id}`"
-                    type="primary"
-                    size="small"
-                    :icon="ZoomIn"
-                    :loading="previewingId === row.id"
-                    @click="handlePreview(row)"
-                  >
-                    查看
-                  </el-button>
-                  <el-button
-                    :key="`download-${row.id}`"
-                    type="primary"
-                    plain
-                    size="small"
-                    :icon="Download"
-                    style="margin-left: 6px;"
-                    @click="handleDownload(row)"
-                  >
-                    下载
-                  </el-button>
-                </template>
-                <span v-else class="empty-action">暂不可用</span>
+                    <el-button
+                      :key="`download-${row.id}`"
+                      type="primary"
+                      plain
+                      size="small"
+                      :icon="Download"
+                      @click="handleDownload(row)"
+                    >
+                      下载
+                    </el-button>
+                  </template>
+                  <span v-else class="empty-action"><i class="empty-dot"></i>暂不可用</span>
+                </div>
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <!-- 移动端卡片视图 -->
+        <div v-if="filteredInvoices.length > 0" v-loading="loading" class="mobile-records">
+          <article v-for="row in filteredInvoices" :key="row.id" class="admin-record-card">
+            <div class="record-card-header">
+              <div class="company-cell">
+                <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
+                <strong class="company-name">{{ row.companyName }}</strong>
+              </div>
+              <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
+                <i class="status-dot"></i>
+                {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
+              </el-tag>
+            </div>
+
+            <dl class="record-card-details">
+              <div>
+                <dt>税号</dt>
+                <dd class="tax-number-cell">{{ row.taxNumber }}</dd>
+              </div>
+              <div>
+                <dt>金额</dt>
+                <dd class="money-cell">{{ formatCurrency(row.amount) }}</dd>
+              </div>
+              <div>
+                <dt>开票类型</dt>
+                <dd>{{ row.invoiceType || '技术服务费' }}</dd>
+              </div>
+              <div v-if="row.remark">
+                <dt>备注</dt>
+                <dd>{{ row.remark }}</dd>
+              </div>
+              <div>
+                <dt>申请时间</dt>
+                <dd>{{ formatDate(row.createdAt) }}</dd>
+              </div>
+            </dl>
+
+            <div class="mobile-card-actions">
+              <template v-if="row.status === 'PENDING'">
+                <div
+                  :id="`paste-zone-m-${row.id}`"
+                  class="paste-zone mobile-paste"
+                  tabindex="0"
+                  role="button"
+                  @click="focusPasteZone(row.id)"
+                  @paste="handlePaste($event, row)"
+                >
+                  <CopyDocument class="paste-icon" />
+                  <span>粘贴图片</span>
+                </div>
+                <el-upload
+                  :show-file-list="false"
+                  :before-upload="createUploadHandler(row)"
+                  :disabled="uploadingId !== null"
+                  accept=".jpg,.jpeg,.png"
+                  class="mobile-upload"
+                >
+                  <el-button type="primary" :icon="UploadFilled" :loading="uploadingId === row.id">
+                    选择文件
+                  </el-button>
+                </el-upload>
+              </template>
+              <template v-else-if="row.downloadable && row.fileExists">
+                <el-button type="primary" :icon="ZoomIn" :loading="previewingId === row.id" @click="handlePreview(row)">
+                  查看发票
+                </el-button>
+                <el-button type="primary" plain :icon="Download" @click="handleDownload(row)">
+                  下载文件
+                </el-button>
+              </template>
+            </div>
+          </article>
         </div>
       </AnimatedContent>
     </main>
@@ -228,6 +319,7 @@ import {
   Loading,
   PictureRounded,
   RefreshRight,
+  Search,
   Tickets,
   UploadFilled,
   Wallet,
@@ -245,6 +337,7 @@ const uploadingId = ref<number | null>(null)
 const pasteActiveId = ref<number | null>(null)
 const invoices = ref<Invoice[]>([])
 const statusFilter = ref('ALL')
+const searchKeyword = ref('')
 
 // 预览状态
 const previewVisible = ref(false)
@@ -255,9 +348,25 @@ const previewError = ref(false)
 let previewController: AbortController | null = null
 let previewRequestId = 0
 
-const filteredInvoices = computed(() => statusFilter.value !== 'ALL'
-  ? invoices.value.filter(invoice => invoice.status === statusFilter.value)
-  : invoices.value)
+const getCompanyInitial = (companyName: string) => companyName.trim().charAt(0) || '企'
+
+const filteredInvoices = computed(() => {
+  return invoices.value.filter(invoice => {
+    const matchesStatus = statusFilter.value === 'ALL' || invoice.status === statusFilter.value
+    const kw = searchKeyword.value.trim().toLowerCase()
+    const matchesKeyword = !kw ||
+      (invoice.companyName && invoice.companyName.toLowerCase().includes(kw)) ||
+      (invoice.taxNumber && invoice.taxNumber.toLowerCase().includes(kw))
+    return matchesStatus && matchesKeyword
+  })
+})
+
+const emptyText = computed(() => {
+  if (searchKeyword.value.trim()) return '未找到匹配的发票申请记录'
+  if (statusFilter.value !== 'ALL') return '当前状态下暂无发票申请'
+  return '暂无发票申请'
+})
+
 const pendingCount = computed(() => invoices.value.filter(invoice => invoice.status === 'PENDING').length)
 const completedCount = computed(() => invoices.value.filter(invoice => invoice.status === 'COMPLETED').length)
 const totalAmount = computed(() => invoices.value.reduce((total, invoice) => total + Number(invoice.amount), 0))
@@ -279,6 +388,16 @@ const formatDate = (value: string) => {
     minute: '2-digit',
     hour12: false
   }).format(date)
+}
+
+const formatDateParts = (value: string) => {
+  const formatted = formatDate(value)
+  const separatorIndex = formatted.lastIndexOf(' ')
+  if (separatorIndex < 0) return { date: formatted, time: '' }
+  return {
+    date: formatted.slice(0, separatorIndex),
+    time: formatted.slice(separatorIndex + 1)
+  }
 }
 
 const loadInvoices = async () => {
@@ -320,7 +439,6 @@ const handleUpload = async (row: Invoice, file: File) => {
     ElMessage.success('上传成功')
     await loadInvoices()
   } catch (error) {
-    // 错误提示由请求拦截器统一处理，这里重新抛出以确保拦截器能捕获
     throw error
   } finally {
     uploadingId.value = null
@@ -446,51 +564,155 @@ onBeforeUnmount(onPreviewClose)
 </script>
 
 <style scoped>
+.records-panel {
+  overflow: hidden;
+}
+
 .table-tools {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.result-count {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  color: var(--color-text-secondary);
+  background: var(--color-primary-soft);
+  border: 1px solid #d6e8e2;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.result-count i {
+  width: 6px;
+  height: 6px;
+  background: var(--color-primary);
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px rgba(18, 113, 91, 0.12);
+}
+
+.search-input {
+  width: 200px;
 }
 
 .status-select {
-  width: 142px;
+  width: 130px;
 }
 
 .refresh-button {
-  width: 42px;
+  width: 38px;
+  height: 38px;
   padding: 0;
+
+}
+
+.records-table :deep(.el-table__row td) {
+  transition: background-color 180ms ease;
+}
+
+.records-table :deep(.el-table__row:hover td) {
+  background: #f5faf8 !important;
+}
+
+.company-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.company-avatar {
+  display: grid;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  color: var(--color-primary);
+  background: linear-gradient(145deg, #edf7f4, #dfeee9);
+  border: 1px solid #d7e8e2;
+  border-radius: 7px;
+  font-size: 13px;
+  font-weight: 700;
 }
 
 .company-name {
   color: var(--color-text);
-  font-weight: 600;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .amount-stat {
   font-size: 22px;
 }
 
-/* 操作列：粘贴 + 选择按钮并排 */
+.date-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.date-cell small {
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.status-tag :deep(.el-tag__content) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-dot {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+  border-radius: 50%;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
+}
+
+.action-cell-wrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
 .paste-zone {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border: 1.5px dashed var(--color-border);
+  justify-content: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1.5px dashed var(--color-border-strong);
   border-radius: 6px;
   font-size: 12px;
-  color: var(--color-text-muted);
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  background: #fafcfb;
   cursor: pointer;
-  transition: border-color 0.2s, background 0.2s, color 0.2s;
+  transition: all 0.2s ease;
   outline: none;
   user-select: none;
+  white-space: nowrap;
 }
 
 .paste-zone:hover,
+.paste-zone:focus-visible,
 .paste-zone--active {
   border-color: var(--el-color-primary);
   color: var(--el-color-primary);
-  background: color-mix(in srgb, var(--el-color-primary) 6%, transparent);
+  background: var(--color-primary-soft);
 }
 
 .paste-zone--uploading {
@@ -499,8 +721,8 @@ onBeforeUnmount(onPreviewClose)
 }
 
 .paste-icon {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
   flex-shrink: 0;
 }
 
@@ -508,13 +730,95 @@ onBeforeUnmount(onPreviewClose)
   display: inline-flex;
 }
 
-/* PENDING 行操作区：粘贴 + 选择横向排列，允许换行 */
-:deep(.el-table__cell) .paste-zone + .upload-btn-wrapper {
-  margin-left: 6px;
+.empty-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.empty-dot {
+  width: 6px;
+  height: 6px;
+  background: #aab4b0;
+  border-radius: 50%;
+}
+
+.mobile-records {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  .desktop-records {
+    display: none;
+  }
+
+  .mobile-records {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px;
+  }
+
+  .admin-record-card {
+    padding: 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+  }
+
+  .record-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    margin-bottom: 12px;
+    border-bottom: 1px dashed var(--color-border);
+  }
+
+  .record-card-details {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px 14px;
+    margin: 0 0 14px 0;
+  }
+
+  .record-card-details dt {
+    color: var(--color-text-muted);
+    font-size: 12px;
+  }
+
+  .record-card-details dd {
+    margin: 2px 0 0 0;
+    color: var(--color-text);
+    font-size: 13px;
+    font-weight: 500;
+  }
+
+  .mobile-card-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .mobile-card-actions .el-button,
+  .mobile-card-actions .mobile-upload {
+    flex: 1;
+  }
+
+  .mobile-card-actions .mobile-paste {
+    flex: 1;
+    height: 38px;
+  }
 }
 
 @media (max-width: 720px) {
   .table-tools {
+    width: 100%;
+  }
+
+  .search-input {
     width: 100%;
   }
 
@@ -583,3 +887,4 @@ onBeforeUnmount(onPreviewClose)
   margin: 0;
 }
 </style>
+
