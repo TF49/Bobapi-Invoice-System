@@ -32,6 +32,8 @@ const completedInvoice: Invoice = {
   companyName: '测试公司',
   taxNumber: '91410100MAE5H38A0F',
   amount: 300.01,
+  invoiceType: '技术服务费',
+  remark: '',
   status: 'COMPLETED',
   userId: 2,
   createdAt: '2026-08-19T21:52:00',
@@ -90,13 +92,19 @@ describe('UserInvoice', () => {
 
   it('submits successfully when randomUUID is unavailable', async () => {
     const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    expect(openSubmitBtn).toBeDefined()
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
     const inputs = page.findAll('input')
 
     await inputs[0].setValue(' 测试公司 ')
     await inputs[1].setValue('91410100MAE5H38A0F')
     await inputs[2].setValue('300.01')
 
-    const submit = page.findAll('button').find(button => button.text().includes('提交申请'))
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
     expect(submit).toBeDefined()
     await submit!.trigger('click')
     await flushPromises()
@@ -105,7 +113,9 @@ describe('UserInvoice', () => {
       {
         companyName: '测试公司',
         taxNumber: '91410100MAE5H38A0F',
-        amount: 300.01
+        amount: 300.01,
+        invoiceType: '技术服务费',
+        remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
     )

@@ -60,206 +60,244 @@
         </SpotlightCard>
       </AnimatedContent>
 
-      <div class="user-work-grid">
-        <AnimatedContent tag="section" class="surface-panel form-panel" :delay="80">
-          <div class="panel-header">
-            <div class="panel-heading">
-              <span class="panel-heading-icon"><DocumentAdd /></span>
-              <div>
-                <h2>提交发票申请</h2>
-                <p>填写本次开票信息</p>
-              </div>
+      <AnimatedContent tag="section" class="surface-panel records-panel" :delay="80">
+        <div class="panel-header">
+          <div class="panel-heading">
+            <span class="panel-heading-icon"><List /></span>
+            <div>
+              <h2>发票记录</h2>
+              <p>查看申请进度与电子凭证</p>
             </div>
           </div>
-
-          <div class="panel-body">
-            <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
-              <el-form-item label="公司名称" prop="companyName">
-                <el-input v-model="form.companyName" :prefix-icon="OfficeBuilding" placeholder="请输入公司名称" />
-              </el-form-item>
-              <el-form-item label="税号" prop="taxNumber">
-                <el-input
-                  v-model="form.taxNumber"
-                  :prefix-icon="Postcard"
-                  placeholder="15-20 位大写字母或数字"
-                  maxlength="20"
-                  @input="normalizeTaxNumber"
-                />
-              </el-form-item>
-              <el-form-item label="开票金额" prop="amount">
-                <el-input-number
-                  v-model="form.amount"
-                  :min="0.01"
-                  :max="9999999999.99"
-                  :precision="2"
-                  :step="100"
-                  controls-position="right"
-                  class="amount-input"
-                />
-              </el-form-item>
-              <div class="form-actions">
-                <el-button
-                  class="form-submit"
-                  type="primary"
-                  :icon="Promotion"
-                  :loading="submitting"
-                  @click="handleSubmit"
-                >
-                  {{ submitting ? '正在提交' : '提交申请' }}
-                </el-button>
-                <el-button
-                  class="batch-import-button"
-                  :icon="Upload"
-                  :disabled="submitting"
-                  @click="showBatchImportDialog"
-                >
-                  批量导入
-                </el-button>
-              </div>
-            </el-form>
-          </div>
-        </AnimatedContent>
-
-        <AnimatedContent tag="section" class="surface-panel records-panel" :delay="140">
-          <div class="panel-header">
-            <div class="panel-heading">
-              <span class="panel-heading-icon"><List /></span>
-              <div>
-                <h2>发票记录</h2>
-                <p>查看申请进度与电子凭证</p>
-              </div>
-            </div>
+          <div class="panel-actions">
             <span class="result-count"><i></i>{{ invoices.length }} 条记录</span>
+            <el-button
+              type="primary"
+              :icon="Plus"
+              class="submit-action-button"
+              @click="showSubmitDialog"
+            >
+              提交申请
+            </el-button>
+            <el-button
+              class="batch-import-button"
+              :icon="Upload"
+              :disabled="submitting"
+              @click="showBatchImportDialog"
+            >
+              批量导入
+            </el-button>
           </div>
+        </div>
 
-          <div v-if="!loading && invoices.length === 0" class="table-empty-state">
-            <span><Files /></span>
-            <strong>暂无发票记录</strong>
-          </div>
-          <div v-else class="table-scroll desktop-records">
-            <el-table :data="invoices" v-loading="loading" class="records-table">
-              <el-table-column prop="id" label="申请编号" width="112">
-                <template #default="{ row }">
-                  <span class="invoice-id">{{ formatInvoiceId(row.id) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="companyName" label="公司名称" min-width="220">
-                <template #default="{ row }">
-                  <div class="company-cell">
-                    <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
-                    <strong class="company-name">{{ row.companyName }}</strong>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column prop="taxNumber" label="税号" min-width="190">
-                <template #default="{ row }">
-                  <span class="tax-number-cell">{{ row.taxNumber }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="amount" label="开票金额" width="150" align="right">
-                <template #default="{ row }">
-                  <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="status" label="开票状态" width="124" align="center">
-                <template #default="{ row }">
-                  <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
-                    <i class="status-dot"></i>
-                    {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="createdAt" label="申请时间" width="168">
-                <template #default="{ row }">
-                  <div class="date-cell">
-                    <span>{{ formatDateParts(row.createdAt).date }}</span>
-                    <small>{{ formatDateParts(row.createdAt).time }}</small>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" width="188" align="center" fixed="right">
-                <template #default="{ row }">
-                  <div v-if="row.downloadable && row.fileExists" class="record-actions">
-                    <el-button
-                      class="record-action-button"
-                      type="primary"
-                      size="small"
-                      :icon="ZoomIn"
-                      :loading="previewingId === row.id"
-                      @click="handlePreview(row)"
-                    >
-                      查看
-                    </el-button>
-                    <el-button
-                      class="record-action-button"
-                      type="primary"
-                      plain
-                      size="small"
-                      :icon="Download"
-                      @click="handleDownload(row)"
-                    >
-                      下载
-                    </el-button>
-                  </div>
-                  <span v-else class="empty-action"><i></i>等待开票</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </div>
-
-          <div v-if="invoices.length > 0" v-loading="loading" class="mobile-records">
-            <article v-for="row in invoices" :key="row.id" class="invoice-record-card">
-              <div class="record-card-header">
+        <div v-if="!loading && invoices.length === 0" class="table-empty-state">
+          <span><Files /></span>
+          <strong>暂无发票记录</strong>
+        </div>
+        <div v-else class="table-scroll desktop-records">
+          <el-table :data="invoices" v-loading="loading" class="records-table">
+            <el-table-column prop="id" label="申请编号" width="112">
+              <template #default="{ row }">
+                <span class="invoice-id">{{ formatInvoiceId(row.id) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="companyName" label="公司名称" min-width="220">
+              <template #default="{ row }">
                 <div class="company-cell">
                   <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
-                  <div class="record-company-copy">
-                    <strong class="company-name">{{ row.companyName }}</strong>
-                    <span>{{ formatInvoiceId(row.id) }}</span>
-                  </div>
+                  <strong class="company-name">{{ row.companyName }}</strong>
                 </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="taxNumber" label="税号" min-width="190">
+              <template #default="{ row }">
+                <span class="tax-number-cell">{{ row.taxNumber }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="amount" label="开票金额" width="130" align="right">
+              <template #default="{ row }">
+                <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="invoiceType" label="开票类型" width="120">
+              <template #default="{ row }">
+                <el-tag size="small" type="info" effect="plain">{{ row.invoiceType || '技术服务费' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span>{{ row.remark || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="status" label="开票状态" width="124" align="center">
+              <template #default="{ row }">
                 <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
                   <i class="status-dot"></i>
                   {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
                 </el-tag>
-              </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="createdAt" label="申请时间" width="168">
+              <template #default="{ row }">
+                <div class="date-cell">
+                  <span>{{ formatDateParts(row.createdAt).date }}</span>
+                  <small>{{ formatDateParts(row.createdAt).time }}</small>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="188" align="center" fixed="right">
+              <template #default="{ row }">
+                <div v-if="row.downloadable && row.fileExists" class="record-actions">
+                  <el-button
+                    class="record-action-button"
+                    type="primary"
+                    size="small"
+                    :icon="ZoomIn"
+                    :loading="previewingId === row.id"
+                    @click="handlePreview(row)"
+                  >
+                    查看
+                  </el-button>
+                  <el-button
+                    class="record-action-button"
+                    type="primary"
+                    plain
+                    size="small"
+                    :icon="Download"
+                    @click="handleDownload(row)"
+                  >
+                    下载
+                  </el-button>
+                </div>
+                <span v-else class="empty-action"><i></i>等待开票</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
 
-              <dl class="record-card-details">
-                <div>
-                  <dt>税号</dt>
-                  <dd class="tax-number-cell">{{ row.taxNumber }}</dd>
+        <div v-if="invoices.length > 0" v-loading="loading" class="mobile-records">
+          <article v-for="row in invoices" :key="row.id" class="invoice-record-card">
+            <div class="record-card-header">
+              <div class="company-cell">
+                <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
+                <div class="record-company-copy">
+                  <strong class="company-name">{{ row.companyName }}</strong>
+                  <span>{{ formatInvoiceId(row.id) }}</span>
                 </div>
-                <div>
-                  <dt>开票金额</dt>
-                  <dd class="money-cell">{{ formatCurrency(row.amount) }}</dd>
-                </div>
-                <div>
-                  <dt>申请时间</dt>
-                  <dd>{{ formatDate(row.createdAt) }}</dd>
-                </div>
-              </dl>
+              </div>
+              <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
+                <i class="status-dot"></i>
+                {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
+              </el-tag>
+            </div>
 
-              <div v-if="row.downloadable && row.fileExists" class="mobile-record-actions">
-                <el-button
-                  type="primary"
-                  :icon="ZoomIn"
-                  :loading="previewingId === row.id"
-                  @click="handlePreview(row)"
-                >
-                  查看发票
-                </el-button>
-                <el-button type="primary" plain :icon="Download" @click="handleDownload(row)">
-                  下载文件
-                </el-button>
+            <dl class="record-card-details">
+              <div>
+                <dt>税号</dt>
+                <dd class="tax-number-cell">{{ row.taxNumber }}</dd>
               </div>
-              <div v-else class="record-pending-note">
-                <Clock />
-                <span>管理员处理完成后，可在这里查看和下载发票</span>
+              <div>
+                <dt>开票金额</dt>
+                <dd class="money-cell">{{ formatCurrency(row.amount) }}</dd>
               </div>
-            </article>
-          </div>
-        </AnimatedContent>
-      </div>
+              <div>
+                <dt>开票类型</dt>
+                <dd>{{ row.invoiceType || '技术服务费' }}</dd>
+              </div>
+              <div v-if="row.remark">
+                <dt>备注</dt>
+                <dd>{{ row.remark }}</dd>
+              </div>
+              <div>
+                <dt>申请时间</dt>
+                <dd>{{ formatDate(row.createdAt) }}</dd>
+              </div>
+            </dl>
+
+            <div v-if="row.downloadable && row.fileExists" class="mobile-record-actions">
+              <el-button
+                type="primary"
+                :icon="ZoomIn"
+                :loading="previewingId === row.id"
+                @click="handlePreview(row)"
+              >
+                查看发票
+              </el-button>
+              <el-button type="primary" plain :icon="Download" @click="handleDownload(row)">
+                下载文件
+              </el-button>
+            </div>
+            <div v-else class="record-pending-note">
+              <Clock />
+              <span>管理员处理完成后，可在这里查看和下载发票</span>
+            </div>
+          </article>
+        </div>
+      </AnimatedContent>
     </main>
+
+    <!-- 提交发票申请弹窗 -->
+    <el-dialog
+      v-model="submitDialogVisible"
+      title="提交发票申请"
+      width="520px"
+      class="submit-invoice-dialog"
+      destroy-on-close
+    >
+      <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
+        <el-form-item label="公司名称" prop="companyName">
+          <el-input v-model="form.companyName" :prefix-icon="OfficeBuilding" placeholder="请输入公司名称" />
+        </el-form-item>
+        <el-form-item label="税号" prop="taxNumber">
+          <el-input
+            v-model="form.taxNumber"
+            :prefix-icon="Postcard"
+            placeholder="15-20 位大写字母或数字"
+            maxlength="20"
+            @input="normalizeTaxNumber"
+          />
+        </el-form-item>
+        <el-form-item label="开票金额" prop="amount">
+          <el-input-number
+            v-model="form.amount"
+            :min="0.01"
+            :max="9999999999.99"
+            :precision="2"
+            :step="100"
+            controls-position="right"
+            class="amount-input"
+          />
+        </el-form-item>
+        <el-form-item label="开票类型" prop="invoiceType">
+          <el-select v-model="form.invoiceType" placeholder="请选择开票类型" class="type-select">
+            <el-option label="技术服务费" value="技术服务费" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input
+            v-model="form.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入备注（选填）"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="submitDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :icon="Promotion"
+            :loading="submitting"
+            @click="handleSubmit"
+          >
+            {{ submitting ? '正在提交' : '提交申请' }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
 
     <!-- 发票图片预览弹窗 -->
     <el-dialog
@@ -305,13 +343,13 @@ import {
   CircleCheck,
   Clock,
   Coin,
-  DocumentAdd,
   Download,
   Files,
   List,
   Loading,
   OfficeBuilding,
   PictureRounded,
+  Plus,
   Postcard,
   Promotion,
   Tickets,
@@ -354,7 +392,9 @@ let previewRequestId = 0
 const form = reactive<InvoiceRequest>({
   companyName: '',
   taxNumber: '',
-  amount: 0.01
+  amount: 0.01,
+  invoiceType: '技术服务费',
+  remark: ''
 })
 
 const pendingCount = computed(() => invoices.value.filter(invoice => invoice.status === 'PENDING').length)
@@ -372,7 +412,8 @@ const rules = {
   amount: [
     { required: true, message: '请输入开票金额', trigger: 'blur' },
     { type: 'number', min: 0.01, max: 9999999999.99, message: '开票金额必须在有效范围内', trigger: 'change' }
-  ]
+  ],
+  invoiceType: [{ required: true, message: '请选择开票类型', trigger: 'change' }]
 }
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('zh-CN', {
@@ -432,6 +473,13 @@ const loadQuota = async () => {
   }
 }
 
+// 提交申请弹窗状态
+const submitDialogVisible = ref(false)
+
+const showSubmitDialog = () => {
+  submitDialogVisible.value = true
+}
+
 const handleSubmit = async () => {
   if (submitting.value) return
   submitting.value = true
@@ -453,11 +501,14 @@ const handleSubmit = async () => {
     await invoiceApi.createInvoice({
       companyName: form.companyName.trim(),
       taxNumber: form.taxNumber,
-      amount: form.amount
+      amount: form.amount,
+      invoiceType: form.invoiceType,
+      remark: form.remark?.trim() || undefined
     }, idempotencyKey)
     ElMessage.success('提交成功')
     pendingIdempotencyKey.value = null
     formRef.value?.resetFields()
+    submitDialogVisible.value = false
     await loadInvoices()
     await loadQuota() // 刷新额度
   } catch (error) {
@@ -541,7 +592,7 @@ const handleBatchImportSuccess = async () => {
 }
 
 watch(
-  () => [form.companyName, form.taxNumber, form.amount],
+  () => [form.companyName, form.taxNumber, form.amount, form.invoiceType, form.remark],
   () => {
     if (!submitting.value) pendingIdempotencyKey.value = null
   }
@@ -555,41 +606,20 @@ onBeforeUnmount(onPreviewClose)
 </script>
 
 <style scoped>
-.user-work-grid {
-  display: grid;
-  grid-template-columns: minmax(310px, 350px) minmax(0, 1fr);
-  align-items: start;
-  gap: 20px;
-}
-
-.form-panel {
-  position: sticky;
-  top: 20px;
-}
-
-.amount-input {
-  width: 100%;
-}
-
-.form-panel :deep(.el-form-item) {
-  margin-bottom: 22px;
-}
-
-.form-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+.panel-actions {
+  display: flex;
+  align-items: center;
   gap: 10px;
-  margin-top: 6px;
+  flex-wrap: wrap;
 }
 
-.form-actions :deep(.el-button) {
+.submit-action-button {
+  box-shadow: 0 4px 12px rgba(18, 113, 91, 0.2);
+}
+
+.amount-input,
+.type-select {
   width: 100%;
-  min-width: 0;
-  margin: 0;
-}
-
-.form-submit {
-  box-shadow: 0 7px 16px rgba(18, 113, 91, 0.18);
 }
 
 .batch-import-button {
@@ -745,6 +775,21 @@ onBeforeUnmount(onPreviewClose)
 
 .amount-stat {
   font-size: 22px;
+}
+
+/* 提交申请弹窗 */
+:global(.submit-invoice-dialog) {
+  max-width: 520px;
+}
+
+:global(.submit-invoice-dialog .el-dialog__body) {
+  padding: 16px 24px 8px;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
 }
 
 /* 预览弹窗 */

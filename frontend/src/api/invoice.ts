@@ -6,6 +6,8 @@ export interface Invoice {
   companyName: string
   taxNumber: string
   amount: number
+  invoiceType: string
+  remark?: string
   status: string
   userId: number
   createdAt: string
@@ -19,6 +21,8 @@ export interface InvoiceRequest {
   companyName: string
   taxNumber: string
   amount: number
+  invoiceType: string
+  remark?: string
 }
 
 export interface BatchInvoiceItemRequest {
@@ -26,6 +30,8 @@ export interface BatchInvoiceItemRequest {
   companyName: string
   taxNumber: string
   amount: string
+  invoiceType: string
+  remark?: string
 }
 
 export interface BatchInvoiceItemResult {

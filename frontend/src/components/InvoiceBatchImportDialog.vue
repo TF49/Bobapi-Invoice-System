@@ -66,17 +66,19 @@
           stripe
           class="preview-table"
         >
-          <el-table-column prop="rowNumber" label="行号" width="80" />
-          <el-table-column prop="companyName" label="公司名称" min-width="150" />
+          <el-table-column prop="rowNumber" label="行号" width="60" />
+          <el-table-column prop="companyName" label="公司名称" min-width="140" />
           <el-table-column prop="taxNumber" label="税号" width="150" />
-          <el-table-column prop="amount" label="开票金额" width="120" />
-          <el-table-column label="校验状态" width="120">
+          <el-table-column prop="amount" label="开票金额" width="110" />
+          <el-table-column prop="invoiceType" label="开票类型" width="110" />
+          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+          <el-table-column label="校验状态" width="90">
             <template #default="{ row }">
               <el-tag v-if="row.error" type="danger" size="small">错误</el-tag>
               <el-tag v-else type="success" size="small">通过</el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="error" label="错误信息" min-width="200" />
+          <el-table-column prop="error" label="错误信息" min-width="180" />
         </el-table>
       </div>
 
@@ -232,7 +234,9 @@ const handleSubmit = async () => {
       rowNumber: row.rowNumber,
       companyName: row.companyName.trim(),
       taxNumber: row.taxNumber.toUpperCase(),
-      amount: normalizeAmount(row.amount) || row.amount
+      amount: normalizeAmount(row.amount) || row.amount,
+      invoiceType: row.invoiceType.trim(),
+      remark: row.remark?.trim() || undefined
     }));
 
     const response = await invoiceApi.createInvoicesBatch(items, idempotencyKey.value);

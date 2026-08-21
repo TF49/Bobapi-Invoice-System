@@ -96,22 +96,26 @@ public class InvoiceService {
 
     @Transactional
     public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
-                                         String taxNumber, BigDecimal amount) {
+                                         String taxNumber, BigDecimal amount,
+                                         String invoiceType, String remark) {
         String normalizedCompanyName = normalizeCompanyName(companyName);
         String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
-        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount);
+        String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType);
         BigDecimal normalizedAmount = normalizeAmount(amount);
 
         Invoice existing = findByIdempotencyKey(userId, idempotencyKey);
         if (existing != null) {
             return validateRepeatedRequest(
-                    existing, normalizedCompanyName, normalizedTaxNumber, normalizedAmount);
+                    existing, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType);
         }
 
         Invoice invoice = new Invoice();
         invoice.setCompanyName(normalizedCompanyName);
         invoice.setTaxNumber(normalizedTaxNumber);
         invoice.setAmount(normalizedAmount);
+        invoice.setInvoiceType(normalizedInvoiceType);
+        invoice.setRemark(remark == null ? null : remark.trim());
         invoice.setStatus("PENDING");
         invoice.setUserId(userId);
         invoice.setIdempotencyKey(idempotencyKey);
@@ -127,7 +131,7 @@ public class InvoiceService {
                 throw exception;
             }
             return validateRepeatedRequest(
-                    concurrentlyCreated, normalizedCompanyName, normalizedTaxNumber, normalizedAmount);
+                    concurrentlyCreated, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType);
         }
     }
 
@@ -146,19 +150,30 @@ public class InvoiceService {
     }
 
     /**
+     * 标准化开票类型：去除首尾空白
+     */
+    private String normalizeInvoiceType(String invoiceType) {
+        return invoiceType == null ? "" : invoiceType.trim();
+    }
+
+    /**
      * 标准化金额：设置为两位小数
      */
     private BigDecimal normalizeAmount(BigDecimal amount) {
         return amount == null ? null : amount.setScale(2, RoundingMode.UNNECESSARY);
     }
 
-    private void validateSingleInvoice(String companyName, String taxNumber, BigDecimal amount) {
+    private void validateSingleInvoice(String companyName, String taxNumber, BigDecimal amount,
+                                       String invoiceType) {
         String validationMessage = validateCompanyName(companyName);
         if (validationMessage == null) {
             validationMessage = validateTaxNumber(taxNumber);
         }
         if (validationMessage == null) {
             validationMessage = validateAmount(amount);
+        }
+        if (validationMessage == null) {
+            validationMessage = validateInvoiceType(invoiceType);
         }
         if (validationMessage != null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, validationMessage);
@@ -204,6 +219,8 @@ public class InvoiceService {
             invoice.setCompanyName(item.companyName());
             invoice.setTaxNumber(item.taxNumber());
             invoice.setAmount(item.amount());
+            invoice.setInvoiceType(item.invoiceType());
+            invoice.setRemark(item.remark());
             invoice.setStatus("PENDING");
             invoice.setUserId(userId);
             invoice.setBatchId(batch.getId());
@@ -288,14 +305,24 @@ public class InvoiceService {
                 normalizedAmount = normalizeAmount(amount);
             }
 
+            String invoiceType = normalizeInvoiceType(
+                    item == null ? null : item.getInvoiceType());
+            String invoiceTypeError = validateInvoiceType(invoiceType);
+            if (invoiceTypeError != null) {
+                addBatchError(errors, rowNumber, "invoiceType", invoiceTypeError);
+            }
+
+            String remark = item == null || item.getRemark() == null
+                    ? null : item.getRemark().trim();
+
             if (errors.size() == initialErrorCount) {
                 String fingerprint = companyName + '\u0000' + taxNumber + '\u0000'
-                        + normalizedAmount.toPlainString();
+                        + normalizedAmount.toPlainString() + '\u0000' + invoiceType;
                 if (!rowFingerprints.add(fingerprint)) {
                     addBatchError(errors, rowNumber, "row", "该行与批次内其他行完全重复");
                 }
                 normalizedItems.add(new NormalizedBatchItem(
-                        rowNumber, companyName, taxNumber, normalizedAmount));
+                        rowNumber, companyName, taxNumber, normalizedAmount, invoiceType, remark));
             }
         }
 
@@ -304,6 +331,19 @@ public class InvoiceService {
         }
         return List.copyOf(normalizedItems);
     }
+    /**
+     * 校验开票类型，返回错误信息或 null
+     */
+    private String validateInvoiceType(String invoiceType) {
+        if (invoiceType == null || invoiceType.isEmpty()) {
+            return "开票类型不能为空";
+        }
+        if (invoiceType.length() > 100) {
+            return "开票类型不能超过 100 个字符";
+        }
+        return null;
+    }
+
     /**
      * 校验公司名称，返回错误信息或 null
      */
@@ -415,7 +455,9 @@ public class InvoiceService {
             int rowNumber,
             String companyName,
             String taxNumber,
-            BigDecimal amount
+            BigDecimal amount,
+            String invoiceType,
+            String remark
     ) {
     }
 
@@ -572,10 +614,12 @@ public class InvoiceService {
     }
 
     private InvoiceResponse validateRepeatedRequest(Invoice existing, String companyName,
-                                                    String taxNumber, BigDecimal amount) {
+                                                    String taxNumber, BigDecimal amount,
+                                                    String invoiceType) {
         boolean samePayload = existing.getCompanyName().equals(companyName)
                 && existing.getTaxNumber().equals(taxNumber)
-                && existing.getAmount().compareTo(amount) == 0;
+                && existing.getAmount().compareTo(amount) == 0
+                && Objects.equals(existing.getInvoiceType(), invoiceType);
         if (!samePayload) {
             throw new BusinessException(HttpStatus.CONFLICT, 40902,
                     "Idempotency-Key 已用于其他发票申请");

@@ -91,9 +91,19 @@
                 <span class="tax-number-cell">{{ row.taxNumber }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="amount" label="金额" width="142" align="right">
+            <el-table-column prop="amount" label="金额" width="130" align="right">
               <template #default="{ row }">
                 <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="invoiceType" label="开票类型" width="120">
+              <template #default="{ row }">
+                <el-tag size="small" type="info" effect="plain">{{ row.invoiceType || '技术服务费' }}</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span>{{ row.remark || '-' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="status" label="状态" width="106" align="center">

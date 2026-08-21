@@ -19,10 +19,10 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
 
     @Insert({
             "<script>",
-            "INSERT INTO invoice (company_name, tax_number, amount, status, idempotency_key, ",
+            "INSERT INTO invoice (company_name, tax_number, amount, invoice_type, remark, status, idempotency_key, ",
             "batch_id, batch_row_number, user_id, created_at, updated_at, deleted) VALUES ",
             "<foreach collection='invoices' item='invoice' separator=','>",
-            "(#{invoice.companyName}, #{invoice.taxNumber}, #{invoice.amount}, #{invoice.status}, ",
+            "(#{invoice.companyName}, #{invoice.taxNumber}, #{invoice.amount}, #{invoice.invoiceType}, #{invoice.remark}, #{invoice.status}, ",
             "#{invoice.idempotencyKey}, #{invoice.batchId}, #{invoice.batchRowNumber}, ",
             "#{invoice.userId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
             "</foreach>",

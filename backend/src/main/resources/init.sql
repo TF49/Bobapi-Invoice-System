@@ -37,6 +37,8 @@ CREATE TABLE `invoice` (
     `company_name` VARCHAR(200) NOT NULL COMMENT '公司名称',
     `tax_number` VARCHAR(20) NOT NULL COMMENT '税号',
     `amount` DECIMAL(12, 2) NOT NULL COMMENT '开票金额',
+    `invoice_type` VARCHAR(100) NOT NULL DEFAULT '技术服务费' COMMENT '开票类型',
+    `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注',
     `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待开票，COMPLETED-已开票',
     `file_path` VARCHAR(500) DEFAULT NULL COMMENT '服务端存储文件名',
     `file_name` VARCHAR(255) DEFAULT NULL COMMENT '原始发票文件名',

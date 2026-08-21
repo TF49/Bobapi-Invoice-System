@@ -77,7 +77,8 @@ public class InvoiceController {
 
         InvoiceResponse invoice = invoiceService.createInvoice(
                 principal.userId(), idempotencyKey, request.getCompanyName(),
-                request.getTaxNumber(), request.getAmount());
+                request.getTaxNumber(), request.getAmount(),
+                request.getInvoiceType(), request.getRemark());
         return ApiResponse.success("申请成功", invoice);
     }
 

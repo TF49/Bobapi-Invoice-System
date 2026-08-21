@@ -7,12 +7,11 @@ spring:
       fail-on-unknown-properties: true
   
   # 数据库配置
-  # 宝塔面板数据库服务器
   datasource:
-    driver-class-name: com.mysql.cj.jdbc.Driver
-    url: jdbc:mysql://127.0.0.1:3306/invoice_system?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
-    username: '123456'
-    password: '123456'
+    driver-class-name: ${DB_DRIVER:com.mysql.cj.jdbc.Driver}
+    url: jdbc:mysql://${DB_HOST:127.0.0.1}:${DB_PORT:3306}/${DB_NAME:invoice_system}?useUnicode=true&characterEncoding=utf8&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD}
 
   sql:
     init:

@@ -29,6 +29,16 @@ public class Invoice {
      * 开票金额
      */
     private BigDecimal amount;
+
+    /**
+     * 开票类型（如：技术服务费）
+     */
+    private String invoiceType;
+
+    /**
+     * 备注
+     */
+    private String remark;
     
     /**
      * 状态：PENDING-待开票，COMPLETED-已开票

@@ -21,4 +21,14 @@ public class BatchInvoiceItemRequest {
      * 保留客户端的十进制文本，服务层按行校验并转换为 BigDecimal。
      */
     private String amount;
+
+    /**
+     * 开票类型
+     */
+    private String invoiceType;
+
+    /**
+     * 备注（可选）
+     */
+    private String remark;
 }

@@ -10,6 +10,8 @@ export interface ParsedInvoiceRow {
   companyName: string;     // 公司名称
   taxNumber: string;       // 税号
   amount: string;          // 开票金额（字符串形式避免精度问题）
+  invoiceType: string;     // 开票类型
+  remark: string;          // 备注（可选）
   error?: string;          // 错误信息
 }
 
@@ -23,7 +25,9 @@ export interface ParseResult {
 const HEADERS = {
   COMPANY_NAME: '公司名称',
   TAX_NUMBER: '税号',
-  AMOUNT: '开票金额'
+  AMOUNT: '开票金额',
+  INVOICE_TYPE: '开票类型',
+  REMARK: '备注'
 };
 
 /**
@@ -167,13 +171,14 @@ function processSheetData(data: any[][]): ParseResult {
 
   // 检查表头
   const headers = data[0].map((h: any) => String(h ?? '').replace(/^\uFEFF/, '').trim());
-  const expectedHeaders = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT];
-  if (headers.length !== expectedHeaders.length
-      || headers.some((header, index) => header !== expectedHeaders[index])) {
+  const requiredHeaders = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE];
+  // 前 4 列必须存在，第 5 列（备注）可选
+  if (headers.length < requiredHeaders.length
+      || requiredHeaders.some((header, index) => header !== headers[index])) {
     return {
       success: false,
       data: [],
-      error: `表头不正确，必须按顺序使用：${HEADERS.COMPANY_NAME}、${HEADERS.TAX_NUMBER}、${HEADERS.AMOUNT}`
+      error: `表头不正确，必须按顺序包含：${HEADERS.COMPANY_NAME}、${HEADERS.TAX_NUMBER}、${HEADERS.AMOUNT}、${HEADERS.INVOICE_TYPE}（可加${HEADERS.REMARK}）`
     };
   }
 
@@ -192,12 +197,16 @@ function processSheetData(data: any[][]): ParseResult {
     const companyName = cellToString(row[0]);
     const taxNumber = cellToString(row[1]);
     const amount = cellToString(row[2]);
+    const invoiceType = cellToString(row[3]);
+    const remark = cellToString(row[4]);
 
     rows.push({
       rowNumber,
       companyName,
       taxNumber,
-      amount
+      amount,
+      invoiceType,
+      remark
     });
   }
 
@@ -257,6 +266,19 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
     return '开票金额必须大于等于 0.01';
   }
 
+  // 开票类型校验
+  if (!row.invoiceType) {
+    return '开票类型不能为空';
+  }
+  if (row.invoiceType.length > 100) {
+    return '开票类型不能超过 100 个字符';
+  }
+
+  // 备注校验（可选）
+  if (row.remark && row.remark.length > 500) {
+    return '备注不能超过 500 个字符';
+  }
+
   return null;
 }
 
@@ -305,7 +327,7 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
       continue;
     }
     const normalizedAmount = normalizeAmount(row.amount) || row.amount.trim();
-    const key = `${row.companyName.trim()}|${row.taxNumber.trim().toUpperCase()}|${normalizedAmount}`;
+    const key = `${row.companyName.trim()}|${row.taxNumber.trim().toUpperCase()}|${normalizedAmount}|${row.invoiceType.trim()}`;
     if (seen.has(key)) {
       duplicates.push(row.rowNumber);
     } else {
@@ -320,11 +342,13 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
  * 生成标准导入模板（CSV 格式）
  */
 export function generateTemplate(): string {
-  const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT];
+  const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE, HEADERS.REMARK];
   const sampleData = [
     '示例公司A',
     '91500123456789012A',
-    '1000.00'
+    '1000.00',
+    '技术服务费',
+    '请在此处输入备注'
   ];
 
   return [
