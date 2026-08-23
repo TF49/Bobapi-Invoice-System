@@ -82,6 +82,10 @@ describe('invoice batch import validation', () => {
     expect(validateRow(row({ amount: '12.345' }))).toBe('开票金额格式不正确')
   })
 
+  it('only accepts the fixed invoice type', () => {
+    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型固定为技术服务费')
+  })
+
   it('compares duplicate rows after normalization', () => {
     const rows = [
       row({ rowNumber: 2, taxNumber: 'abcde12345678901', amount: '100' }),

@@ -173,17 +173,34 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column prop="quota" label="额度" width="120" align="center">
+            <el-table-column prop="quota" label="额度情况" min-width="210" align="left">
               <template #default="{ row }">
-                <el-button 
-                  v-if="row.role === 'USER'"
-                  size="small" 
-                  type="primary" 
-                  link
-                  @click="openQuotaDialog(row)"
-                >
-                  管理额度
-                </el-button>
+                <template v-if="row.role === 'USER'">
+                  <div class="quota-cell">
+                    <div class="quota-cell-balance">
+                      <span class="quota-balance-label">余额:</span>
+                      <span
+                        class="quota-balance-value"
+                        title="点击管理额度"
+                        @click="openQuotaDialog(row)"
+                      >¥{{ row.quota ? Number(row.quota.balance).toFixed(2) : '0.00' }}</span>
+                      <el-button
+                        size="small"
+                        type="primary"
+                        link
+                        class="quota-manage-btn"
+                        :aria-label="`管理 ${row.username} 的额度`"
+                        @click="openQuotaDialog(row)"
+                      >
+                        管理
+                      </el-button>
+                    </div>
+                    <div class="quota-cell-meta">
+                      <span>充值 ¥{{ row.quota ? Number(row.quota.totalRecharged).toFixed(2) : '0.00' }}</span>
+                      <span>扣除 ¥{{ row.quota ? Number(row.quota.totalDeducted).toFixed(2) : '0.00' }}</span>
+                    </div>
+                  </div>
+                </template>
                 <span v-else style="color: var(--color-text-muted);">-</span>
               </template>
             </el-table-column>
@@ -345,7 +362,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -369,6 +386,7 @@ import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import { useUserStore } from '@/stores/user'
 import { validatePassword, validateUsername } from '@/utils/userValidation'
+import { generateIdempotencyKey } from '@/utils/idempotency'
 
 type RoleFilter = UserRole | 'ALL'
 type StatusFilter = 'ALL' | 'ENABLED' | 'DISABLED'
@@ -422,6 +440,8 @@ const quotaForm = reactive<{ amount: number; remark: string }>({
   amount: 0,
   remark: ''
 })
+const quotaPendingIdempotencyKey = ref<string | null>(null)
+let quotaDialogRequestId = 0
 
 const fieldValidator = (validator: (value: string) => string | null) =>
   (_rule: unknown, value: string, callback: (error?: Error) => void) => {
@@ -604,16 +624,24 @@ const formatDate = (value: string) => {
 
 // 额度管理相关函数
 const openQuotaDialog = async (user: ManagedUser) => {
+  const requestId = ++quotaDialogRequestId
   quotaTarget.value = user
   quotaActiveTab.value = 'recharge'
   quotaForm.amount = 0
   quotaForm.remark = ''
+  quotaPendingIdempotencyKey.value = null
   
   try {
-    quotaInfo.value = await quotaApi.getUserQuota(user.id)
-    quotaTransactions.value = await quotaApi.getUserTransactions(user.id)
+    const [userQuota, transactions] = await Promise.all([
+      quotaApi.getUserQuota(user.id),
+      quotaApi.getUserTransactions(user.id)
+    ])
+    if (requestId !== quotaDialogRequestId || quotaTarget.value?.id !== user.id) return
+    quotaInfo.value = userQuota
+    quotaTransactions.value = transactions
     quotaDialogVisible.value = true
   } catch (error) {
+    if (requestId !== quotaDialogRequestId) return
     console.error('加载额度信息失败', error)
     ElMessage.error('加载额度信息失败')
   }
@@ -631,10 +659,21 @@ const submitRechargeQuota = async () => {
       amount: quotaForm.amount,
       remark: quotaForm.remark || undefined
     }
-    await quotaApi.rechargeQuota(target.id, data)
-    quotaInfo.value = await quotaApi.getUserQuota(target.id)
-    quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+    const idempotencyKey = quotaPendingIdempotencyKey.value || generateIdempotencyKey('quota')
+    quotaPendingIdempotencyKey.value = idempotencyKey
+    const updatedQuota = await quotaApi.rechargeQuota(target.id, data, idempotencyKey)
+    quotaInfo.value = updatedQuota
+    // Sync the inline quota snapshot in the table row
+    const row = users.value.find(u => u.id === target.id)
+    if (row) row.quota = { ...updatedQuota }
+    try {
+      quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+    } catch (refreshError) {
+      console.error('刷新额度历史失败', refreshError)
+      ElMessage.warning('充值成功，但额度历史刷新失败')
+    }
     ElMessage.success('充值成功')
+    quotaPendingIdempotencyKey.value = null
     quotaForm.amount = 0
     quotaForm.remark = ''
   } catch (error) {
@@ -657,10 +696,21 @@ const submitAdjustQuota = async () => {
       amount: quotaForm.amount,
       remark: quotaForm.remark || undefined
     }
-    await quotaApi.adjustQuota(target.id, data)
-    quotaInfo.value = await quotaApi.getUserQuota(target.id)
-    quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+    const idempotencyKey = quotaPendingIdempotencyKey.value || generateIdempotencyKey('quota')
+    quotaPendingIdempotencyKey.value = idempotencyKey
+    const updatedQuota = await quotaApi.adjustQuota(target.id, data, idempotencyKey)
+    quotaInfo.value = updatedQuota
+    // Sync the inline quota snapshot in the table row
+    const row = users.value.find(u => u.id === target.id)
+    if (row) row.quota = { ...updatedQuota }
+    try {
+      quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+    } catch (refreshError) {
+      console.error('刷新额度历史失败', refreshError)
+      ElMessage.warning('调整成功，但额度历史刷新失败')
+    }
     ElMessage.success('调整成功')
+    quotaPendingIdempotencyKey.value = null
     quotaForm.amount = 0
     quotaForm.remark = ''
   } catch (error) {
@@ -688,6 +738,17 @@ const getTransactionTypeTag = (type: string) => {
   }
   return tags[type] || 'info'
 }
+
+watch(
+  () => [quotaTarget.value?.id, quotaActiveTab.value, quotaForm.amount, quotaForm.remark],
+  () => {
+    // Reset the pending idempotency key whenever the target user, active tab, or form
+    // fields change. This ensures each logically distinct operation gets a fresh key,
+    // while a failed submission with unchanged fields retains its key so the user can
+    // safely retry and the server will deduplicate the request correctly.
+    if (!quotaSubmitting.value) quotaPendingIdempotencyKey.value = null
+  }
+)
 
 onMounted(loadUsers)
 </script>
@@ -721,7 +782,10 @@ onMounted(loadUsers)
 }
 
 .user-table-scroll .el-table {
-  min-width: 850px;
+  /* Minimum width accounts for all columns:
+   * username(190) + role(160) + status(142) + quota(210) + createdAt(172) + action(102) = 976px
+   * Set to 1000px to provide a small buffer and avoid premature horizontal scroll. */
+  min-width: 1000px;
 }
 
 .username-cell {
@@ -850,6 +914,50 @@ onMounted(loadUsers)
 
 .amount-negative {
   color: var(--color-danger);
+}
+
+/* 额度情况列 */
+.quota-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quota-cell-balance {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quota-balance-label {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.quota-balance-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-primary);
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.quota-balance-value:hover {
+  opacity: 0.75;
+  text-decoration: underline;
+}
+
+.quota-manage-btn {
+  padding: 0 4px;
+  font-size: 12px;
+  height: auto;
+}
+
+.quota-cell-meta {
+  display: flex;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 11px;
 }
 
 @media (max-width: 820px) {

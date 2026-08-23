@@ -12,7 +12,9 @@ vi.mock('@/api/invoice', () => ({
     getMyInvoices: vi.fn(),
     createInvoice: vi.fn(),
     previewInvoice: vi.fn(),
-    downloadInvoice: vi.fn()
+    downloadInvoice: vi.fn(),
+    parseInvoiceText: vi.fn(),
+    verifyInvoiceText: vi.fn()
   }
 }))
 
@@ -133,5 +135,84 @@ describe('UserInvoice', () => {
     expect(page.findAll('.record-actions button')).toHaveLength(2)
     expect(page.findAll('.mobile-record-actions button')).toHaveLength(2)
     expect(page.find('.mobile-records').text()).toContain('¥300.01')
+  })
+
+  it('extracts, verifies, confirms and submits when using AI smart parse', async () => {
+    mockedApi.parseInvoiceText.mockResolvedValue({
+      companyName: '某某智能科技有限公司',
+      taxNumber: '91110108MA01TEST99',
+      amount: 888.5,
+      confidence: 'HIGH',
+      hint: null
+    })
+    mockedApi.verifyInvoiceText.mockResolvedValue({
+      companyName: '某某智能科技有限公司（核查）',
+      taxNumber: '91110108MA01TEST99',
+      amount: 888.5,
+      confidence: 'HIGH',
+      hint: null
+    })
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    // 点击展开 AI 识别
+    const aiToggleBtn = page.find('.ai-parse-header')
+    expect(aiToggleBtn.exists()).toBe(true)
+    await aiToggleBtn.trigger('click')
+    await flushPromises()
+
+    // 输入原始发票文本
+    const aiTextarea = page.find('.ai-parse-body textarea')
+    expect(aiTextarea.exists()).toBe(true)
+    await aiTextarea.setValue('请开具发票，抬头：某某智能科技有限公司，税号：91110108MA01TEST99，金额：888.5元')
+
+    // 点击识别按钮
+    vi.useFakeTimers()
+    const aiParseBtn = page.findAll('.ai-parse-actions button').find(b => b.text().includes('识别'))
+    expect(aiParseBtn).toBeDefined()
+    await aiParseBtn!.trigger('click')
+
+    // 阶段 1：推进 2000ms 动画，刷新 Promise 启动阶段 2
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    // 阶段 2：推进 2000ms 动画，刷新 Promise 启动完成阶段
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    // 完成阶段 100% 动画：推进 1000ms 动画
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+
+    // 完成阶段 200ms 延迟：推进 500ms 触发 setTimeout 延迟并弹出确认弹窗
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    vi.useRealTimers()
+    await flushPromises()
+
+    // 验证确认弹窗已出现
+    expect(document.body.innerHTML).toContain('AI 识别结果确认')
+
+    // 点击确认并提交按钮
+    const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+    const confirmBtn = buttons.find(b => b.textContent?.includes('确认并提交'))
+    expect(confirmBtn).toBeDefined()
+    confirmBtn!.click()
+    await flushPromises()
+
+    // 验证发票申请提交成功
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyName: '某某智能科技有限公司（核查）',
+        taxNumber: '91110108MA01TEST99',
+        amount: 888.5
+      }),
+      expect.any(String)
+    )
+    expect(ElMessage.success).toHaveBeenCalledWith('提交成功')
   })
 })

@@ -55,7 +55,7 @@ const router = createRouter({
 
 // 路由守卫
 router.beforeEach((to, _from, next) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token')
   const userRole = localStorage.getItem('role')
 
   // 只有当 role 确实存在且为非法值时才清除 token，避免 role 尚未写入时误删

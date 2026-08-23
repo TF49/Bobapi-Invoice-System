@@ -4,8 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.invoice.entity.UserQuota;
 import com.invoice.entity.UserQuotaTransaction;
 import com.invoice.exception.BusinessException;
+import com.invoice.entity.User;
+import com.invoice.mapper.UserMapper;
 import com.invoice.mapper.UserQuotaMapper;
 import com.invoice.mapper.UserQuotaTransactionMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,6 +16,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
+import java.util.Set;
 
 /**
  * 用户额度服务
@@ -22,14 +27,17 @@ public class UserQuotaService {
 
     private final UserQuotaMapper userQuotaMapper;
     private final UserQuotaTransactionMapper userQuotaTransactionMapper;
+    private final UserMapper userMapper;
 
     private static final BigDecimal MIN_RECHARGE_AMOUNT = new BigDecimal("0.01");
     private static final BigDecimal MAX_RECHARGE_AMOUNT = new BigDecimal("999999.99");
 
-    public UserQuotaService(UserQuotaMapper userQuotaMapper, 
-                           UserQuotaTransactionMapper userQuotaTransactionMapper) {
+    public UserQuotaService(UserQuotaMapper userQuotaMapper,
+                           UserQuotaTransactionMapper userQuotaTransactionMapper,
+                           UserMapper userMapper) {
         this.userQuotaMapper = userQuotaMapper;
         this.userQuotaTransactionMapper = userQuotaTransactionMapper;
+        this.userMapper = userMapper;
     }
 
     /**
@@ -47,6 +55,19 @@ public class UserQuotaService {
         }
         
         return quota;
+    }
+
+    /**
+     * 批量获取多个用户的额度（用于列表页展示，避免 N+1 查询）
+     */
+    public List<UserQuota> getQuotasByUserIds(List<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        return userQuotaMapper.selectList(
+            new LambdaQueryWrapper<UserQuota>()
+                .in(UserQuota::getUserId, userIds)
+        );
     }
 
     /**
@@ -70,10 +91,17 @@ public class UserQuotaService {
      * 充值额度（管理员操作）
      */
     @Transactional
-    public void rechargeQuota(Long userId, BigDecimal amount, Long operatorId, String remark) {
+    public UserQuota rechargeQuota(Long userId, BigDecimal amount, Long operatorId, String remark,
+                                   String idempotencyKey) {
         validateRechargeAmount(amount);
-        
-        UserQuota quota = getUserQuota(userId);
+
+        requireUserRoleForUpdate(userId);
+        UserQuota quota = getUserQuotaWithLock(userId);
+        UserQuotaTransaction existing = findByIdempotencyKey(userId, idempotencyKey);
+        if (existing != null) {
+            validateRepeatedOperation(existing, "RECHARGE", amount, remark);
+            return quota;
+        }
         BigDecimal balanceBefore = quota.getBalance();
         BigDecimal balanceAfter = balanceBefore.add(amount);
         
@@ -84,8 +112,9 @@ public class UserQuotaService {
         userQuotaMapper.updateById(quota);
         
         // 记录交易历史
-        createTransaction(userId, "RECHARGE", amount, balanceBefore, balanceAfter, 
-                         operatorId, "ADMIN", null, remark);
+        createTransaction(userId, "RECHARGE", amount, balanceBefore, balanceAfter,
+                         operatorId, "ADMIN", null, remark, idempotencyKey);
+        return quota;
     }
 
     /**
@@ -96,7 +125,8 @@ public class UserQuotaService {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
         }
-        
+
+        requireUserRoleForUpdate(userId);
         UserQuota quota = getUserQuotaWithLock(userId);
         BigDecimal balanceBefore = quota.getBalance();
         
@@ -113,20 +143,27 @@ public class UserQuotaService {
         userQuotaMapper.updateById(quota);
         
         // 记录交易历史
-        createTransaction(userId, "DEDUCT", amount.negate(), balanceBefore, balanceAfter, 
-                         null, "SYSTEM", invoiceId, "开票扣除");
+        createTransaction(userId, "DEDUCT", amount.negate(), balanceBefore, balanceAfter,
+                         null, "SYSTEM", invoiceId, "开票扣除", null);
     }
 
     /**
      * 调整额度（管理员手动增减）
      */
     @Transactional
-    public void adjustQuota(Long userId, BigDecimal amount, Long operatorId, String remark) {
+    public UserQuota adjustQuota(Long userId, BigDecimal amount, Long operatorId, String remark,
+                                 String idempotencyKey) {
         if (amount.compareTo(BigDecimal.ZERO) == 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "调整金额不能为0");
         }
-        
-        UserQuota quota = getUserQuota(userId);
+
+        requireUserRoleForUpdate(userId);
+        UserQuota quota = getUserQuotaWithLock(userId);
+        UserQuotaTransaction existing = findByIdempotencyKey(userId, idempotencyKey);
+        if (existing != null) {
+            validateRepeatedOperation(existing, "ADJUST", amount, remark);
+            return quota;
+        }
         BigDecimal balanceBefore = quota.getBalance();
         BigDecimal balanceAfter = balanceBefore.add(amount);
         
@@ -146,24 +183,42 @@ public class UserQuotaService {
         userQuotaMapper.updateById(quota);
         
         // 记录交易历史
-        createTransaction(userId, "ADJUST", amount, balanceBefore, balanceAfter, 
-                         operatorId, "ADMIN", null, remark);
+        createTransaction(userId, "ADJUST", amount, balanceBefore, balanceAfter,
+                         operatorId, "ADMIN", null, remark, idempotencyKey);
+        return quota;
     }
 
     /**
      * 查询额度变更历史
      */
     public List<UserQuotaTransaction> getTransactionHistory(Long userId, String transactionType) {
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<UserQuotaTransaction> wrapper = 
-            new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
-        wrapper.eq("user_id", userId);
-        wrapper.orderByDesc("created_at");
-        
-        if (transactionType != null && !transactionType.isEmpty()) {
-            wrapper.eq("transaction_type", transactionType);
+        // Whitelist validation to reject unknown transaction types explicitly
+        // rather than silently returning an empty result.
+        if (transactionType != null && !transactionType.isBlank()) {
+            Set<String> validTypes = Set.of("RECHARGE", "DEDUCT", "ADJUST");
+            if (!validTypes.contains(transactionType)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, 40009, "无效的交易类型，只支持 RECHARGE、DEDUCT、ADJUST");
+            }
         }
-        
+        LambdaQueryWrapper<UserQuotaTransaction> wrapper = new LambdaQueryWrapper<UserQuotaTransaction>()
+                .eq(UserQuotaTransaction::getUserId, userId)
+                .eq(transactionType != null && !transactionType.isBlank(),
+                        UserQuotaTransaction::getTransactionType, transactionType)
+                .orderByDesc(UserQuotaTransaction::getCreatedAt);
         return userQuotaTransactionMapper.selectList(wrapper);
+    }
+
+    /**
+     * 管理员查看额度时只允许操作普通用户，避免通过隐藏前端按钮绕过业务边界。
+     */
+    public UserQuota getAdminUserQuota(Long userId) {
+        requireUserRole(userId);
+        return getUserQuota(userId);
+    }
+
+    public List<UserQuotaTransaction> getAdminTransactionHistory(Long userId, String transactionType) {
+        requireUserRole(userId);
+        return getTransactionHistory(userId, transactionType);
     }
 
     /**
@@ -177,7 +232,15 @@ public class UserQuotaService {
         );
         
         if (quota == null) {
-            quota = createInitialQuota(userId);
+            try {
+                quota = createInitialQuota(userId);
+            } catch (DuplicateKeyException exception) {
+                quota = userQuotaMapper.selectOne(
+                        new LambdaQueryWrapper<UserQuota>()
+                                .eq(UserQuota::getUserId, userId)
+                                .last("FOR UPDATE")
+                );
+            }
         }
         
         return quota;
@@ -210,10 +273,12 @@ public class UserQuotaService {
      */
     private void createTransaction(Long userId, String transactionType, BigDecimal amount,
                                    BigDecimal balanceBefore, BigDecimal balanceAfter,
-                                   Long operatorId, String operatorType, Long invoiceId, String remark) {
+                                   Long operatorId, String operatorType, Long invoiceId, String remark,
+                                   String idempotencyKey) {
         UserQuotaTransaction transaction = new UserQuotaTransaction();
         transaction.setUserId(userId);
         transaction.setTransactionType(transactionType);
+        transaction.setIdempotencyKey(idempotencyKey);
         transaction.setAmount(amount);
         transaction.setBalanceBefore(balanceBefore);
         transaction.setBalanceAfter(balanceAfter);
@@ -224,5 +289,54 @@ public class UserQuotaService {
         transaction.setCreatedAt(LocalDateTime.now());
         
         userQuotaTransactionMapper.insert(transaction);
+    }
+
+    private UserQuotaTransaction findByIdempotencyKey(Long userId, String idempotencyKey) {
+        return userQuotaTransactionMapper.selectOne(
+                new LambdaQueryWrapper<UserQuotaTransaction>()
+                        .eq(UserQuotaTransaction::getUserId, userId)
+                        .eq(UserQuotaTransaction::getIdempotencyKey, idempotencyKey)
+        );
+    }
+
+    private void validateRepeatedOperation(UserQuotaTransaction existing, String transactionType,
+                                           BigDecimal amount, String remark) {
+        boolean sameRequest = Objects.equals(existing.getTransactionType(), transactionType)
+                && existing.getAmount().compareTo(amount) == 0
+                && Objects.equals(normalizeRemark(existing.getRemark()), normalizeRemark(remark));
+        if (!sameRequest) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902,
+                    "Idempotency-Key 已用于其他额度操作");
+        }
+    }
+
+    private String normalizeRemark(String remark) {
+        if (remark == null) {
+            return null;
+        }
+        String normalized = remark.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private User requireUserRole(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40403, "用户不存在");
+        }
+        if (!"USER".equals(user.getRole())) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40904, "只有普通用户拥有额度");
+        }
+        return user;
+    }
+
+    private User requireUserRoleForUpdate(Long userId) {
+        User user = userMapper.selectByIdForUpdate(userId);
+        if (user == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40403, "用户不存在");
+        }
+        if (!"USER".equals(user.getRole())) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40904, "只有普通用户拥有额度");
+        }
+        return user;
     }
 }

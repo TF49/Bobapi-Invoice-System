@@ -7,6 +7,7 @@ import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AdminUsers from './AdminUsers.vue'
 import { userApi, type ManagedUser, type UserPage } from '@/api/user'
+import { quotaApi } from '@/api/quota'
 
 vi.mock('@/api/user', () => ({
   userApi: {
@@ -15,6 +16,15 @@ vi.mock('@/api/user', () => ({
     updateRole: vi.fn(),
     updateStatus: vi.fn(),
     resetPassword: vi.fn()
+  }
+}))
+
+vi.mock('@/api/quota', () => ({
+  quotaApi: {
+    getUserQuota: vi.fn(),
+    getUserTransactions: vi.fn(),
+    rechargeQuota: vi.fn(),
+    adjustQuota: vi.fn()
   }
 }))
 
@@ -35,7 +45,12 @@ const alice: ManagedUser = {
   enabled: true,
   createdAt: '2026-08-18T11:00:00',
   updatedAt: '2026-08-18T11:00:00',
-  self: false
+  self: false,
+  quota: {
+    balance: 100.5,
+    totalRecharged: 200,
+    totalDeducted: 99.5
+  }
 }
 
 const pageResult: UserPage = {
@@ -181,5 +196,35 @@ describe('AdminUsers', () => {
     expect(mockedApi.resetPassword).toHaveBeenCalledWith(1, 'newpass9')
     expect(localStorage.getItem('token')).toBeNull()
     expect(router.currentRoute.value.path).toBe('/login')
+  })
+
+  it('renders user quota details in table and opens quota dialog on click', async () => {
+    vi.mocked(quotaApi.getUserQuota).mockResolvedValue({
+      userId: 2,
+      balance: 100.5,
+      totalRecharged: 200,
+      totalDeducted: 99.5
+    })
+    vi.mocked(quotaApi.getUserTransactions).mockResolvedValue([])
+
+    const page = await mountPage()
+
+    // 普通用户 alice 展示具体额度
+    expect(page.text()).toContain('¥100.50')
+    expect(page.text()).toContain('充值 ¥200.00')
+    expect(page.text()).toContain('扣除 ¥99.50')
+
+    // 管理员 admin 不展示额度（role 非 USER 时渲染 "-"）
+    const quotaCells = page.findAll('.quota-cell')
+    expect(quotaCells).toHaveLength(1) // 只有 alice 一行有 .quota-cell
+
+    // 点击管理按钮触发打开额度弹窗
+    const manageBtn = page.find('.quota-manage-btn')
+    expect(manageBtn.exists()).toBe(true)
+    await manageBtn.trigger('click')
+    await flushPromises()
+
+    expect(quotaApi.getUserQuota).toHaveBeenCalledWith(2)
+    expect(quotaApi.getUserTransactions).toHaveBeenCalledWith(2)
   })
 })

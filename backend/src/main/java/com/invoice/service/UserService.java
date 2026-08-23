@@ -93,9 +93,29 @@ public class UserService {
         wrapper.orderByDesc(User::getCreatedAt).orderByDesc(User::getId);
 
         Page<User> result = userMapper.selectPage(Page.of(page, pageSize), wrapper);
-        List<AdminUserResponse> users = result.getRecords().stream()
-                .map(user -> AdminUserResponse.from(user, currentUserId))
+
+        // Batch-fetch quotas for USER-role accounts to avoid N+1 queries
+        List<Long> userRoleIds = result.getRecords().stream()
+                .filter(u -> "USER".equals(u.getRole()))
+                .map(User::getId)
                 .toList();
+
+        java.util.Map<Long, com.invoice.entity.UserQuota> quotaMap = java.util.Collections.emptyMap();
+        if (!userRoleIds.isEmpty()) {
+            quotaMap = userQuotaService.getQuotasByUserIds(userRoleIds).stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            com.invoice.entity.UserQuota::getUserId,
+                            q -> q
+                    ));
+        }
+
+        final java.util.Map<Long, com.invoice.entity.UserQuota> finalQuotaMap = quotaMap;
+        List<AdminUserResponse> users = result.getRecords().stream()
+                .map(user -> "USER".equals(user.getRole())
+                        ? AdminUserResponse.from(user, currentUserId, finalQuotaMap.get(user.getId()))
+                        : AdminUserResponse.from(user, currentUserId))
+                .toList();
+
         return new AdminUserPageResponse(
                 users,
                 result.getTotal(),
@@ -106,8 +126,16 @@ public class UserService {
         );
     }
 
+
     public AdminUserResponse createAdminUser(String username, String password, String role, Long currentUserId) {
-        return AdminUserResponse.from(createUser(username, password, role), currentUserId);
+        User user = createUser(username, password, role);
+        // Attach quota snapshot for USER-role accounts so the table row renders
+        // the correct balance immediately without waiting for a full page reload.
+        if ("USER".equals(role)) {
+            com.invoice.entity.UserQuota quota = userQuotaService.getUserQuota(user.getId());
+            return AdminUserResponse.from(user, currentUserId, quota);
+        }
+        return AdminUserResponse.from(user, currentUserId);
     }
 
     @Transactional
@@ -116,7 +144,7 @@ public class UserService {
         User target = requireUserForUpdate(targetUserId);
         rejectSelfRoleOrStatus(targetUserId, currentUserId);
         if (role.equals(target.getRole())) {
-            return AdminUserResponse.from(target, currentUserId);
+            return buildResponseWithQuota(target, currentUserId);
         }
         if ("ADMIN".equals(target.getRole()) && Boolean.TRUE.equals(target.getEnabled())
                 && enabledAdminIds.size() <= 1) {
@@ -126,7 +154,11 @@ public class UserService {
         target.setRole(role);
         target.setAuthVersion(nextAuthVersion(target));
         userMapper.updateById(target);
-        return AdminUserResponse.from(target, currentUserId);
+        // NOTE: When a USER is promoted to ADMIN/INVOICE_CLERK, their user_quota record
+        // is intentionally retained but becomes inaccessible via quota management endpoints
+        // (guarded by requireUserRole). This is by design — the quota data is preserved
+        // in case the role is later changed back to USER.
+        return buildResponseWithQuota(target, currentUserId);
     }
 
     @Transactional
@@ -135,7 +167,7 @@ public class UserService {
         User target = requireUserForUpdate(targetUserId);
         rejectSelfRoleOrStatus(targetUserId, currentUserId);
         if (Boolean.valueOf(enabled).equals(target.getEnabled())) {
-            return AdminUserResponse.from(target, currentUserId);
+            return buildResponseWithQuota(target, currentUserId);
         }
         if (!enabled && "ADMIN".equals(target.getRole()) && Boolean.TRUE.equals(target.getEnabled())
                 && enabledAdminIds.size() <= 1) {
@@ -145,7 +177,7 @@ public class UserService {
         target.setEnabled(enabled);
         target.setAuthVersion(nextAuthVersion(target));
         userMapper.updateById(target);
-        return AdminUserResponse.from(target, currentUserId);
+        return buildResponseWithQuota(target, currentUserId);
     }
 
     @Transactional
@@ -154,7 +186,19 @@ public class UserService {
         target.setPassword(passwordEncoder.encode(password));
         target.setAuthVersion(nextAuthVersion(target));
         userMapper.updateById(target);
-        return AdminUserResponse.from(target, currentUserId);
+        return buildResponseWithQuota(target, currentUserId);
+    }
+
+    /**
+     * Builds an AdminUserResponse that includes the quota snapshot for USER-role accounts.
+     * This ensures table rows always reflect the current balance without requiring a full reload.
+     */
+    private AdminUserResponse buildResponseWithQuota(User user, Long currentUserId) {
+        if ("USER".equals(user.getRole())) {
+            com.invoice.entity.UserQuota quota = userQuotaService.getUserQuota(user.getId());
+            return AdminUserResponse.from(user, currentUserId, quota);
+        }
+        return AdminUserResponse.from(user, currentUserId);
     }
     
     /**

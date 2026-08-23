@@ -29,7 +29,7 @@ const instance: AxiosInstance = axios.create({
 })
 
 instance.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token')
+  const token = localStorage.getItem('token') || sessionStorage.getItem('token')
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
   }
@@ -87,11 +87,12 @@ instance.interceptors.response.use(
 
     if (!error.response) {
       message = '网络错误，请检查服务是否启动'
-    } else if (status === 401 && localStorage.getItem('token')) {
+    } else if (status === 401 && (localStorage.getItem('token') || sessionStorage.getItem('token'))) {
       message = '登录已过期，请重新登录'
       localStorage.removeItem('token')
       localStorage.removeItem('username')
       localStorage.removeItem('role')
+      sessionStorage.removeItem('token')
       if (window.location.pathname !== '/login') {
         window.location.href = '/login'
       }

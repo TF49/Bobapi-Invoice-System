@@ -24,6 +24,11 @@ public class UserQuotaTransaction {
      * 交易类型：RECHARGE-充值，DEDUCT-扣除，ADJUST-调整
      */
     private String transactionType;
+
+    /**
+     * 管理员额度操作幂等键；系统扣除记录为空。
+     */
+    private String idempotencyKey;
     
     /**
      * 变更金额（正数表示增加，负数表示减少）

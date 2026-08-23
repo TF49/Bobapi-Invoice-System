@@ -92,7 +92,7 @@ class InvoiceServiceTest {
                 "示例公司",
                 "abcdefghijklmno",
                 new BigDecimal("100.0"),
-                null,
+                InvoiceService.FIXED_INVOICE_TYPE,
                 null
         );
 
@@ -110,10 +110,21 @@ class InvoiceServiceTest {
 
         assertThatThrownBy(() -> service.createInvoice(
                 8L, "12345678-1234-1234-1234-123456789012",
-                "另一家公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), null, null))
+                "另一家公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"),
+                InvoiceService.FIXED_INVOICE_TYPE, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting("code")
                 .isEqualTo(40902);
+    }
+
+    @Test
+    void rejectsNonFixedInvoiceType() {
+        assertThatThrownBy(() -> service.createInvoice(
+                8L, "12345678-1234-1234-1234-123456789012",
+                "示例公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), "咨询服务费", null))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("开票类型固定为" + InvoiceService.FIXED_INVOICE_TYPE);
+        verify(invoiceMapper, never()).insert(any(Invoice.class));
     }
 
     @Test
@@ -357,6 +368,7 @@ class InvoiceServiceTest {
         invoice.setCompanyName("示例公司");
         invoice.setTaxNumber("ABCDEFGHIJKLMNO");
         invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceType(InvoiceService.FIXED_INVOICE_TYPE);
         return invoice;
     }
 
@@ -367,6 +379,7 @@ class InvoiceServiceTest {
         item.setCompanyName(companyName);
         item.setTaxNumber(taxNumber);
         item.setAmount(amount);
+        item.setInvoiceType(InvoiceService.FIXED_INVOICE_TYPE);
         return item;
     }
 

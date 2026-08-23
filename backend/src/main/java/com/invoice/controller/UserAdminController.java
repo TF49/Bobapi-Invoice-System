@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -115,20 +116,26 @@ public class UserAdminController {
     public ApiResponse<UserQuotaResponse> rechargeQuota(
             @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
             @Valid @RequestBody AdminRechargeQuotaRequest request,
+            @RequestHeader("Idempotency-Key")
+            @Pattern(regexp = "^[A-Za-z0-9._:-]{16,64}$", message = "Idempotency-Key 格式不正确")
+            String idempotencyKey,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("quota", principal.userId(), 30, 42906, "额度管理操作过于频繁，请稍后再试");
-        userQuotaService.rechargeQuota(id, request.getAmount(), principal.userId(), request.getRemark());
-        return ApiResponse.success("充值成功", UserQuotaResponse.from(userQuotaService.getUserQuota(id)));
+        return ApiResponse.success("充值成功", UserQuotaResponse.from(
+                userQuotaService.rechargeQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey)));
     }
 
     @PutMapping("/{id}/quota/adjust")
     public ApiResponse<UserQuotaResponse> adjustQuota(
             @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
             @Valid @RequestBody AdminAdjustQuotaRequest request,
+            @RequestHeader("Idempotency-Key")
+            @Pattern(regexp = "^[A-Za-z0-9._:-]{16,64}$", message = "Idempotency-Key 格式不正确")
+            String idempotencyKey,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("quota", principal.userId(), 30, 42906, "额度管理操作过于频繁，请稍后再试");
-        userQuotaService.adjustQuota(id, request.getAmount(), principal.userId(), request.getRemark());
-        return ApiResponse.success("调整成功", UserQuotaResponse.from(userQuotaService.getUserQuota(id)));
+        return ApiResponse.success("调整成功", UserQuotaResponse.from(
+                userQuotaService.adjustQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey)));
     }
 
     @GetMapping("/{id}/quota")
@@ -136,7 +143,7 @@ public class UserAdminController {
             @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");
-        return ApiResponse.success(UserQuotaResponse.from(userQuotaService.getUserQuota(id)));
+        return ApiResponse.success(UserQuotaResponse.from(userQuotaService.getAdminUserQuota(id)));
     }
 
     @GetMapping("/{id}/quota/transactions")
@@ -145,7 +152,7 @@ public class UserAdminController {
             @RequestParam(required = false) String transactionType,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");
-        List<UserQuotaTransactionResponse> transactions = userQuotaService.getTransactionHistory(id, transactionType)
+        List<UserQuotaTransactionResponse> transactions = userQuotaService.getAdminTransactionHistory(id, transactionType)
                 .stream()
                 .map(UserQuotaTransactionResponse::from)
                 .collect(Collectors.toList());

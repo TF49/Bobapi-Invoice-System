@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.invoice.dto.AdminUserPageResponse;
 import com.invoice.dto.AdminUserResponse;
 import com.invoice.entity.User;
+import com.invoice.entity.UserQuota;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.UserMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -16,6 +17,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -67,6 +69,31 @@ class UserServiceTest {
         assertEquals("alice", response.users().get(0).username());
         assertTrue(!response.users().get(0).self());
         verify(userMapper).selectPage(any(Page.class), any(Wrapper.class));
+    }
+
+    @Test
+    void embedsBatchFetchedQuotaInUserListResponse() {
+        User user = user(2L, "alice", "USER", true, 0L);
+        Page<User> page = Page.of(1, 10);
+        page.setRecords(List.of(user));
+        page.setTotal(1);
+        UserQuota quota = new UserQuota();
+        quota.setUserId(2L);
+        quota.setBalance(new BigDecimal("100.50"));
+        quota.setTotalRecharged(new BigDecimal("200.00"));
+        quota.setTotalDeducted(new BigDecimal("99.50"));
+
+        when(userMapper.selectPage(any(Page.class), any(Wrapper.class))).thenReturn(page);
+        when(userQuotaService.getQuotasByUserIds(List.of(2L))).thenReturn(List.of(quota));
+        when(userMapper.selectCount(any())).thenReturn(1L, 1L, 0L, 0L, 0L);
+
+        AdminUserResponse response = userService.getAdminUsers(
+                1, 10, null, null, null, 99L).users().get(0);
+
+        assertEquals(new BigDecimal("100.50"), response.quota().balance());
+        assertEquals(new BigDecimal("200.00"), response.quota().totalRecharged());
+        assertEquals(new BigDecimal("99.50"), response.quota().totalDeducted());
+        verify(userQuotaService).getQuotasByUserIds(List.of(2L));
     }
 
     @Test

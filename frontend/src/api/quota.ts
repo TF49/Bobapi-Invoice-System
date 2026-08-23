@@ -57,12 +57,16 @@ export const quotaApi = {
   },
 
   // 管理员：充值额度
-  rechargeQuota(userId: number, data: RechargeQuotaRequest) {
-    return request.post<any, UserQuota>(`/users/admin/${userId}/quota/recharge`, data)
+  rechargeQuota(userId: number, data: RechargeQuotaRequest, idempotencyKey: string) {
+    return request.post<any, UserQuota>(`/users/admin/${userId}/quota/recharge`, data, {
+      headers: { 'Idempotency-Key': idempotencyKey }
+    })
   },
 
   // 管理员：调整额度
-  adjustQuota(userId: number, data: AdjustQuotaRequest) {
-    return request.put<any, UserQuota>(`/users/admin/${userId}/quota/adjust`, data)
+  adjustQuota(userId: number, data: AdjustQuotaRequest, idempotencyKey: string) {
+    return request.put<any, UserQuota>(`/users/admin/${userId}/quota/adjust`, data, {
+      headers: { 'Idempotency-Key': idempotencyKey }
+    })
   }
 }

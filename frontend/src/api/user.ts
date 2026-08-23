@@ -10,6 +10,11 @@ export interface ManagedUser {
   createdAt: string
   updatedAt: string
   self: boolean
+  quota?: {
+    balance: number
+    totalRecharged: number
+    totalDeducted: number
+  }
 }
 
 export interface UserStats {

@@ -58,6 +58,21 @@ export interface BatchInvoiceResponse {
   items: BatchInvoiceItemResult[]
 }
 
+export interface AiParseResponse {
+  companyName: string | null
+  taxNumber: string | null
+  amount: number | null
+  confidence: 'HIGH' | 'LOW'
+  hint: string | null
+}
+
+export interface AiVerifyRequest {
+  text: string
+  companyName: string | null
+  taxNumber: string | null
+  amount: number | null
+}
+
 export const invoiceApi = {
   // 用户创建发票申请
   createInvoice(data: InvoiceRequest, idempotencyKey: string) {
@@ -101,5 +116,17 @@ export const invoiceApi = {
     return request.post<any, BatchInvoiceResponse>('/invoices/batch', { items }, {
       headers: { 'Idempotency-Key': idempotencyKey }
     })
+  },
+
+  // AI 智能解析发票文本（第一阶段：提取）
+  parseInvoiceText(text: string) {
+    // AI provider 响应时间可能明显高于普通业务接口，使用独立超时。
+    return request.post<any, AiParseResponse>('/ai/parse-invoice', { text }, { timeout: 30000 })
+  },
+
+  // AI 二次核查发票文本（第二阶段：审核）
+  verifyInvoiceText(text: string, extracted: Omit<AiVerifyRequest, 'text'>) {
+    return request.post<any, AiParseResponse>('/ai/verify-invoice', { text, ...extracted }, { timeout: 30000 })
   }
 }
+

@@ -243,7 +243,79 @@
       width="520px"
       class="submit-invoice-dialog"
       destroy-on-close
+      @closed="resetAiParseState"
     >
+      <!-- AI 智能识别栏 -->
+      <div class="ai-parse-card" :class="{ 'is-open': aiParseExpanded }">
+        <div class="ai-parse-header" @click="aiStep === 'idle' && (aiParseExpanded = !aiParseExpanded)">
+          <div class="ai-parse-title">
+            <el-icon class="ai-sparkle-icon"><MagicStick /></el-icon>
+            <span>AI 智能识别自动填单</span>
+            <el-tag size="small" type="success" effect="plain" class="ai-tag">智能提取</el-tag>
+          </div>
+          <el-button link type="primary" size="small" class="ai-toggle-btn" :disabled="aiStep !== 'idle'">
+            {{ aiParseExpanded ? '收起' : '展开文本识别' }}
+          </el-button>
+        </div>
+
+        <div v-show="aiParseExpanded" class="ai-parse-body">
+          <p class="ai-parse-hint">直接粘贴包含发票的文本信息，AI 将自动识别公司名称、税号、开票金额：</p>
+          <el-input
+            v-model="aiRawText"
+            type="textarea"
+            :rows="3"
+            placeholder="例如：公司名称：北京某某科技有限公司，税号：91110108MA01XXXXXX，金额：1500.00元..."
+            maxlength="2000"
+            show-word-limit
+            :disabled="aiStep !== 'idle'"
+          />
+
+          <!-- 进度条（AI 处理中） -->
+          <div v-if="aiStep !== 'idle'" class="ai-progress-container">
+            <div class="ai-progress-steps">
+              <div class="ai-step-item" :class="aiStep === 'extracting' ? 'is-active' : 'is-done'">
+                <span class="ai-step-dot">
+                  <el-icon v-if="aiStep === 'extracting'" class="is-loading"><Loading /></el-icon>
+                  <el-icon v-else class="ai-step-check"><Check /></el-icon>
+                </span>
+                <span class="ai-step-label">AI 提取中</span>
+              </div>
+              <span class="ai-step-line" :class="{ 'is-active': aiStep === 'verifying' }"></span>
+              <div class="ai-step-item" :class="aiStep === 'verifying' ? 'is-active' : 'is-pending'">
+                <span class="ai-step-dot">
+                  <el-icon v-if="aiStep === 'verifying'" class="is-loading"><Loading /></el-icon>
+                  <span v-else class="ai-step-number">2</span>
+                </span>
+                <span class="ai-step-label">AI 审核中</span>
+              </div>
+            </div>
+            <el-progress
+              :percentage="Math.min(100, Math.max(0, Math.round(aiProgress)))"
+              :stroke-width="5"
+              :show-text="false"
+              color="#059669"
+              class="ai-progress-bar"
+            />
+          </div>
+
+          <!-- 操作按鈕（空闲时） -->
+          <div v-else class="ai-parse-actions">
+            <el-button size="small" :disabled="!aiRawText" @click="aiRawText = ''">
+              清空
+            </el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :icon="MagicStick"
+              :disabled="!aiRawText.trim()"
+              @click="handleAiParse"
+            >
+              识别并填充表单
+            </el-button>
+          </div>
+        </div>
+      </div>
+
       <el-form ref="formRef" :model="form" :rules="rules" label-position="top">
         <el-form-item label="公司名称" prop="companyName">
           <el-input v-model="form.companyName" :prefix-icon="OfficeBuilding" placeholder="请输入公司名称" />
@@ -328,6 +400,74 @@
       </div>
     </el-dialog>
 
+    <!-- AI 识别结果确认弹窗 -->
+    <el-dialog
+      v-model="aiConfirmVisible"
+      title="AI 识别结果确认"
+      width="420px"
+      class="ai-confirm-dialog"
+      :close-on-click-modal="false"
+      :append-to-body="true"
+    >
+      <div class="ai-confirm-body">
+        <div class="ai-confirm-intro">
+          <el-icon class="ai-confirm-sparkle"><MagicStick /></el-icon>
+          <span>AI 已完成二次核查，请确认以下信息无误后提交</span>
+        </div>
+        <dl class="ai-confirm-fields">
+          <div class="ai-confirm-row">
+            <dt>公司名称</dt>
+            <dd>{{ aiConfirmData?.companyName || '-' }}</dd>
+          </div>
+          <div class="ai-confirm-row">
+            <dt>税号</dt>
+            <dd class="ai-confirm-code">{{ aiConfirmData?.taxNumber || '-' }}</dd>
+          </div>
+          <div class="ai-confirm-row">
+            <dt>开票金额</dt>
+            <dd class="ai-confirm-money">{{ aiConfirmData?.amount != null ? formatCurrency(aiConfirmData.amount) : '-' }}</dd>
+          </div>
+          <div class="ai-confirm-row">
+            <dt>开票类型</dt>
+            <dd><el-tag size="small" type="info" effect="plain">技术服务费</el-tag></dd>
+          </div>
+          <div class="ai-confirm-row ai-confirm-quota-row">
+            <dt>预扣额度</dt>
+            <dd class="ai-confirm-quota-value">
+              {{ aiConfirmData?.amount != null ? formatCurrency(aiConfirmData.amount) : '-' }}
+              <el-tag
+                v-if="aiConfirmData?.amount != null && aiConfirmData.amount > quotaBalance"
+                type="danger"
+                size="small"
+                effect="dark"
+              >额度不足</el-tag>
+            </dd>
+          </div>
+        </dl>
+        <div
+          v-if="aiConfirmData?.amount != null && aiConfirmData.amount > quotaBalance"
+          class="ai-confirm-warning"
+        >
+          <el-icon><Warning /></el-icon>
+          当前可用额度 {{ formatCurrency(quotaBalance) }}，额度不足，请联系管理员充値后再提交
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="aiConfirmVisible = false">重新识别</el-button>
+          <el-button
+            type="primary"
+            :icon="Promotion"
+            :loading="submitting"
+            :disabled="aiConfirmData?.amount != null && aiConfirmData.amount > quotaBalance"
+            @click="handleAiConfirm"
+          >
+            确认并提交
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
     <!-- 批量导入弹窗 -->
     <InvoiceBatchImportDialog
       v-model="batchImportVisible"
@@ -340,6 +480,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import {
+  Check,
   CircleCheck,
   Clock,
   Coin,
@@ -347,6 +488,7 @@ import {
   Files,
   List,
   Loading,
+  MagicStick,
   OfficeBuilding,
   PictureRounded,
   Plus,
@@ -355,6 +497,7 @@ import {
   Tickets,
   Upload,
   Wallet,
+  Warning,
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
@@ -473,11 +616,159 @@ const loadQuota = async () => {
   }
 }
 
-// 提交申请弹窗状态
+// 提交申请弹窗与 AI 识别状态
 const submitDialogVisible = ref(false)
+const aiParseExpanded = ref(false)
+const aiRawText = ref('')
+const aiStep = ref<'idle' | 'extracting' | 'verifying'>('idle')
+const aiProgress = ref(0)
+const aiConfirmVisible = ref(false)
+const aiConfirmData = ref<{
+  companyName: string | null
+  taxNumber: string | null
+  amount: number | null
+  invoiceType: string
+} | null>(null)
+let rafId: number | null = null
+/** 当前动画的 resolve 函数，用于在 resetAiParseState 中翟时解封 Promise，防止异步函数永久挂起 */
+let currentAnimationResolver: (() => void) | null = null
+/** 会话 ID：每次 resetAiParseState 自增，防止诎期 API 响应在重置后弹出确认框 */
+let aiParseSessionId = 0
 
 const showSubmitDialog = () => {
   submitDialogVisible.value = true
+}
+
+const resetAiParseState = () => {
+  aiParseSessionId++                              // 使所有进行中的 handleAiParse 尽快退出
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
+  if (currentAnimationResolver) { currentAnimationResolver(); currentAnimationResolver = null } // 翟时解封成2 Promise
+  aiParseExpanded.value = false
+  aiRawText.value = ''
+  aiStep.value = 'idle'
+  aiProgress.value = 0
+  aiConfirmVisible.value = false
+  aiConfirmData.value = null
+}
+
+/** requestAnimationFrame 驱动的进度条平滑动画 */
+const animateProgress = (from: number, to: number, durationMs: number): Promise<void> => {
+  // 如果有正在进行的动画，先解封其 Promise（避免挂起）
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
+  if (currentAnimationResolver) { currentAnimationResolver(); currentAnimationResolver = null }
+  return new Promise(resolve => {
+    currentAnimationResolver = resolve
+    aiProgress.value = from
+    const startTime = Date.now()
+    const tick = () => {
+      const elapsed = Date.now() - startTime
+      const t = durationMs <= 0 ? 1 : Math.min(1, elapsed / durationMs)
+      aiProgress.value = from + (to - from) * t
+      if (t < 1) {
+        rafId = requestAnimationFrame(tick)
+      } else {
+        rafId = null
+        currentAnimationResolver = null
+        resolve()
+      }
+    }
+    rafId = requestAnimationFrame(tick)
+  })
+}
+
+const handleAiParse = async () => {
+  const text = aiRawText.value.trim()
+  if (!text) {
+    ElMessage.warning('请先输入或粘贴包含发票信息的文本')
+    return
+  }
+
+  const sessionId = aiParseSessionId // 捕获当前会话，用于检测是否被重置
+
+  aiStep.value = 'extracting'
+  aiProgress.value = 0
+
+  try {
+    // 第一阶段：提取（动画 0→45% 与 API 调用并行，取较慢者）
+    const [res1] = await Promise.all([
+      invoiceApi.parseInvoiceText(text),
+      animateProgress(0, 45, 1500)
+    ])
+    if (aiParseSessionId !== sessionId) return // 弹窗已关闭，丢弃结果
+
+    if (!res1.companyName && !res1.taxNumber && res1.amount === null) {
+      aiStep.value = 'idle'
+      aiProgress.value = 0
+      ElMessage.warning(res1.hint || '未能从文本中识别出发票相关信息，请手动填写')
+      return
+    }
+
+    // 第二阶段：审核（动画 50→90% 与 API 调用并行）
+    aiStep.value = 'verifying'
+    aiProgress.value = 50
+
+    const [res2] = await Promise.all([
+      invoiceApi.verifyInvoiceText(text, {
+        companyName: res1.companyName,
+        taxNumber: res1.taxNumber,
+        amount: res1.amount !== null ? Number(res1.amount) : null
+      }),
+      animateProgress(50, 90, 1500)
+    ])
+    if (aiParseSessionId !== sessionId) return // 弹窗已关闭，丢弃结果
+
+    // 完成动画至 100%
+    await animateProgress(aiProgress.value, 100, 300)
+    if (aiParseSessionId !== sessionId) return
+    await new Promise<void>(r => setTimeout(r, 200))
+    if (aiParseSessionId !== sessionId) return
+
+    // 合并结果：优先使用审核结果，回退到提取结果
+    const companyName = res2.companyName || res1.companyName || null
+    const taxNumber   = res2.taxNumber   || res1.taxNumber   || null
+    const rawAmount   = res2.amount      ?? res1.amount
+    const amount = rawAmount !== null
+      ? (() => {
+          const n = Math.round(Number(rawAmount) * 100) / 100
+          return Number.isFinite(n) && n >= 0.01 ? n : null
+        })()
+      : null
+
+    aiStep.value = 'idle'
+    aiProgress.value = 0
+    aiConfirmData.value = { companyName, taxNumber, amount, invoiceType: '技术服务费' }
+    aiConfirmVisible.value = true
+
+  } catch (error: any) {
+    aiStep.value = 'idle'
+    if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
+    aiProgress.value = 0
+    console.error('AI 识别发票信息失败', error)
+    if (!(error instanceof ApiRequestError)) {
+      ElMessage.error(error.message || 'AI 识别失败，请稍后重试或手动输入')
+    }
+  }
+}
+
+/** 用户在确认弹窗中点击「确认并提交」 */
+const handleAiConfirm = async () => {
+  const data = aiConfirmData.value
+  if (!data) return
+
+  // 将核查结果填入表单
+  if (data.companyName) form.companyName = data.companyName.trim()
+  if (data.taxNumber)   form.taxNumber   = data.taxNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (data.amount !== null && Number.isFinite(data.amount) && data.amount >= 0.01) {
+    form.amount = data.amount
+  }
+  form.invoiceType = '技术服务费'
+
+  // 关闭确认弹窗并清理数据
+  aiConfirmVisible.value = false
+  aiConfirmData.value = null
+
+  // 直接触发提交
+  await handleSubmit()
 }
 
 const handleSubmit = async () => {
@@ -602,7 +893,10 @@ onMounted(() => {
   loadInvoices()
   loadQuota()
 })
-onBeforeUnmount(onPreviewClose)
+onBeforeUnmount(() => {
+  onPreviewClose()
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
+})
 </script>
 
 <style scoped>
@@ -784,6 +1078,262 @@ onBeforeUnmount(onPreviewClose)
 
 :global(.submit-invoice-dialog .el-dialog__body) {
   padding: 16px 24px 8px;
+}
+
+/* AI 智能识别卡片 */
+.ai-parse-card {
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, rgba(6, 95, 70, 0.06) 100%);
+  border: 1px dashed rgba(16, 185, 129, 0.35);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.ai-parse-card.is-open {
+  border-style: solid;
+  border-color: rgba(16, 185, 129, 0.5);
+  background: #f8fdfa;
+}
+
+.ai-parse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-parse-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #065f46;
+}
+
+.ai-sparkle-icon {
+  font-size: 15px;
+  color: #059669;
+}
+
+.ai-tag {
+  font-size: 11px;
+  height: 20px;
+  padding: 0 6px;
+}
+
+.ai-toggle-btn {
+  font-size: 12px;
+  padding: 0;
+}
+
+.ai-parse-body {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-parse-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted, #6b7280);
+  line-height: 1.4;
+}
+
+.ai-parse-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* AI 两阶段进度条 */
+.ai-progress-container {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.ai-progress-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  transition: color 0.25s;
+  white-space: nowrap;
+}
+
+.ai-step-item.is-active { color: #059669; }
+.ai-step-item.is-done   { color: #059669; opacity: 0.75; }
+
+.ai-step-dot {
+  display: grid;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  background: #f0faf6;
+  border: 1.5px solid #d0e9df;
+  border-radius: 50%;
+  font-size: 11px;
+  transition: all 0.25s;
+}
+
+.ai-step-item.is-active .ai-step-dot {
+  background: #059669;
+  border-color: #059669;
+  color: #fff;
+}
+
+.ai-step-item.is-done .ai-step-dot {
+  background: #d1fae5;
+  border-color: #6ee7b7;
+  color: #059669;
+}
+
+.ai-step-check { font-size: 11px; }
+
+.ai-step-number {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.ai-step-line {
+  flex: 1;
+  height: 1.5px;
+  background: #e0ede8;
+  border-radius: 1px;
+  transition: background 0.3s;
+}
+
+.ai-step-line.is-active { background: #059669; }
+
+.ai-progress-bar :deep(.el-progress-bar__outer) {
+  background: #e8f5f0;
+  border-radius: 99px;
+}
+
+/* AI 识别结果确认弹窗 */
+:global(.ai-confirm-dialog) {
+  max-width: 420px;
+}
+
+:global(.ai-confirm-dialog .el-dialog__body) {
+  padding: 4px 24px 16px;
+}
+
+.ai-confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ai-confirm-intro {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.06), rgba(6, 95, 70, 0.08));
+  border: 1px solid rgba(16, 185, 129, 0.2);
+  border-radius: 8px;
+  font-size: 13px;
+  color: #065f46;
+  line-height: 1.4;
+}
+
+.ai-confirm-sparkle {
+  font-size: 16px;
+  color: #059669;
+  flex-shrink: 0;
+}
+
+.ai-confirm-fields {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.ai-confirm-row {
+  display: grid;
+  grid-template-columns: 76px 1fr;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ai-confirm-row:last-child { border-bottom: none; }
+
+.ai-confirm-row dt {
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ai-confirm-row dd {
+  margin: 0;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.ai-confirm-code {
+  font-family: 'SFMono-Regular', Consolas, monospace !important;
+  font-size: 12px !important;
+  letter-spacing: 0.04em;
+}
+
+.ai-confirm-money {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: var(--color-text) !important;
+}
+
+.ai-confirm-quota-row {
+  background: linear-gradient(90deg, #f8fffe, #f0faf7);
+}
+
+.ai-confirm-quota-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  color: #059669 !important;
+}
+
+.ai-confirm-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 14px;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #dc2626;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.ai-confirm-warning .el-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 .dialog-footer {

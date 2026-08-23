@@ -5,6 +5,8 @@
 
 import * as XLSX from 'xlsx';
 
+export const FIXED_INVOICE_TYPE = '技术服务费';
+
 export interface ParsedInvoiceRow {
   rowNumber: number;       // 原始文件行号（从2开始，第1行是表头）
   companyName: string;     // 公司名称
@@ -269,6 +271,9 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
   // 开票类型校验
   if (!row.invoiceType) {
     return '开票类型不能为空';
+  }
+  if (row.invoiceType !== FIXED_INVOICE_TYPE) {
+    return `开票类型固定为${FIXED_INVOICE_TYPE}`;
   }
   if (row.invoiceType.length > 100) {
     return '开票类型不能超过 100 个字符';

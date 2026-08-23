@@ -110,6 +110,16 @@ class UserAdminControllerTest {
     }
 
     @Test
+    void requiresIdempotencyKeyForQuotaWrites() throws Exception {
+        mockMvc.perform(post("/users/admin/2/quota/recharge")
+                        .with(authentication(auth("ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"amount\":100.00}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001));
+    }
+
+    @Test
     void mapsMissingUserAndLastAdminConflict() throws Exception {
         when(userService.updateRole(404L, "USER", 1L))
                 .thenThrow(new BusinessException(HttpStatus.NOT_FOUND, 40403, "用户不存在"));
