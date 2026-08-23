@@ -639,6 +639,8 @@ const openQuotaDialog = async (user: ManagedUser) => {
     if (requestId !== quotaDialogRequestId || quotaTarget.value?.id !== user.id) return
     quotaInfo.value = userQuota
     quotaTransactions.value = transactions
+    const row = users.value.find(u => u.id === user.id)
+    if (row) row.quota = { ...userQuota }
     quotaDialogVisible.value = true
   } catch (error) {
     if (requestId !== quotaDialogRequestId) return

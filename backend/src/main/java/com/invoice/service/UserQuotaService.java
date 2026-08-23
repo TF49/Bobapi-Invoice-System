@@ -43,6 +43,9 @@ public class UserQuotaService {
     /**
      * 获取用户当前额度
      */
+    /**
+     * 获取用户当前额度
+     */
     public UserQuota getUserQuota(Long userId) {
         UserQuota quota = userQuotaMapper.selectOne(
             new LambdaQueryWrapper<UserQuota>()
@@ -52,6 +55,8 @@ public class UserQuotaService {
         if (quota == null) {
             // 如果用户没有额度记录，创建初始记录
             quota = createInitialQuota(userId);
+        } else {
+            quota = syncQuotaFromTransactions(userId, quota);
         }
         
         return quota;
@@ -59,15 +64,46 @@ public class UserQuotaService {
 
     /**
      * 批量获取多个用户的额度（用于列表页展示，避免 N+1 查询）
+     * 自动为缺失额度记录的用户补全初始记录，并同步历史交易数据。
      */
     public List<UserQuota> getQuotasByUserIds(List<Long> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return List.of();
         }
-        return userQuotaMapper.selectList(
+        List<UserQuota> existingQuotas = userQuotaMapper.selectList(
             new LambdaQueryWrapper<UserQuota>()
                 .in(UserQuota::getUserId, userIds)
         );
+
+        java.util.Map<Long, UserQuota> quotaMap = new java.util.HashMap<>();
+        for (UserQuota q : existingQuotas) {
+            if (q != null && q.getUserId() != null) {
+                quotaMap.merge(q.getUserId(), q, (q1, q2) ->
+                    (q2.getId() != null && q1.getId() != null && q2.getId() > q1.getId()) ? q2 : q1
+                );
+            }
+        }
+
+        List<UserQuota> result = new java.util.ArrayList<>();
+        for (Long userId : userIds) {
+            UserQuota quota = quotaMap.get(userId);
+            if (quota == null) {
+                try {
+                    quota = createInitialQuota(userId);
+                } catch (DuplicateKeyException exception) {
+                    quota = userQuotaMapper.selectOne(
+                        new LambdaQueryWrapper<UserQuota>()
+                            .eq(UserQuota::getUserId, userId)
+                    );
+                }
+            } else {
+                quota = syncQuotaFromTransactions(userId, quota);
+            }
+            if (quota != null) {
+                result.add(quota);
+            }
+        }
+        return result;
     }
 
     /**
@@ -84,6 +120,69 @@ public class UserQuotaService {
         quota.setUpdatedAt(LocalDateTime.now());
         
         userQuotaMapper.insert(quota);
+        return syncQuotaFromTransactions(userId, quota);
+    }
+
+    /**
+     * 检查并根据交易历史恢复/同步额度信息（容错防不一致）
+     */
+    private UserQuota syncQuotaFromTransactions(Long userId, UserQuota quota) {
+        if (userId == null || quota == null) {
+            return quota;
+        }
+        List<UserQuotaTransaction> transactions = userQuotaTransactionMapper.selectList(
+            new LambdaQueryWrapper<UserQuotaTransaction>()
+                .eq(UserQuotaTransaction::getUserId, userId)
+                .orderByAsc(UserQuotaTransaction::getId)
+        );
+        if (transactions == null || transactions.isEmpty()) {
+            return quota;
+        }
+
+        BigDecimal totalRecharged = BigDecimal.ZERO;
+        BigDecimal totalDeducted = BigDecimal.ZERO;
+
+        for (UserQuotaTransaction tx : transactions) {
+            if (tx.getAmount() == null) continue;
+            String type = tx.getTransactionType();
+            BigDecimal amount = tx.getAmount();
+            if ("RECHARGE".equals(type)) {
+                totalRecharged = totalRecharged.add(amount);
+            } else if ("DEDUCT".equals(type)) {
+                totalDeducted = totalDeducted.add(amount.abs());
+            } else if ("ADJUST".equals(type)) {
+                if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                    totalRecharged = totalRecharged.add(amount);
+                } else {
+                    totalDeducted = totalDeducted.add(amount.abs());
+                }
+            }
+        }
+
+        UserQuotaTransaction latestTx = transactions.get(transactions.size() - 1);
+        BigDecimal expectedBalance = latestTx.getBalanceAfter() != null
+                ? latestTx.getBalanceAfter()
+                : totalRecharged.subtract(totalDeducted);
+
+        boolean updated = false;
+        if (quota.getBalance() == null || quota.getBalance().compareTo(expectedBalance) != 0) {
+            quota.setBalance(expectedBalance);
+            updated = true;
+        }
+        if (quota.getTotalRecharged() == null || quota.getTotalRecharged().compareTo(totalRecharged) != 0) {
+            quota.setTotalRecharged(totalRecharged);
+            updated = true;
+        }
+        if (quota.getTotalDeducted() == null || quota.getTotalDeducted().compareTo(totalDeducted) != 0) {
+            quota.setTotalDeducted(totalDeducted);
+            updated = true;
+        }
+
+        if (updated) {
+            quota.setUpdatedAt(LocalDateTime.now());
+            userQuotaMapper.updateById(quota);
+        }
+
         return quota;
     }
 
@@ -241,6 +340,8 @@ public class UserQuotaService {
                                 .last("FOR UPDATE")
                 );
             }
+        } else {
+            quota = syncQuotaFromTransactions(userId, quota);
         }
         
         return quota;

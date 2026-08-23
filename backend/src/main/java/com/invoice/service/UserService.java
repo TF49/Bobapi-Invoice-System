@@ -105,7 +105,8 @@ public class UserService {
             quotaMap = userQuotaService.getQuotasByUserIds(userRoleIds).stream()
                     .collect(java.util.stream.Collectors.toMap(
                             com.invoice.entity.UserQuota::getUserId,
-                            q -> q
+                            q -> q,
+                            (q1, q2) -> q2
                     ));
         }
 

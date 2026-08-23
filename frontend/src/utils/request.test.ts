@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { describe, expect, it } from 'vitest'
 import type { AxiosResponse } from 'axios'
 import { normalizeResponse, parseErrorPayload, type ApiEnvelope } from './request'

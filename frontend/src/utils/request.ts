@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 import type { AxiosInstance, AxiosResponse } from 'axios'
+import router from '@/router'
 
 export interface ApiEnvelope<T> {
   code: number
@@ -93,8 +94,8 @@ instance.interceptors.response.use(
       localStorage.removeItem('username')
       localStorage.removeItem('role')
       sessionStorage.removeItem('token')
-      if (window.location.pathname !== '/login') {
-        window.location.href = '/login'
+      if (router.currentRoute.value.path !== '/login') {
+        router.push('/login')
       }
     }
 

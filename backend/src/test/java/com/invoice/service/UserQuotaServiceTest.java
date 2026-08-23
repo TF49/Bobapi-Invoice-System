@@ -116,6 +116,24 @@ class UserQuotaServiceTest {
         verify(userQuotaMapper).updateById(quota);
     }
 
+    @Test
+    void autoCreatesMissingQuotaRecordsAndSyncsFromTransactionsInBatchQuery() {
+        UserQuotaTransaction tx = transaction("RECHARGE", "10000.00", "充值", "key-1");
+        tx.setBalanceBefore(BigDecimal.ZERO);
+        tx.setBalanceAfter(new BigDecimal("10000.00"));
+
+        when(userQuotaMapper.selectList(any())).thenReturn(java.util.List.of());
+        when(transactionMapper.selectList(any())).thenReturn(java.util.List.of(tx));
+
+        java.util.List<UserQuota> quotas = service.getQuotasByUserIds(java.util.List.of(2L));
+
+        assertEquals(1, quotas.size());
+        assertEquals(2L, quotas.get(0).getUserId());
+        assertEquals(new BigDecimal("10000.00"), quotas.get(0).getBalance());
+        assertEquals(new BigDecimal("10000.00"), quotas.get(0).getTotalRecharged());
+        verify(userQuotaMapper).insert(any(UserQuota.class));
+    }
+
     private UserQuota quota(String balance) {
         UserQuota quota = new UserQuota();
         quota.setId(7L);
