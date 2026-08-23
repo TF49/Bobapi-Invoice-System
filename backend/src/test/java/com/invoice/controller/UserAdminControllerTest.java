@@ -71,7 +71,7 @@ class UserAdminControllerTest {
                 .thenReturn(new RateLimitService.RateLimitResult(true, 0));
         when(userService.getAdminUsers(anyInt(), anyInt(), any(), any(), any(), anyLong()))
                 .thenReturn(new AdminUserPageResponse(
-                        List.of(), 0, 1, 10, 0, new AdminUserStats(0, 0, 0, 0)));
+                        List.of(), 0, 1, 10, 0, new AdminUserStats(0, 0, 0, 0, 0)));
     }
 
     @Test

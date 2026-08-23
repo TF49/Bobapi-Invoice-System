@@ -37,9 +37,7 @@ class JwtAuthenticationFilterTest {
         ReflectionTestUtils.setField(jwtUtil, "expiration", 60_000L);
         ReflectionTestUtils.setField(jwtUtil, "rememberMeExpiration", 60_000L);
 
-        filter = new JwtAuthenticationFilter();
-        ReflectionTestUtils.setField(filter, "jwtUtil", jwtUtil);
-        ReflectionTestUtils.setField(filter, "userMapper", userMapper);
+        filter = new JwtAuthenticationFilter(jwtUtil, userMapper);
     }
 
     @AfterEach

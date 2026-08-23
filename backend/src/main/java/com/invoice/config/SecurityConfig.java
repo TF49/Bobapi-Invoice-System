@@ -52,7 +52,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/auth/**").permitAll()
                 .requestMatchers("/doc.html", "/webjars/**", "/v3/api-docs/**", "/swagger-resources/**").permitAll()
-                .requestMatchers("/invoices/admin/**").hasRole("ADMIN")
+                .requestMatchers("/invoices/admin/dashboard").hasRole("ADMIN")
+                .requestMatchers("/invoices/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
                 .requestMatchers("/users/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
@@ -75,7 +76,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOrigins(allowedOrigins);
+        if (allowedOrigins.contains("*")) {
+            configuration.setAllowedOriginPatterns(List.of("*"));
+        } else {
+            configuration.setAllowedOrigins(allowedOrigins);
+        }
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setAllowCredentials(true);

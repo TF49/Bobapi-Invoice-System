@@ -63,7 +63,7 @@ public class UserAdminController {
             @Max(value = 100, message = "每页最多查询 100 条") int pageSize,
             @RequestParam(required = false) @Size(max = 50, message = "搜索关键词不能超过 50 个字符") String keyword,
             @RequestParam(required = false)
-            @Pattern(regexp = "^(USER|ADMIN)$", message = "角色只能是 USER 或 ADMIN") String role,
+            @Pattern(regexp = "^(USER|INVOICE_CLERK|ADMIN)$", message = "角色只能是 USER、INVOICE_CLERK 或 ADMIN") String role,
             @RequestParam(required = false) Boolean enabled,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");

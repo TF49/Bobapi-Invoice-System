@@ -17,6 +17,7 @@ public record InvoiceResponse(
         String remark,
         String status,
         Long userId,
+        String username,
         LocalDateTime createdAt,
         LocalDateTime updatedAt,
         boolean downloadable,
@@ -24,24 +25,14 @@ public record InvoiceResponse(
         String fileName
 ) {
     public static InvoiceResponse from(Invoice invoice) {
-        return new InvoiceResponse(
-                invoice.getId(),
-                invoice.getCompanyName(),
-                invoice.getTaxNumber(),
-                invoice.getAmount(),
-                invoice.getInvoiceType(),
-                invoice.getRemark(),
-                invoice.getStatus(),
-                invoice.getUserId(),
-                invoice.getCreatedAt(),
-                invoice.getUpdatedAt(),
-                false,
-                false,
-                invoice.getFileName()
-        );
+        return from(invoice, null, null);
     }
 
     public static InvoiceResponse from(Invoice invoice, Path uploadRoot) {
+        return from(invoice, uploadRoot, null);
+    }
+
+    public static InvoiceResponse from(Invoice invoice, Path uploadRoot, String username) {
         boolean exists = false;
         if (invoice.getFilePath() != null && uploadRoot != null) {
             Path normalizedRoot = uploadRoot.toAbsolutePath().normalize();
@@ -58,6 +49,7 @@ public record InvoiceResponse(
                 invoice.getRemark(),
                 invoice.getStatus(),
                 invoice.getUserId(),
+                username,
                 invoice.getCreatedAt(),
                 invoice.getUpdatedAt(),
                 downloadable,

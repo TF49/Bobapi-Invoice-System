@@ -12,8 +12,8 @@ import jakarta.validation.constraints.Pattern;
 public class RegisterRequest {
     
     @NotBlank(message = "用户名不能为空")
-    @Size(min = 3, max = 20, message = "用户名长度必须在 3-20 位之间")
-    @Pattern(regexp = "^[A-Za-z0-9_]+$", message = "用户名只能包含字母、数字和下划线")
+    @Size(min = 2, max = 20, message = "用户名长度必须在 2-20 位之间")
+    @Pattern(regexp = "^[\\u4e00-\\u9fa5A-Za-z0-9_]+$", message = "用户名只能包含汉字、字母、数字和下划线")
     private String username;
     
     @NotBlank(message = "密码不能为空")

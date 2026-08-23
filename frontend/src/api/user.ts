@@ -1,6 +1,6 @@
 import request from '@/utils/request'
 
-export type UserRole = 'USER' | 'ADMIN'
+export type UserRole = 'USER' | 'INVOICE_CLERK' | 'ADMIN'
 
 export interface ManagedUser {
   id: number
@@ -17,6 +17,7 @@ export interface UserStats {
   enabledUsers: number
   disabledUsers: number
   adminUsers: number
+  clerkUsers: number
 }
 
 export interface UserPage {

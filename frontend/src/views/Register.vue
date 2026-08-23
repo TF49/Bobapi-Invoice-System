@@ -2,7 +2,7 @@
   <AuthShell eyebrow="新建帐号" title="创建您的账号" subtitle="注册完成后即可进入个人发票工作台。">
     <el-form ref="formRef" :model="form" :rules="rules" label-position="top" @submit.prevent="handleRegister">
       <el-form-item label="用户名" prop="username">
-        <el-input v-model="form.username" :prefix-icon="User" placeholder="3-20 位字母、数字或下划线" autocomplete="username" />
+        <el-input v-model="form.username" :prefix-icon="User" placeholder="2-20 位汉字、字母、数字或下划线" autocomplete="username" />
       </el-form-item>
       <el-form-item label="密码" prop="password">
         <el-input
@@ -68,8 +68,8 @@ const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
 const rules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度必须在 3-20 位之间', trigger: 'blur' },
-    { pattern: /^[A-Za-z0-9_]+$/, message: '用户名只能包含字母、数字和下划线', trigger: 'blur' }
+    { min: 2, max: 20, message: '用户名长度必须在 2-20 位之间', trigger: 'blur' },
+    { pattern: /^[\u4e00-\u9fa5A-Za-z0-9_]+$/, message: '用户名只能包含汉字、字母、数字和下划线', trigger: 'blur' }
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },

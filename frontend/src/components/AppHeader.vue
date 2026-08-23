@@ -21,6 +21,12 @@
         <span>用户管理</span>
       </router-link>
     </nav>
+    <nav v-else-if="userStore.role === 'INVOICE_CLERK'" class="admin-nav" aria-label="开票员功能导航">
+      <router-link to="/admin" exact-active-class="is-active">
+        <Files />
+        <span>发票管理</span>
+      </router-link>
+    </nav>
     <nav v-else class="user-nav" aria-label="用户功能导航">
       <router-link to="/user" exact-active-class="is-active">
         <Files />
@@ -55,7 +61,11 @@ defineProps<{ title: string }>()
 
 const router = useRouter()
 const userStore = useUserStore()
-const roleLabel = computed(() => userStore.role === 'ADMIN' ? '管理员' : '普通用户')
+const roleLabel = computed(() => {
+  if (userStore.role === 'ADMIN') return '管理员'
+  if (userStore.role === 'INVOICE_CLERK') return '开票员'
+  return '普通用户'
+})
 const userInitial = computed(() => userStore.username.trim().slice(0, 1).toUpperCase() || 'U')
 
 const handleLogout = async () => {

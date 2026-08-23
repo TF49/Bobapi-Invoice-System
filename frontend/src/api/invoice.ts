@@ -10,6 +10,7 @@ export interface Invoice {
   remark?: string
   status: string
   userId: number
+  username?: string
   createdAt: string
   updatedAt: string
   downloadable: boolean

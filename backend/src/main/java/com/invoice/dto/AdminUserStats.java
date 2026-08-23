@@ -4,6 +4,7 @@ public record AdminUserStats(
         long totalUsers,
         long enabledUsers,
         long disabledUsers,
-        long adminUsers
+        long adminUsers,
+        long clerkUsers
 ) {
 }

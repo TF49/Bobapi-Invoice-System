@@ -51,8 +51,8 @@ const form = reactive({
 const rules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度必须在 3-20 位之间', trigger: 'blur' },
-    { pattern: /^[A-Za-z0-9_]+$/, message: '用户名只能包含字母、数字和下划线', trigger: 'blur' }
+    { min: 2, max: 20, message: '用户名长度必须在 2-20 位之间', trigger: 'blur' },
+    { pattern: /^[\u4e00-\u9fa5A-Za-z0-9_]+$/, message: '用户名只能包含汉字、字母、数字和下划线', trigger: 'blur' }
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
@@ -69,9 +69,14 @@ const handleLogin = async () => {
     const response = await authApi.login(form)
     // 先写 role，再写 token，确保路由守卫触发时 role 已存在
     userStore.setUser({ username: response.username, role: response.role })
-    userStore.setToken(response.token)
+    userStore.setToken(response.token, form.rememberMe)
     ElMessage.success('登录成功')
-    router.push(response.role === 'ADMIN' ? '/admin' : '/user')
+    // 根据角色重定向到对应页面
+    if (response.role === 'ADMIN' || response.role === 'INVOICE_CLERK') {
+      router.push('/admin')
+    } else {
+      router.push('/user')
+    }
   } catch {
     // 错误提示由请求拦截器统一处理
   } finally {

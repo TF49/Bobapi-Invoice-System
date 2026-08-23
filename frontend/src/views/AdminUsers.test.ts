@@ -44,7 +44,7 @@ const pageResult: UserPage = {
   page: 1,
   pageSize: 10,
   totalPages: 3,
-  stats: { totalUsers: 25, enabledUsers: 23, disabledUsers: 2, adminUsers: 2 }
+  stats: { totalUsers: 25, enabledUsers: 23, disabledUsers: 2, adminUsers: 2, clerkUsers: 1 }
 }
 
 const mockedApi = vi.mocked(userApi)

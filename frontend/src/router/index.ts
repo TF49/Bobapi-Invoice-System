@@ -28,7 +28,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin',
     name: 'Admin',
     component: () => import('@/views/AdminInvoice.vue'),
-    meta: { requiresAuth: true, role: 'ADMIN' }
+    meta: { requiresAuth: true, role: ['ADMIN', 'INVOICE_CLERK'] }
   },
   {
     path: '/admin/users',
@@ -59,7 +59,7 @@ router.beforeEach((to, _from, next) => {
   const userRole = localStorage.getItem('role')
 
   // 只有当 role 确实存在且为非法值时才清除 token，避免 role 尚未写入时误删
-  if (token && userRole && !['USER', 'ADMIN'].includes(userRole)) {
+  if (token && userRole && !['USER', 'ADMIN', 'INVOICE_CLERK'].includes(userRole)) {
     localStorage.removeItem('token')
     localStorage.removeItem('username')
     localStorage.removeItem('role')
@@ -70,14 +70,30 @@ router.beforeEach((to, _from, next) => {
   if (to.meta.requiresAuth) {
     if (!token) {
       next('/login')
-    } else if (to.meta.role && to.meta.role !== userRole) {
-      next(userRole === 'ADMIN' ? '/admin' : '/user')
+    } else if (to.meta.role) {
+      const allowedRoles = Array.isArray(to.meta.role) ? to.meta.role : [to.meta.role]
+      if (!allowedRoles.includes(userRole)) {
+        // 根据角色重定向到对应页面
+        if (userRole === 'ADMIN') {
+          next('/admin')
+        } else if (userRole === 'INVOICE_CLERK') {
+          next('/admin')
+        } else {
+          next('/user')
+        }
+      } else {
+        next()
+      }
     } else {
       next()
     }
   } else {
     if (token && (to.path === '/login' || to.path === '/register')) {
-      next(userRole === 'ADMIN' ? '/admin' : '/user')
+      if (userRole === 'ADMIN' || userRole === 'INVOICE_CLERK') {
+        next('/admin')
+      } else {
+        next('/user')
+      }
     } else {
       next()
     }

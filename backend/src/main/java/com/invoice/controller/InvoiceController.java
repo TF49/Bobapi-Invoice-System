@@ -148,8 +148,9 @@ public class InvoiceController {
             @AuthenticationPrincipal JwtUserPrincipal principal,
             HttpServletRequest request) {
         enforceFileReadLimits(id, principal.userId(), WebUtils.extractClientIp(request));
+        boolean isAdminOrClerk = "ADMIN".equals(principal.role()) || "INVOICE_CLERK".equals(principal.role());
         InvoiceService.InvoiceDownload download = invoiceService.previewInvoiceFile(
-                id, principal.userId(), "ADMIN".equals(principal.role()));
+                id, principal.userId(), isAdminOrClerk);
 
         ContentDisposition disposition = ContentDisposition.inline()
                 .filename(download.fileName(), StandardCharsets.UTF_8)
@@ -168,8 +169,9 @@ public class InvoiceController {
             @AuthenticationPrincipal JwtUserPrincipal principal,
             HttpServletRequest request) {
         enforceFileReadLimits(id, principal.userId(), WebUtils.extractClientIp(request));
+        boolean isAdminOrClerk = "ADMIN".equals(principal.role()) || "INVOICE_CLERK".equals(principal.role());
         InvoiceService.InvoiceDownload download = invoiceService.downloadInvoiceFile(
-                id, principal.userId(), "ADMIN".equals(principal.role()));
+                id, principal.userId(), isAdminOrClerk);
 
         ContentDisposition disposition = ContentDisposition.attachment()
                 .filename(download.fileName(), StandardCharsets.UTF_8)

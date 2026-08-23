@@ -47,6 +47,17 @@
             <p class="stat-note">拥有后台管理权限</p>
           </div>
         </SpotlightCard>
+
+        <SpotlightCard class="stat-card">
+          <div class="stat-card-content">
+            <span class="stat-icon neutral"><Tickets /></span>
+            <div class="stat-copy">
+              <span class="stat-label">开票员</span>
+              <strong class="stat-value"><CountUp :value="stats.clerkUsers" /></strong>
+            </div>
+            <p class="stat-note">负责发票处理</p>
+          </div>
+        </SpotlightCard>
       </AnimatedContent>
 
       <AnimatedContent tag="section" class="surface-panel" :delay="80">
@@ -81,6 +92,7 @@
           >
             <el-option label="全部角色" value="ALL" />
             <el-option label="普通用户" value="USER" />
+            <el-option label="开票员" value="INVOICE_CLERK" />
             <el-option label="管理员" value="ADMIN" />
           </el-select>
           <el-select
@@ -136,6 +148,7 @@
                       @change="(role: UserRole) => confirmRoleChange(row, role)"
                     >
                       <el-option label="普通用户" value="USER" />
+                      <el-option label="开票员" value="INVOICE_CLERK" />
                       <el-option label="管理员" value="ADMIN" />
                     </el-select>
                   </span>
@@ -163,6 +176,7 @@
             <el-table-column prop="quota" label="额度" width="120" align="center">
               <template #default="{ row }">
                 <el-button 
+                  v-if="row.role === 'USER'"
                   size="small" 
                   type="primary" 
                   link
@@ -170,6 +184,7 @@
                 >
                   管理额度
                 </el-button>
+                <span v-else style="color: var(--color-text-muted);">-</span>
               </template>
             </el-table-column>
             <el-table-column prop="createdAt" label="创建时间" width="172">
@@ -212,7 +227,7 @@
     <el-dialog v-model="createDialogVisible" title="创建用户" width="min(92vw, 460px)" destroy-on-close>
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="createForm.username" maxlength="20" autocomplete="off" placeholder="3-20 位字母、数字或下划线" />
+          <el-input v-model="createForm.username" maxlength="20" autocomplete="off" placeholder="2-20 位汉字、字母、数字或下划线" />
         </el-form-item>
         <el-form-item label="初始密码" prop="password">
           <el-input v-model="createForm.password" type="password" show-password maxlength="20" autocomplete="new-password" placeholder="6-20 位，必须包含字母和数字" />
@@ -342,6 +357,7 @@ import {
   Plus,
   RefreshRight,
   Search,
+  Tickets,
   User,
   UserFilled
 } from '@element-plus/icons-vue'
@@ -361,7 +377,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
 const users = ref<ManagedUser[]>([])
-const stats = ref<UserStats>({ totalUsers: 0, enabledUsers: 0, disabledUsers: 0, adminUsers: 0 })
+const stats = ref<UserStats>({ totalUsers: 0, enabledUsers: 0, disabledUsers: 0, adminUsers: 0, clerkUsers: 0 })
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
@@ -384,6 +400,7 @@ const createForm = reactive<{ username: string; password: string; role: UserRole
 })
 const roleOptions = [
   { label: '普通用户', value: 'USER' },
+  { label: '开票员', value: 'INVOICE_CLERK' },
   { label: '管理员', value: 'ADMIN' }
 ]
 
@@ -494,9 +511,14 @@ const submitCreateUser = async () => {
 
 const confirmRoleChange = async (user: ManagedUser, role: UserRole) => {
   if (role === user.role || user.self || roleLoadingId.value !== null) return
+  const roleTextMap: Record<UserRole, string> = {
+    ADMIN: '管理员',
+    INVOICE_CLERK: '开票员',
+    USER: '普通用户'
+  }
   try {
     await ElMessageBox.confirm(
-      `确认将“${user.username}”调整为${role === 'ADMIN' ? '管理员' : '普通用户'}？该用户现有登录将立即失效。`,
+      `确认将“${user.username}”调整为${roleTextMap[role]}？该用户现有登录将立即失效。`,
       '调整用户角色',
       { type: 'warning', confirmButtonText: '确认调整', cancelButtonText: '取消' }
     )

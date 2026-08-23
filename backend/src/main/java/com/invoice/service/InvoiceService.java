@@ -9,10 +9,12 @@ import com.invoice.dto.BatchInvoiceRowError;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.entity.Invoice;
 import com.invoice.entity.InvoiceBatch;
+import com.invoice.entity.User;
 import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
+import com.invoice.mapper.UserMapper;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -63,6 +65,7 @@ public class InvoiceService {
     private final InvoiceMapper invoiceMapper;
     private final InvoiceBatchMapper invoiceBatchMapper;
     private final UserQuotaService userQuotaService;
+    private final UserMapper userMapper;
     private final Path uploadRoot;
 
     @Value("${file.image.max-width:8000}")
@@ -78,10 +81,12 @@ public class InvoiceService {
     private int maxBatchItems = 100;
 
     public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper, 
-                          UserQuotaService userQuotaService, @Value("${file.upload-path}") String uploadDirectory) {
+                          UserQuotaService userQuotaService, UserMapper userMapper,
+                          @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
         this.invoiceBatchMapper = invoiceBatchMapper;
         this.userQuotaService = userQuotaService;
+        this.userMapper = userMapper;
         this.uploadRoot = Path.of(uploadDirectory).toAbsolutePath().normalize();
     }
 
@@ -462,17 +467,27 @@ public class InvoiceService {
     }
 
     public List<InvoiceResponse> getInvoicesByUserId(Long userId) {
+        User user = userMapper.selectById(userId);
+        String username = user != null ? user.getUsername() : null;
         LambdaQueryWrapper<Invoice> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Invoice::getUserId, userId).orderByDesc(Invoice::getCreatedAt);
         return invoiceMapper.selectList(wrapper).stream()
-                .map(invoice -> InvoiceResponse.from(invoice, uploadRoot)).toList();
+                .map(invoice -> InvoiceResponse.from(invoice, uploadRoot, username)).toList();
     }
 
     public List<InvoiceResponse> getAllInvoices() {
         LambdaQueryWrapper<Invoice> wrapper = new LambdaQueryWrapper<>();
         wrapper.orderByDesc(Invoice::getCreatedAt);
-        return invoiceMapper.selectList(wrapper).stream()
-                .map(invoice -> InvoiceResponse.from(invoice, uploadRoot)).toList();
+        List<Invoice> invoices = invoiceMapper.selectList(wrapper);
+        if (invoices.isEmpty()) {
+            return List.of();
+        }
+        Set<Long> userIds = invoices.stream().map(Invoice::getUserId).collect(Collectors.toSet());
+        Map<Long, String> userMap = userMapper.selectBatchIds(userIds).stream()
+                .collect(Collectors.toMap(User::getId, User::getUsername));
+        return invoices.stream()
+                .map(invoice -> InvoiceResponse.from(invoice, uploadRoot, userMap.get(invoice.getUserId())))
+                .toList();
     }
 
     public com.invoice.dto.DashboardStats getDashboardStats() {
@@ -546,7 +561,9 @@ public class InvoiceService {
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
                         "该发票已被处理，请刷新后重试");
             }
-            return InvoiceResponse.from(requireInvoice(invoiceId), uploadRoot);
+            User user = userMapper.selectById(invoice.getUserId());
+            String username = user != null ? user.getUsername() : null;
+            return InvoiceResponse.from(requireInvoice(invoiceId), uploadRoot, username);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {

@@ -19,7 +19,7 @@ public class User {
     private String password;
     
     /**
-     * 角色：USER-普通用户，ADMIN-管理员
+     * 角色：USER-普通用户，ADMIN-管理员，INVOICE_CLERK-开票员
      */
     private String role;
 

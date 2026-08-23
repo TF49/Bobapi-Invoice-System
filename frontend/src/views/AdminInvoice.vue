@@ -55,7 +55,7 @@
             <span class="panel-heading-icon"><List /></span>
             <div>
               <h2>发票申请</h2>
-              <p>审核申请并上传电子发票</p>
+              <p>{{ userStore.role === 'INVOICE_CLERK' ? '处理申请并上传电子发票' : '审核申请并上传电子发票' }}</p>
             </div>
           </div>
 
@@ -63,7 +63,7 @@
             <span class="result-count"><i></i>共 {{ filteredInvoices.length }} 条</span>
             <el-input
               v-model="searchKeyword"
-              placeholder="搜索公司名称或税号"
+              placeholder="搜索公司、税号或申请人"
               :prefix-icon="Search"
               clearable
               class="search-input"
@@ -74,6 +74,24 @@
                 <el-option label="全部状态" value="ALL" />
                 <el-option label="待开票" value="PENDING" />
                 <el-option label="已开票" value="COMPLETED" />
+              </el-select>
+            </div>
+            <div class="filter-control">
+              <span class="filter-label"><User />用户</span>
+              <el-select
+                v-model="userFilter"
+                aria-label="筛选申请用户"
+                class="user-select"
+                clearable
+                placeholder="全部用户"
+                filterable
+              >
+                <el-option
+                  v-for="u in userOptions"
+                  :key="u.value"
+                  :label="u.label"
+                  :value="u.value"
+                />
               </el-select>
             </div>
             <el-tooltip content="刷新列表" placement="top">
@@ -94,6 +112,11 @@
                   <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
                   <strong class="company-name">{{ row.companyName }}</strong>
                 </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="username" label="申请用户" min-width="120">
+              <template #default="{ row }">
+                <span class="applicant-user-cell">{{ row.username || `用户#${row.userId}` }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="taxNumber" label="税号" min-width="180">
@@ -137,7 +160,7 @@
                 <div class="action-cell-wrapper">
                   <template v-if="row.status === 'PENDING'">
                     <!-- 剪贴板粘贴区域 -->
-                    <el-tooltip content="点击此处后按 Ctrl+V 粘贴图片" placement="top">
+                    <el-tooltip content="点击直接粘贴剪贴板中的图片（亦支持 Ctrl+V）" placement="top">
                       <div
                         :id="`paste-zone-${row.id}`"
                         class="paste-zone"
@@ -145,7 +168,7 @@
                         role="button"
                         :aria-label="`粘贴发票图片`"
                         :class="{ 'paste-zone--active': pasteActiveId === row.id, 'paste-zone--uploading': uploadingId === row.id }"
-                        @click="focusPasteZone(row.id)"
+                        @click="handlePasteButtonClick(row)"
                         @focus="pasteActiveId = row.id"
                         @blur="pasteActiveId = null"
                         @paste="handlePaste($event, row)"
@@ -213,6 +236,10 @@
 
             <dl class="record-card-details">
               <div>
+                <dt>申请用户</dt>
+                <dd>{{ row.username || `用户#${row.userId}` }}</dd>
+              </div>
+              <div>
                 <dt>税号</dt>
                 <dd class="tax-number-cell">{{ row.taxNumber }}</dd>
               </div>
@@ -241,7 +268,7 @@
                   class="paste-zone mobile-paste"
                   tabindex="0"
                   role="button"
-                  @click="focusPasteZone(row.id)"
+                  @click="handlePasteButtonClick(row)"
                   @paste="handlePaste($event, row)"
                 >
                   <CopyDocument class="paste-icon" />
@@ -322,6 +349,7 @@ import {
   Search,
   Tickets,
   UploadFilled,
+  User,
   Wallet,
   ZoomIn
 } from '@element-plus/icons-vue'
@@ -330,13 +358,16 @@ import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
+import { useUserStore } from '@/stores/user'
 import { saveBlobResponse } from '@/utils/download'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const uploadingId = ref<number | null>(null)
 const pasteActiveId = ref<number | null>(null)
 const invoices = ref<Invoice[]>([])
 const statusFilter = ref('ALL')
+const userFilter = ref('')
 const searchKeyword = ref('')
 
 // 预览状态
@@ -350,19 +381,36 @@ let previewRequestId = 0
 
 const getCompanyInitial = (companyName: string) => companyName.trim().charAt(0) || '企'
 
+const userOptions = computed(() => {
+  const seen = new Set<string>()
+  const opts: { label: string; value: string }[] = []
+  for (const inv of invoices.value) {
+    const name = inv.username || `用户#${inv.userId}`
+    if (!seen.has(name)) {
+      seen.add(name)
+      opts.push({ label: name, value: name })
+    }
+  }
+  return opts.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+})
+
 const filteredInvoices = computed(() => {
   return invoices.value.filter(invoice => {
     const matchesStatus = statusFilter.value === 'ALL' || invoice.status === statusFilter.value
+    const invoiceUser = invoice.username || `用户#${invoice.userId}`
+    const matchesUser = !userFilter.value || invoiceUser === userFilter.value
     const kw = searchKeyword.value.trim().toLowerCase()
     const matchesKeyword = !kw ||
       (invoice.companyName && invoice.companyName.toLowerCase().includes(kw)) ||
-      (invoice.taxNumber && invoice.taxNumber.toLowerCase().includes(kw))
-    return matchesStatus && matchesKeyword
+      (invoice.taxNumber && invoice.taxNumber.toLowerCase().includes(kw)) ||
+      (invoice.username && invoice.username.toLowerCase().includes(kw))
+    return matchesStatus && matchesUser && matchesKeyword
   })
 })
 
 const emptyText = computed(() => {
   if (searchKeyword.value.trim()) return '未找到匹配的发票申请记录'
+  if (userFilter.value) return `用户「${userFilter.value}」暂无发票申请`
   if (statusFilter.value !== 'ALL') return '当前状态下暂无发票申请'
   return '暂无发票申请'
 })
@@ -465,7 +513,58 @@ const focusPasteZone = (id: number) => {
   el?.focus()
 }
 
-// 处理粘贴事件
+// 点击"粘贴图片"按钮逻辑：直接从系统剪贴板读取图片并上传
+const handlePasteButtonClick = async (row: Invoice) => {
+  if (uploadingId.value !== null) return
+
+  focusPasteZone(row.id)
+
+  // 检查浏览器是否支持 Clipboard API 并且能读取剪贴板内容
+  if (navigator.clipboard && typeof navigator.clipboard.read === 'function') {
+    try {
+      const items = await navigator.clipboard.read()
+      let clipboardImageBlob: Blob | null = null
+      let matchedType = ''
+
+      for (const item of items) {
+        for (const type of item.types) {
+          if (ALLOWED_MIME.includes(type)) {
+            clipboardImageBlob = await item.getType(type)
+            matchedType = type
+            break
+          } else if (type.startsWith('image/')) {
+            clipboardImageBlob = await item.getType(type)
+            matchedType = type
+            break
+          }
+        }
+        if (clipboardImageBlob) break
+      }
+
+      if (clipboardImageBlob) {
+        const ext = MIME_TO_EXT[matchedType] || 'png'
+        const imageFile = new File(
+          [clipboardImageBlob],
+          `clipboard_invoice_${row.id}.${ext}`,
+          { type: matchedType || 'image/png' }
+        )
+        await handleUpload(row, imageFile)
+        return
+      } else {
+        ElMessage.warning('剪贴板中没有可用的 JPG 或 PNG 图片，请先截图或复制图片')
+        return
+      }
+    } catch (error: any) {
+      console.warn('自动读取剪贴板失败，回退到快捷键粘贴模式:', error)
+      ElMessage.info('未获得剪贴板权限或自动粘贴受限，请按 Ctrl+V 粘贴图片')
+      return
+    }
+  } else {
+    ElMessage.info('已聚焦粘贴区域，请按 Ctrl+V 粘贴图片')
+  }
+}
+
+// 处理键盘 Ctrl+V 粘贴事件
 const handlePaste = async (event: ClipboardEvent, row: Invoice) => {
   if (uploadingId.value !== null) return
 
@@ -605,6 +704,10 @@ onBeforeUnmount(onPreviewClose)
   width: 130px;
 }
 
+.user-select {
+  width: 150px;
+}
+
 .refresh-button {
   width: 38px;
   height: 38px;
@@ -647,6 +750,11 @@ onBeforeUnmount(onPreviewClose)
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.applicant-user-cell {
+  color: var(--color-primary);
+  font-weight: 600;
 }
 
 .amount-stat {

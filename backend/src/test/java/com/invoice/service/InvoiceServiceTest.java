@@ -13,6 +13,7 @@ import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
+import com.invoice.mapper.UserMapper;
 import com.invoice.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -62,6 +63,9 @@ class InvoiceServiceTest {
     @Mock
     private UserQuotaService userQuotaService;
 
+    @Mock
+    private UserMapper userMapper;
+
     @TempDir
     Path uploadDirectory;
 
@@ -69,7 +73,7 @@ class InvoiceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, uploadDirectory.toString());
+        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, userMapper, uploadDirectory.toString());
         service.initializeUploadDirectory();
     }
 
@@ -87,7 +91,9 @@ class InvoiceServiceTest {
                 existing.getIdempotencyKey(),
                 "示例公司",
                 "abcdefghijklmno",
-                new BigDecimal("100.0")
+                new BigDecimal("100.0"),
+                null,
+                null
         );
 
         assertThat(response.id()).isEqualTo(1L);
@@ -104,7 +110,7 @@ class InvoiceServiceTest {
 
         assertThatThrownBy(() -> service.createInvoice(
                 8L, "12345678-1234-1234-1234-123456789012",
-                "另一家公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00")))
+                "另一家公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), null, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting("code")
                 .isEqualTo(40902);

@@ -8,6 +8,10 @@ import com.invoice.dto.AdminUserStats;
 import com.invoice.entity.User;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.UserMapper;
+import jakarta.annotation.PostConstruct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -21,6 +25,14 @@ import java.util.List;
  */
 @Service
 public class UserService {
+
+    private static final Logger logger = LoggerFactory.getLogger(UserService.class);
+
+    @Value("${app.default-clerk.username:clerk}")
+    private String defaultClerkUsername;
+
+    @Value("${app.default-clerk.password:}")
+    private String defaultClerkPassword;
 
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
@@ -157,7 +169,8 @@ public class UserService {
         long enabled = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getEnabled, true));
         long disabled = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getEnabled, false));
         long admins = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getRole, "ADMIN"));
-        return new AdminUserStats(total, enabled, disabled, admins);
+        long clerks = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getRole, "INVOICE_CLERK"));
+        return new AdminUserStats(total, enabled, disabled, admins, clerks);
     }
 
     private User requireUserForUpdate(Long userId) {
@@ -176,5 +189,34 @@ public class UserService {
 
     private long nextAuthVersion(User user) {
         return user.getAuthVersion() == null ? 1L : user.getAuthVersion() + 1L;
+    }
+
+    /**
+     * 初始化默认开票员账号。
+     * 通过环境变量 app.default-clerk.username / app.default-clerk.password 配置。
+     * 若密码未配置则跳过初始化；创建成功后输出安全警告，提示尽快修改密码。
+     */
+    @PostConstruct
+    public void initDefaultClerk() {
+        if (defaultClerkPassword == null || defaultClerkPassword.isBlank()) {
+            logger.warn("[安全] 未配置默认开票员密码（app.default-clerk.password），跳过自动初始化。"
+                    + " 请手动在管理后台创建开票员账号。");
+            return;
+        }
+        if (findByUsername(defaultClerkUsername) == null) {
+            try {
+                User clerk = new User();
+                clerk.setUsername(defaultClerkUsername);
+                clerk.setPassword(passwordEncoder.encode(defaultClerkPassword));
+                clerk.setRole("INVOICE_CLERK");
+                clerk.setEnabled(true);
+                clerk.setAuthVersion(0L);
+                userMapper.insert(clerk);
+                logger.warn("[安全] 默认开票员账号 '{}' 已自动创建，请登录后台立即修改密码！",
+                        defaultClerkUsername);
+            } catch (DuplicateKeyException exception) {
+                // 并发启动时忽略重复键异常
+            }
+        }
     }
 }

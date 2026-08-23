@@ -1,10 +1,10 @@
-const USERNAME_PATTERN = /^[A-Za-z0-9_]+$/
+const USERNAME_PATTERN = /^[\u4e00-\u9fa5A-Za-z0-9_]+$/
 const PASSWORD_PATTERN = /^(?=.*[0-9])(?=.*[a-zA-Z]).{6,20}$/
 
 export function validateUsername(value: string): string | null {
   if (!value) return '用户名不能为空'
-  if (value.length < 3 || value.length > 20) return '用户名长度必须在 3-20 位之间'
-  if (!USERNAME_PATTERN.test(value)) return '用户名只能包含字母、数字和下划线'
+  if (value.length < 2 || value.length > 20) return '用户名长度必须在 2-20 位之间'
+  if (!USERNAME_PATTERN.test(value)) return '用户名只能包含汉字、字母、数字和下划线'
   return null
 }
 

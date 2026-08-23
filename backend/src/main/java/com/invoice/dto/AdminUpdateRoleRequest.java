@@ -8,6 +8,6 @@ import lombok.Data;
 public class AdminUpdateRoleRequest {
 
     @NotBlank(message = "角色不能为空")
-    @Pattern(regexp = "^(USER|ADMIN)$", message = "角色只能是 USER 或 ADMIN")
+    @Pattern(regexp = "^(USER|INVOICE_CLERK|ADMIN)$", message = "角色只能是 USER、INVOICE_CLERK 或 ADMIN")
     private String role;
 }
