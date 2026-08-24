@@ -134,6 +134,60 @@ class UserQuotaServiceTest {
         verify(userQuotaMapper).insert(any(UserQuota.class));
     }
 
+    @Test
+    void adjustsQuotaForInvoiceAmountIncreaseWithSufficientQuota() {
+        UserQuota quota = quota("100.00");
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(user(2L, "USER"));
+        when(userQuotaMapper.selectOne(any())).thenReturn(quota);
+
+        service.adjustQuotaForInvoiceAmountChange(2L, new BigDecimal("50.00"), 14L, 1L);
+
+        assertEquals(new BigDecimal("50.00"), quota.getBalance());
+        assertEquals(new BigDecimal("50.00"), quota.getTotalDeducted());
+        verify(userQuotaMapper).updateById(quota);
+
+        ArgumentCaptor<UserQuotaTransaction> captor = ArgumentCaptor.forClass(UserQuotaTransaction.class);
+        verify(transactionMapper).insert(captor.capture());
+        assertEquals("DEDUCT", captor.getValue().getTransactionType());
+        assertEquals(new BigDecimal("-50.00"), captor.getValue().getAmount());
+        assertEquals(1L, captor.getValue().getOperatorId());
+        assertEquals(14L, captor.getValue().getInvoiceId());
+    }
+
+    @Test
+    void rejectsInvoiceAmountIncreaseWithInsufficientQuota() {
+        UserQuota quota = quota("30.00");
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(user(2L, "USER"));
+        when(userQuotaMapper.selectOne(any())).thenReturn(quota);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.adjustQuotaForInvoiceAmountChange(2L, new BigDecimal("50.00"), 14L, 1L));
+
+        assertEquals(40002, exception.getCode());
+        org.junit.jupiter.api.Assertions.assertTrue(exception.getMessage().contains("用户剩余额度不足"));
+        verify(userQuotaMapper, never()).updateById(any(UserQuota.class));
+        verify(transactionMapper, never()).insert(any(UserQuotaTransaction.class));
+    }
+
+    @Test
+    void adjustsQuotaForInvoiceAmountDecreaseAndRefunds() {
+        UserQuota quota = quota("30.00");
+        quota.setTotalDeducted(new BigDecimal("100.00"));
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(user(2L, "USER"));
+        when(userQuotaMapper.selectOne(any())).thenReturn(quota);
+
+        service.adjustQuotaForInvoiceAmountChange(2L, new BigDecimal("-20.00"), 14L, 1L);
+
+        assertEquals(new BigDecimal("50.00"), quota.getBalance());
+        assertEquals(new BigDecimal("80.00"), quota.getTotalDeducted());
+        verify(userQuotaMapper).updateById(quota);
+
+        ArgumentCaptor<UserQuotaTransaction> captor = ArgumentCaptor.forClass(UserQuotaTransaction.class);
+        verify(transactionMapper).insert(captor.capture());
+        assertEquals("ADJUST", captor.getValue().getTransactionType());
+        assertEquals(new BigDecimal("20.00"), captor.getValue().getAmount());
+    }
+
     private UserQuota quota(String balance) {
         UserQuota quota = new UserQuota();
         quota.setId(7L);

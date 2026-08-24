@@ -247,6 +247,53 @@ public class UserQuotaService {
     }
 
     /**
+     * 管理员修改发票金额时同步调整用户额度
+     * @param userId 发票申请用户ID
+     * @param amountDiff 金额变化差额（newAmount - oldAmount）。正数表示发票金额增加需要补扣额度，负数表示发票金额减少需要退还额度
+     * @param invoiceId 关联发票ID
+     * @param operatorId 操作管理员ID
+     */
+    @Transactional
+    public void adjustQuotaForInvoiceAmountChange(Long userId, BigDecimal amountDiff, Long invoiceId, Long operatorId) {
+        if (amountDiff == null || amountDiff.compareTo(BigDecimal.ZERO) == 0) {
+            return;
+        }
+
+        requireUserRoleForUpdate(userId);
+        UserQuota quota = getUserQuotaWithLock(userId);
+        BigDecimal balanceBefore = quota.getBalance();
+
+        if (amountDiff.compareTo(BigDecimal.ZERO) > 0) {
+            // 发票金额调高，需要额外扣除用户额度
+            if (balanceBefore.compareTo(amountDiff) < 0) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, 40002,
+                        "修改开票金额失败：用户剩余额度不足（当前剩余额度：" + balanceBefore.stripTrailingZeros().toPlainString()
+                                + "元，增加金额需扣除：" + amountDiff.stripTrailingZeros().toPlainString() + "元）");
+            }
+            BigDecimal balanceAfter = balanceBefore.subtract(amountDiff);
+            quota.setBalance(balanceAfter);
+            quota.setTotalDeducted(quota.getTotalDeducted().add(amountDiff));
+            quota.setUpdatedAt(LocalDateTime.now());
+            userQuotaMapper.updateById(quota);
+
+            createTransaction(userId, "DEDUCT", amountDiff.negate(), balanceBefore, balanceAfter,
+                    operatorId, "ADMIN", invoiceId, "管理员修改发票金额补扣额度", null);
+        } else {
+            // 发票金额调低，退还差额额度
+            BigDecimal refundAmount = amountDiff.abs();
+            BigDecimal balanceAfter = balanceBefore.add(refundAmount);
+            quota.setBalance(balanceAfter);
+            BigDecimal newTotalDeducted = quota.getTotalDeducted().subtract(refundAmount);
+            quota.setTotalDeducted(newTotalDeducted.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : newTotalDeducted);
+            quota.setUpdatedAt(LocalDateTime.now());
+            userQuotaMapper.updateById(quota);
+
+            createTransaction(userId, "ADJUST", refundAmount, balanceBefore, balanceAfter,
+                    operatorId, "ADMIN", invoiceId, "管理员修改发票金额退还额度", null);
+        }
+    }
+
+    /**
      * 调整额度（管理员手动增减）
      */
     @Transactional

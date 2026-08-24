@@ -352,6 +352,21 @@ class InvoiceServiceTest {
         assertThat(responses.get(1).downloadable()).isFalse();
     }
 
+    @Test
+    void adminUpdateInvoiceTriggersQuotaAdjustmentWhenAmountChanges() {
+        Invoice existing = invoice(14L, 8L, "PENDING");
+        existing.setAmount(new BigDecimal("100.00"));
+        when(invoiceMapper.selectById(14L)).thenReturn(existing);
+
+        service.adminUpdateInvoice(
+                14L, "新示例公司", "ABCDE12345678901",
+                new BigDecimal("200.00"), InvoiceService.FIXED_INVOICE_TYPE, "新备注", 1L);
+
+        verify(userQuotaService).adjustQuotaForInvoiceAmountChange(
+                8L, new BigDecimal("100.00"), 14L, 1L);
+        verify(invoiceMapper).update(isNull(), any());
+    }
+
     private byte[] imageBytes(String format, int width, int height) throws Exception {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {

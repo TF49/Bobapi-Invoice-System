@@ -455,6 +455,7 @@ import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import { useUserStore } from '@/stores/user'
 import { saveBlobResponse } from '@/utils/download'
+import { ApiRequestError } from '@/utils/request'
 
 const userStore = useUserStore()
 const loading = ref(false)
@@ -765,7 +766,9 @@ const handleEditSubmit = async () => {
     await loadInvoices()
   } catch (error) {
     console.error('修改发票信息失败', error)
-    ElMessage.error('修改失败，请稍后重试')
+    if (!(error instanceof ApiRequestError)) {
+      ElMessage.error('修改失败，请稍后重试')
+    }
   } finally {
     editSubmitting.value = false
   }

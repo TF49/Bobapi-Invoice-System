@@ -502,8 +502,19 @@ public class InvoiceService {
      * 管理员修改发票申请信息（公司名称、税号、开票金额、开票类型、备注）。
      * 已开票（COMPLETED）的发票不允许修改金额，以避免与已归档的发票文件不一致。
      */
+    @Transactional
     public InvoiceResponse adminUpdateInvoice(Long invoiceId, String companyName, String taxNumber,
                                               BigDecimal amount, String invoiceType, String remark) {
+        return adminUpdateInvoice(invoiceId, companyName, taxNumber, amount, invoiceType, remark, null);
+    }
+
+    /**
+     * 管理员修改发票申请信息（包含操作员ID，用于同步扣除/退还发票申请人的额度及审计记录）。
+     */
+    @Transactional
+    public InvoiceResponse adminUpdateInvoice(Long invoiceId, String companyName, String taxNumber,
+                                              BigDecimal amount, String invoiceType, String remark,
+                                              Long operatorId) {
         String normalizedCompanyName = normalizeCompanyName(companyName);
         String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
         String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
@@ -519,11 +530,15 @@ public class InvoiceService {
                     "已开票的发票不能修改开票金额");
         }
 
-        // 记录关键字段变化（审计日志）
+        // 记录关键字段变化（审计日志）及变动额度调整
         if (invoice.getAmount().compareTo(normalizedAmount) != 0) {
             log.info("[Admin] Invoice #{} amount changed: {} -> {} (userId={})",
                     invoiceId, invoice.getAmount().toPlainString(),
                     normalizedAmount.toPlainString(), invoice.getUserId());
+
+            BigDecimal diff = normalizedAmount.subtract(invoice.getAmount());
+            userQuotaService.adjustQuotaForInvoiceAmountChange(
+                    invoice.getUserId(), diff, invoiceId, operatorId);
         }
 
         LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();

@@ -143,7 +143,8 @@ public class InvoiceController {
                 request.getTaxNumber(),
                 request.getAmount(),
                 request.getInvoiceType(),
-                request.getRemark());
+                request.getRemark(),
+                principal.userId());
         return ApiResponse.success("修改成功", invoice);
     }
 
