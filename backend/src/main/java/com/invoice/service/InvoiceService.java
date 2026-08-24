@@ -53,9 +53,13 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Service
 public class InvoiceService {
+
+    private static final Logger log = LoggerFactory.getLogger(InvoiceService.class);
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
     private static final Pattern TAX_NUMBER_PATTERN = Pattern.compile("^[A-Z0-9]{15,20}$");
@@ -81,7 +85,7 @@ public class InvoiceService {
     @Value("${app.invoice.batch.max-items:100}")
     private int maxBatchItems = 100;
 
-    public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper, 
+    public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper,
                           UserQuotaService userQuotaService, UserMapper userMapper,
                           @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
@@ -337,6 +341,7 @@ public class InvoiceService {
         }
         return List.copyOf(normalizedItems);
     }
+
     /**
      * 校验开票类型，返回错误信息或 null
      */
@@ -397,7 +402,6 @@ public class InvoiceService {
         }
         return null;
     }
-
 
     private void addBatchError(List<BatchInvoiceRowError> errors, int rowNumber,
                                String field, String message) {
@@ -492,6 +496,52 @@ public class InvoiceService {
         return invoices.stream()
                 .map(invoice -> InvoiceResponse.from(invoice, uploadRoot, userMap.get(invoice.getUserId())))
                 .toList();
+    }
+
+    /**
+     * 管理员修改发票申请信息（公司名称、税号、开票金额、开票类型、备注）。
+     * 已开票（COMPLETED）的发票不允许修改金额，以避免与已归档的发票文件不一致。
+     */
+    public InvoiceResponse adminUpdateInvoice(Long invoiceId, String companyName, String taxNumber,
+                                              BigDecimal amount, String invoiceType, String remark) {
+        String normalizedCompanyName = normalizeCompanyName(companyName);
+        String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
+        String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType);
+        BigDecimal normalizedAmount = normalizeAmount(amount);
+
+        Invoice invoice = requireInvoice(invoiceId);
+
+        // 已开票的发票不允许修改金额，防止与已上传的发票文件金额不一致
+        if ("COMPLETED".equals(invoice.getStatus())
+                && invoice.getAmount().compareTo(normalizedAmount) != 0) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
+                    "已开票的发票不能修改开票金额");
+        }
+
+        // 记录关键字段变化（审计日志）
+        if (invoice.getAmount().compareTo(normalizedAmount) != 0) {
+            log.info("[Admin] Invoice #{} amount changed: {} -> {} (userId={})",
+                    invoiceId, invoice.getAmount().toPlainString(),
+                    normalizedAmount.toPlainString(), invoice.getUserId());
+        }
+
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.eq(Invoice::getId, invoiceId)
+                .set(Invoice::getCompanyName, normalizedCompanyName)
+                .set(Invoice::getTaxNumber, normalizedTaxNumber)
+                .set(Invoice::getAmount, normalizedAmount)
+                .set(Invoice::getInvoiceType, normalizedInvoiceType)
+                .set(Invoice::getRemark, remark == null ? null : remark.trim())
+                .set(Invoice::getUpdatedAt, LocalDateTime.now());
+
+        invoiceMapper.update(null, update);
+
+        Invoice updated = requireInvoice(invoiceId);
+        User user = userMapper.selectById(updated.getUserId());
+        String username = user != null ? user.getUsername() : null;
+        log.info("[Admin] Invoice #{} updated successfully (userId={})", invoiceId, invoice.getUserId());
+        return InvoiceResponse.from(updated, uploadRoot, username);
     }
 
     public com.invoice.dto.DashboardStats getDashboardStats() {

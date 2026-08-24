@@ -403,7 +403,7 @@
     <!-- AI 识别结果确认弹窗 -->
     <el-dialog
       v-model="aiConfirmVisible"
-      title="AI 识别结果确认"
+      title="AI 识别结果"
       width="420px"
       class="ai-confirm-dialog"
       :close-on-click-modal="false"
@@ -412,7 +412,7 @@
       <div class="ai-confirm-body">
         <div class="ai-confirm-intro">
           <el-icon class="ai-confirm-sparkle"><MagicStick /></el-icon>
-          <span>AI 已完成二次核查，请确认以下信息无误后提交</span>
+          <span>AI 已完成识别，点击「填入表单」将数据回填，您可手动复核后再提交</span>
         </div>
         <dl class="ai-confirm-fields">
           <div class="ai-confirm-row">
@@ -431,25 +431,10 @@
             <dt>开票类型</dt>
             <dd><el-tag size="small" type="info" effect="plain">技术服务费</el-tag></dd>
           </div>
-          <div class="ai-confirm-row ai-confirm-quota-row">
-            <dt>预扣额度</dt>
-            <dd class="ai-confirm-quota-value">
-              {{ aiConfirmData?.amount != null ? formatCurrency(aiConfirmData.amount) : '-' }}
-              <el-tag
-                v-if="aiConfirmData?.amount != null && aiConfirmData.amount > quotaBalance"
-                type="danger"
-                size="small"
-                effect="dark"
-              >额度不足</el-tag>
-            </dd>
-          </div>
         </dl>
-        <div
-          v-if="aiConfirmData?.amount != null && aiConfirmData.amount > quotaBalance"
-          class="ai-confirm-warning"
-        >
-          <el-icon><Warning /></el-icon>
-          当前可用额度 {{ formatCurrency(quotaBalance) }}，额度不足，请联系管理员充値后再提交
+        <div class="ai-confirm-hint">
+          <el-icon><InfoFilled /></el-icon>
+          请在表单中仔细核对 AI 识别结果是否准确，确认无误后再点击「提交申请」
         </div>
       </div>
       <template #footer>
@@ -457,12 +442,10 @@
           <el-button @click="aiConfirmVisible = false">重新识别</el-button>
           <el-button
             type="primary"
-            :icon="Promotion"
-            :loading="submitting"
-            :disabled="aiConfirmData?.amount != null && aiConfirmData.amount > quotaBalance"
+            :icon="EditPen"
             @click="handleAiConfirm"
           >
-            确认并提交
+            填入表单
           </el-button>
         </div>
       </template>
@@ -485,7 +468,9 @@ import {
   Clock,
   Coin,
   Download,
+  EditPen,
   Files,
+  InfoFilled,
   List,
   Loading,
   MagicStick,
@@ -497,7 +482,6 @@ import {
   Tickets,
   Upload,
   Wallet,
-  Warning,
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
@@ -750,12 +734,12 @@ const handleAiParse = async () => {
   }
 }
 
-/** 用户在确认弹窗中点击「确认并提交」 */
-const handleAiConfirm = async () => {
+/** 用户在确认弹窗中点击「填入表单」— 只回填，不自动提交，让用户手动复核后再提交 */
+const handleAiConfirm = () => {
   const data = aiConfirmData.value
   if (!data) return
 
-  // 将核查结果填入表单
+  // 将 AI 识别结果回填到表单
   if (data.companyName) form.companyName = data.companyName.trim()
   if (data.taxNumber)   form.taxNumber   = data.taxNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
   if (data.amount !== null && Number.isFinite(data.amount) && data.amount >= 0.01) {
@@ -763,12 +747,11 @@ const handleAiConfirm = async () => {
   }
   form.invoiceType = '技术服务费'
 
-  // 关闭确认弹窗并清理数据
+  // 关闭确认弹窗，收起 AI 面板，让用户回到表单自行复核
   aiConfirmVisible.value = false
   aiConfirmData.value = null
-
-  // 直接触发提交
-  await handleSubmit()
+  aiParseExpanded.value = false
+  ElMessage.success('AI 识别结果已回填，请复核后点击「提交申请」')
 }
 
 const handleSubmit = async () => {
@@ -1305,33 +1288,21 @@ onBeforeUnmount(() => {
   color: var(--color-text) !important;
 }
 
-.ai-confirm-quota-row {
-  background: linear-gradient(90deg, #f8fffe, #f0faf7);
-}
-
-.ai-confirm-quota-value {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 17px !important;
-  font-weight: 700 !important;
-  color: #059669 !important;
-}
-
-.ai-confirm-warning {
+.ai-confirm-hint {
   display: flex;
   align-items: flex-start;
   gap: 8px;
   padding: 10px 14px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
   border-radius: 8px;
-  color: #dc2626;
+  color: #1d4ed8;
   font-size: 12px;
   line-height: 1.5;
+  margin-top: 12px;
 }
 
-.ai-confirm-warning .el-icon {
+.ai-confirm-hint .el-icon {
   flex-shrink: 0;
   margin-top: 1px;
 }

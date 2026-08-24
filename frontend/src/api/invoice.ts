@@ -127,6 +127,11 @@ export const invoiceApi = {
   // AI 二次核查发票文本（第二阶段：审核）
   verifyInvoiceText(text: string, extracted: Omit<AiVerifyRequest, 'text'>) {
     return request.post<any, AiParseResponse>('/ai/verify-invoice', { text, ...extracted }, { timeout: 30000 })
+  },
+
+  // 管理员修改发票信息
+  updateInvoice(id: number, data: InvoiceRequest) {
+    return request.put<any, Invoice>(`/invoices/admin/${id}`, data)
   }
 }
 

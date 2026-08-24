@@ -25,12 +25,14 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import com.invoice.dto.AdminUpdateInvoiceRequest;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -125,6 +127,24 @@ public class InvoiceController {
     @GetMapping("/admin/dashboard")
     public ApiResponse<com.invoice.dto.DashboardStats> getDashboardStats() {
         return ApiResponse.success(invoiceService.getDashboardStats());
+    }
+
+    @PutMapping("/admin/{id}")
+    public ApiResponse<InvoiceResponse> updateInvoice(
+            @PathVariable Long id,
+            @Valid @RequestBody AdminUpdateInvoiceRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-update:user:" + principal.userId(),
+                30, Duration.ofMinutes(1), 42905, "修改发票信息过于频繁，请稍后再试");
+        InvoiceResponse invoice = invoiceService.adminUpdateInvoice(
+                id,
+                request.getCompanyName(),
+                request.getTaxNumber(),
+                request.getAmount(),
+                request.getInvoiceType(),
+                request.getRemark());
+        return ApiResponse.success("修改成功", invoice);
     }
 
     @PostMapping("/admin/{id}/upload")

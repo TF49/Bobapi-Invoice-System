@@ -155,7 +155,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="220" align="center" fixed="right">
+            <el-table-column label="操作" width="270" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="action-cell-wrapper">
                   <template v-if="row.status === 'PENDING'">
@@ -214,6 +214,15 @@
                     </el-button>
                   </template>
                   <span v-else class="empty-action"><i class="empty-dot"></i>暂不可用</span>
+                  <!-- 修改按钮（所有行都显示） -->
+                  <el-tooltip content="修改发票信息" placement="top">
+                    <el-button
+                      :key="`edit-${row.id}`"
+                      size="small"
+                      :icon="EditPen"
+                      @click="handleEditInvoice(row)"
+                    />
+                  </el-tooltip>
                 </div>
               </template>
             </el-table-column>
@@ -294,6 +303,8 @@
                   下载文件
                 </el-button>
               </template>
+              <!-- 移动端修改按钮 -->
+              <el-button :icon="EditPen" @click="handleEditInvoice(row)">修改信息</el-button>
             </div>
           </article>
         </div>
@@ -328,23 +339,107 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 修改发票信息弹窗 -->
+    <el-dialog
+      v-model="editDialogVisible"
+      title="修改发票信息"
+      width="520px"
+      class="edit-invoice-dialog"
+      destroy-on-close
+      :close-on-click-modal="false"
+      @closed="editingRow = null"
+    >
+      <div v-if="editingRow" class="edit-dialog-meta">
+        <span class="edit-meta-label">申请用户：</span>
+        <span class="edit-meta-value">{{ editingRow.username || `用户#${editingRow.userId}` }}</span>
+        <el-divider direction="vertical" />
+        <span class="edit-meta-label">状态：</span>
+        <el-tag class="status-tag" :class="editingRow.status === 'COMPLETED' ? 'is-completed' : 'is-pending'" size="small">
+          <i class="status-dot"></i>
+          {{ editingRow.status === 'COMPLETED' ? '已开票' : '待开票' }}
+        </el-tag>
+        <template v-if="editingRow.status === 'COMPLETED'">
+          <el-divider direction="vertical" />
+          <el-tag type="warning" size="small" effect="plain">已开票不可修改金额</el-tag>
+        </template>
+      </div>
+      <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-position="top">
+        <el-form-item label="公司名称" prop="companyName">
+          <el-input v-model="editForm.companyName" :prefix-icon="OfficeBuilding" placeholder="请输入公司名称" />
+        </el-form-item>
+        <el-form-item label="税号" prop="taxNumber">
+          <el-input
+            v-model="editForm.taxNumber"
+            :prefix-icon="Postcard"
+            placeholder="15-20 位大写字母或数字"
+            maxlength="20"
+            @input="normalizeEditTaxNumber"
+          />
+        </el-form-item>
+        <el-form-item label="开票金额" prop="amount">
+          <el-input-number
+            v-model="editForm.amount"
+            :min="0.01"
+            :max="9999999999.99"
+            :precision="2"
+            :step="100"
+            controls-position="right"
+            class="amount-input"
+            :disabled="editingRow?.status === 'COMPLETED'"
+          />
+        </el-form-item>
+        <el-form-item label="开票类型" prop="invoiceType">
+          <el-select v-model="editForm.invoiceType" placeholder="请选择开票类型" class="type-select">
+            <el-option label="技术服务费" value="技术服务费" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input
+            v-model="editForm.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入备注（选填）"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="editDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :icon="Check"
+            :loading="editSubmitting"
+            @click="handleEditSubmit"
+          >
+            {{ editSubmitting ? '保存中' : '保存修改' }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { ElMessage, type FormInstance } from 'element-plus'
 import type { UploadRawFile } from 'element-plus'
 import {
+  Check,
   CircleCheck,
   Clock,
   CopyDocument,
   Download,
+  EditPen,
   Files,
   Filter,
   List,
   Loading,
+  OfficeBuilding,
   PictureRounded,
+  Postcard,
   RefreshRight,
   Search,
   Tickets,
@@ -353,7 +448,7 @@ import {
   Wallet,
   ZoomIn
 } from '@element-plus/icons-vue'
-import { invoiceApi, type Invoice } from '@/api/invoice'
+import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
@@ -606,6 +701,75 @@ const handlePaste = async (event: ClipboardEvent, row: Invoice) => {
 }
 
 onMounted(loadInvoices)
+
+// 修改发票功能
+const editDialogVisible = ref(false)
+const editingRow = ref<Invoice | null>(null)
+const editSubmitting = ref(false)
+const editFormRef = ref<FormInstance>()
+
+const editForm = reactive<InvoiceRequest>({
+  companyName: '',
+  taxNumber: '',
+  amount: 0.01,
+  invoiceType: '技术服务费',
+  remark: ''
+})
+
+const editRules = {
+  companyName: [{ required: true, message: '请输入公司名称', trigger: 'blur' }],
+  taxNumber: [
+    { required: true, message: '请输入税号', trigger: 'blur' },
+    { pattern: /^[A-Z0-9]{15,20}$/, message: '税号格式不正确（15-20位大写字母或数字）', trigger: 'blur' }
+  ],
+  amount: [
+    { required: true, message: '请输入开票金额', trigger: 'blur' },
+    { type: 'number', min: 0.01, max: 9999999999.99, message: '开票金额必须在有效范围内', trigger: 'change' }
+  ],
+  invoiceType: [{ required: true, message: '请选择开票类型', trigger: 'change' }]
+}
+
+const normalizeEditTaxNumber = (value: string) => {
+  editForm.taxNumber = value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+}
+
+const handleEditInvoice = (row: Invoice) => {
+  editingRow.value = row
+  editForm.companyName = row.companyName
+  editForm.taxNumber = row.taxNumber
+  editForm.amount = Number(row.amount)
+  editForm.invoiceType = row.invoiceType || '技术服务费'
+  editForm.remark = row.remark || ''
+  editDialogVisible.value = true
+}
+
+const handleEditSubmit = async () => {
+  if (editSubmitting.value) return
+  editSubmitting.value = true
+  try {
+    const valid = await editFormRef.value?.validate().catch(() => false)
+    if (!valid) {
+      ElMessage.warning('请检查并完善发票信息')
+      return
+    }
+    const row = editingRow.value!
+    await invoiceApi.updateInvoice(row.id, {
+      companyName: editForm.companyName.trim(),
+      taxNumber: editForm.taxNumber,
+      amount: editForm.amount,
+      invoiceType: editForm.invoiceType,
+      remark: editForm.remark?.trim() || undefined
+    })
+    ElMessage.success('修改成功')
+    editDialogVisible.value = false
+    await loadInvoices()
+  } catch (error) {
+    console.error('修改发票信息失败', error)
+    ElMessage.error('修改失败，请稍后重试')
+  } finally {
+    editSubmitting.value = false
+  }
+}
 
 // 预览功能
 const releasePreviewUrl = () => {
@@ -993,6 +1157,42 @@ onBeforeUnmount(onPreviewClose)
 .preview-error p {
   font-size: 14px;
   margin: 0;
+}
+
+/* 修改发票弹窗 */
+:global(.edit-invoice-dialog .el-dialog__body) {
+  padding: 8px 20px 16px;
+}
+
+.edit-dialog-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  background: var(--color-primary-soft);
+  border: 1px solid #d6e8e2;
+  border-radius: 8px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+
+.edit-meta-label {
+  color: var(--color-text-secondary);
+  font-weight: 500;
+}
+
+.edit-meta-value {
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.amount-input {
+  width: 100%;
+}
+
+.type-select {
+  width: 100%;
 }
 </style>
 
