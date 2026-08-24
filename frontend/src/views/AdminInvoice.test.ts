@@ -140,4 +140,21 @@ describe('AdminInvoice', () => {
     expect(mockedInvoiceApi.uploadInvoice).not.toHaveBeenCalled()
     expect(ElMessage.info).toHaveBeenCalledWith('未获得剪贴板权限或自动粘贴受限，请按 Ctrl+V 粘贴图片')
   })
+
+  it('renders pagination and paginates items when multiple pages exist', async () => {
+    const manyInvoices: Invoice[] = Array.from({ length: 25 }, (_, i) => ({
+      ...pendingInvoice,
+      id: i + 1,
+      companyName: `管理员测试公司_${i + 1}`
+    }))
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue(manyInvoices)
+
+    const page = await mountPage()
+    expect(page.find('.result-count').text()).toContain('共 25 条')
+    expect(page.find('.pagination-bar').exists()).toBe(true)
+    // 默认每页 10 条
+    expect(page.text()).toContain('管理员测试公司_1')
+    expect(page.text()).toContain('管理员测试公司_10')
+    expect(page.text()).not.toContain('管理员测试公司_11')
+  })
 })

@@ -6,6 +6,7 @@
 import * as XLSX from 'xlsx';
 
 export const FIXED_INVOICE_TYPE = '技术服务费';
+export const ALLOWED_INVOICE_TYPES = ['技术服务费', 'AI订阅服务费', '计算服务费'] as const;
 
 export interface ParsedInvoiceRow {
   rowNumber: number;       // 原始文件行号（从2开始，第1行是表头）
@@ -272,8 +273,11 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
   if (!row.invoiceType) {
     return '开票类型不能为空';
   }
-  if (row.invoiceType !== FIXED_INVOICE_TYPE) {
-    return `开票类型固定为${FIXED_INVOICE_TYPE}`;
+  if (!ALLOWED_INVOICE_TYPES.includes(row.invoiceType as any)) {
+    const formattedTypes = ALLOWED_INVOICE_TYPES.length <= 2
+      ? ALLOWED_INVOICE_TYPES.join('或')
+      : ALLOWED_INVOICE_TYPES.slice(0, -1).join('、') + '或' + ALLOWED_INVOICE_TYPES[ALLOWED_INVOICE_TYPES.length - 1];
+    return `开票类型必须为${formattedTypes}`;
   }
   if (row.invoiceType.length > 100) {
     return '开票类型不能超过 100 个字符';
@@ -348,17 +352,33 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
  */
 export function generateTemplate(): string {
   const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE, HEADERS.REMARK];
-  const sampleData = [
+  const sampleDataRow1 = [
     '示例公司A',
     '91500123456789012A',
     '1000.00',
     '技术服务费',
-    '请在此处输入备注'
+    '技术服务费开票申请示例'
+  ];
+  const sampleDataRow2 = [
+    '示例公司B',
+    '91500123456789012B',
+    '500.00',
+    'AI订阅服务费',
+    'AI订阅服务费开票申请示例'
+  ];
+  const sampleDataRow3 = [
+    '示例公司C',
+    '91500123456789012C',
+    '800.00',
+    '计算服务费',
+    '计算服务费开票申请示例'
   ];
 
   return [
     headers.join(','),
-    sampleData.join(',')
+    sampleDataRow1.join(','),
+    sampleDataRow2.join(','),
+    sampleDataRow3.join(',')
   ].join('\n');
 }
 

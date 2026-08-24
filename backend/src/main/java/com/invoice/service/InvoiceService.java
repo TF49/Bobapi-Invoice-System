@@ -66,6 +66,7 @@ public class InvoiceService {
     private static final Pattern DECIMAL_AMOUNT_PATTERN = Pattern.compile("^\\d+(?:\\.\\d{1,2})?$");
     private static final BigDecimal MIN_INVOICE_AMOUNT = new BigDecimal("0.01");
     public static final String FIXED_INVOICE_TYPE = "技术服务费";
+    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费");
 
     private final InvoiceMapper invoiceMapper;
     private final InvoiceBatchMapper invoiceBatchMapper;
@@ -349,8 +350,8 @@ public class InvoiceService {
         if (invoiceType == null || invoiceType.isEmpty()) {
             return "开票类型不能为空";
         }
-        if (!FIXED_INVOICE_TYPE.equals(invoiceType)) {
-            return "开票类型固定为" + FIXED_INVOICE_TYPE;
+        if (!ALLOWED_INVOICE_TYPES.contains(invoiceType)) {
+            return "开票类型必须为技术服务费、AI订阅服务费或计算服务费";
         }
         if (invoiceType.length() > 100) {
             return "开票类型不能超过 100 个字符";

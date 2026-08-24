@@ -99,7 +99,7 @@ describe('UserInvoice', () => {
     await openSubmitBtn!.trigger('click')
     await flushPromises()
 
-    const inputs = page.findAll('input')
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
 
     await inputs[0].setValue(' 测试公司 ')
     await inputs[1].setValue('91410100MAE5H38A0F')
@@ -125,6 +125,57 @@ describe('UserInvoice', () => {
     expect(mockedApi.getMyInvoices).toHaveBeenCalledTimes(2)
   })
 
+  it('filters invoices by status and upload time date range', async () => {
+    const pendingInvoice: Invoice = {
+      id: 2,
+      companyName: '待开票公司',
+      taxNumber: '91410100MAE5H38A0F',
+      amount: 150.00,
+      invoiceType: '技术服务费',
+      remark: '',
+      status: 'PENDING',
+      userId: 2,
+      createdAt: '2026-08-24T10:00:00',
+      updatedAt: '2026-08-24T10:00:00',
+      downloadable: false,
+      fileExists: false,
+      fileName: ''
+    }
+    const olderCompletedInvoice: Invoice = {
+      ...completedInvoice,
+      id: 3,
+      companyName: '较早公司',
+      createdAt: '2026-07-01T10:00:00'
+    }
+
+    mockedApi.getMyInvoices.mockResolvedValue([completedInvoice, pendingInvoice, olderCompletedInvoice])
+
+    const page = await mountPage()
+    expect(page.find('.result-count').text()).toContain('3 条记录')
+
+    // 筛选状态为 PENDING (待开票)
+    const statusComponent = page.findComponent({ name: 'ElSelect' })
+    await statusComponent.setValue('PENDING')
+    await flushPromises()
+
+    expect(page.find('.result-count').text()).toContain('1 条记录')
+    expect(page.text()).toContain('待开票公司')
+    expect(page.text()).not.toContain('较早公司')
+
+    // 重置状态筛选，按时间段筛选
+    await statusComponent.setValue('ALL')
+    await flushPromises()
+    expect(page.find('.result-count').text()).toContain('3 条记录')
+
+    // 设置日期范围 2026-08-15 至 2026-08-25
+    const datePickerComponent = page.findComponent({ name: 'ElDatePicker' })
+    await datePickerComponent.setValue(['2026-08-15', '2026-08-25'])
+    await flushPromises()
+
+    expect(page.find('.result-count').text()).toContain('2 条记录')
+    expect(page.text()).not.toContain('较早公司')
+  })
+
   it('renders aligned record actions for desktop and mobile layouts', async () => {
     mockedApi.getMyInvoices.mockResolvedValue([completedInvoice])
 
@@ -132,8 +183,8 @@ describe('UserInvoice', () => {
 
     expect(page.find('.result-count').text()).toContain('1 条记录')
     expect(page.find('.invoice-id').text()).toBe('#0001')
-    expect(page.findAll('.record-actions button')).toHaveLength(2)
-    expect(page.findAll('.mobile-record-actions button')).toHaveLength(2)
+    expect(page.findAll('.record-actions button')).toHaveLength(3)
+    expect(page.findAll('.mobile-record-actions button')).toHaveLength(3)
     expect(page.find('.mobile-records').text()).toContain('¥300.01')
   })
 
@@ -195,13 +246,20 @@ describe('UserInvoice', () => {
     await flushPromises()
 
     // 验证确认弹窗已出现
-    expect(document.body.innerHTML).toContain('AI 识别结果确认')
+    expect(document.body.innerHTML).toContain('AI 识别结果')
 
-    // 点击确认并提交按钮
+    // 点击「填入表单」按钮回填表单
     const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
-    const confirmBtn = buttons.find(b => b.textContent?.includes('确认并提交'))
-    expect(confirmBtn).toBeDefined()
-    confirmBtn!.click()
+    const fillBtn = buttons.find(b => b.textContent?.includes('填入表单'))
+    expect(fillBtn).toBeDefined()
+    fillBtn!.click()
+    await flushPromises()
+
+    // 点击表单的「提交申请」按钮提交发票
+    const submitBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('.submit-invoice-dialog .dialog-footer button'))
+      .find(b => b.textContent?.includes('提交申请'))
+    expect(submitBtn).toBeDefined()
+    submitBtn!.click()
     await flushPromises()
 
     // 验证发票申请提交成功
@@ -214,5 +272,88 @@ describe('UserInvoice', () => {
       expect.any(String)
     )
     expect(ElMessage.success).toHaveBeenCalledWith('提交成功')
+  })
+
+  it('allows submitting with AI订阅服务费 invoice type', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('某某AI科技有限公司')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('500.00')
+
+    const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
+    if (typeSelect) {
+      await typeSelect.setValue('AI订阅服务费')
+      await flushPromises()
+    }
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyName: '某某AI科技有限公司',
+        taxNumber: '91410100MAE5H38A0F',
+        amount: 500.00,
+        invoiceType: 'AI订阅服务费'
+      }),
+      expect.any(String)
+    )
+  })
+
+  it('allows submitting with 计算服务费 invoice type', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('某某算力科技有限公司')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('1000.00')
+
+    const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
+    if (typeSelect) {
+      await typeSelect.setValue('计算服务费')
+      await flushPromises()
+    }
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyName: '某某算力科技有限公司',
+        taxNumber: '91410100MAE5H38A0F',
+        amount: 1000.00,
+        invoiceType: '计算服务费'
+      }),
+      expect.any(String)
+    )
+  })
+
+  it('renders pagination and paginates items when multiple pages exist', async () => {
+    const manyInvoices: Invoice[] = Array.from({ length: 25 }, (_, i) => ({
+      ...completedInvoice,
+      id: i + 1,
+      companyName: `测试公司_${i + 1}`
+    }))
+    mockedApi.getMyInvoices.mockResolvedValue(manyInvoices)
+
+    const page = await mountPage()
+    expect(page.find('.result-count').text()).toContain('25 条记录')
+    expect(page.find('.pagination-bar').exists()).toBe(true)
+    // 默认每页 10 条
+    expect(page.text()).toContain('测试公司_1')
+    expect(page.text()).toContain('测试公司_10')
+    expect(page.text()).not.toContain('测试公司_11')
   })
 })

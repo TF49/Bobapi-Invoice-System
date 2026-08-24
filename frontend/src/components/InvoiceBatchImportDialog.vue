@@ -60,7 +60,7 @@
         </div>
 
         <el-table
-          :data="parsedData"
+          :data="paginatedParsedData"
           :max-height="400"
           border
           stripe
@@ -80,6 +80,18 @@
           </el-table-column>
           <el-table-column prop="error" label="错误信息" min-width="180" />
         </el-table>
+        <div v-if="parsedData.length > 0" class="dialog-pagination-bar">
+          <span>共 {{ parsedData.length }} 条记录</span>
+          <el-pagination
+            v-model:current-page="previewPage"
+            v-model:page-size="previewPageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="parsedData.length"
+            layout="sizes, prev, pager, next"
+            small
+            background
+          />
+        </div>
       </div>
 
       <!-- 提交结果 -->
@@ -95,11 +107,23 @@
               <p>成功: {{ submitResult.successCount }}</p>
               <p>失败: {{ submitResult.failureCount }}</p>
               <p>总金额: ¥{{ submitResult.totalAmount }}</p>
-              <el-table :data="submitResult.items" size="small" border>
+              <el-table :data="paginatedResultItems" size="small" border>
                 <el-table-column prop="rowNumber" label="原始行号" width="90" />
                 <el-table-column prop="invoiceId" label="申请 ID" width="100" />
                 <el-table-column prop="status" label="状态" width="90" />
               </el-table>
+              <div v-if="submitResult.items.length > 0" class="dialog-pagination-bar">
+                <span>共 {{ submitResult.items.length }} 条结果</span>
+                <el-pagination
+                  v-model:current-page="resultPage"
+                  v-model:page-size="resultPageSize"
+                  :page-sizes="[10, 20, 50]"
+                  :total="submitResult.items.length"
+                  layout="sizes, prev, pager, next"
+                  small
+                  background
+                />
+              </div>
             </div>
           </template>
         </el-result>
@@ -148,6 +172,13 @@ const selectedFile = ref<File | null>(null);
 const parseStatus = ref<'IDLE' | 'PARSING' | 'PREVIEW' | 'ERROR'>('IDLE');
 const parseError = ref('');
 const parsedData = ref<ParsedInvoiceRow[]>([]);
+const previewPage = ref(1);
+const previewPageSize = ref(10);
+
+const paginatedParsedData = computed(() => {
+  const start = (previewPage.value - 1) * previewPageSize.value;
+  return parsedData.value.slice(start, start + previewPageSize.value);
+});
 
 // 提交相关
 const submitting = ref(false);
@@ -159,6 +190,14 @@ const submitResult = ref<{
   totalAmount: string;
   items: Array<{ rowNumber: number; invoiceId: number; status: string; message: string }>;
 } | null>(null);
+const resultPage = ref(1);
+const resultPageSize = ref(10);
+
+const paginatedResultItems = computed(() => {
+  if (!submitResult.value?.items) return [];
+  const start = (resultPage.value - 1) * resultPageSize.value;
+  return submitResult.value.items.slice(start, start + resultPageSize.value);
+});
 
 // 当前预览数据对应的批次幂等键
 const idempotencyKey = ref('');
@@ -189,6 +228,8 @@ const handleFileChange = async (uploadFile: UploadFile) => {
   parseError.value = '';
   parsedData.value = [];
   submitResult.value = null;
+  previewPage.value = 1;
+  resultPage.value = 1;
 
   const result = await parseInvoiceFile(file);
 
@@ -285,6 +326,8 @@ const resetDialogState = () => {
   parsedData.value = [];
   submitResult.value = null;
   idempotencyKey.value = '';
+  previewPage.value = 1;
+  resultPage.value = 1;
   uploadRef.value?.clearFiles();
 };
 
@@ -339,6 +382,20 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
 
 .preview-table {
   margin-top: 12px;
+}
+
+.dialog-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.dialog-pagination-bar > span {
+  color: #909399;
+  font-size: 12px;
 }
 
 .result-section {

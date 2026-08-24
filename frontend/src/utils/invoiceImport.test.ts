@@ -24,7 +24,7 @@ const row = (overrides: Partial<ParsedInvoiceRow> = {}): ParsedInvoiceRow => ({
 describe('invoice batch import validation', () => {
   it('parses BOM CSV and preserves row numbers across empty lines', async () => {
     const file = new File([
-      '\uFEFF公司名称,税号,开票金额,开票类型\n示例公司A,91500123456789012A,100.00,技术服务费\n,,,\n示例公司B,91500123456789013B,20.50,技术服务费'
+      '\uFEFF公司名称,税号,开票金额,开票类型\n示例公司A,91500123456789012A,100.00,技术服务费\n,,,\n示例公司B,91500123456789013B,20.50,AI订阅服务费'
     ], 'invoices.csv', { type: 'text/csv' })
 
     const result = await parseInvoiceFile(file)
@@ -54,7 +54,7 @@ describe('invoice batch import validation', () => {
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
       ['公司名称', '税号', '开票金额', '开票类型'],
-      ['示例公司', '91500123456789012A', '100.00', '技术服务费']
+      ['示例公司', '91500123456789012A', '100.00', 'AI订阅服务费']
     ]), '导入模板')
     const bytes = XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })
     const file = new File([bytes], 'invoices.xlsx')
@@ -63,7 +63,7 @@ describe('invoice batch import validation', () => {
 
     expect(result).toMatchObject({
       success: true,
-      data: [{ rowNumber: 2, companyName: '示例公司', amount: '100.00', invoiceType: '技术服务费' }]
+      data: [{ rowNumber: 2, companyName: '示例公司', amount: '100.00', invoiceType: 'AI订阅服务费' }]
     })
   })
 
@@ -82,8 +82,11 @@ describe('invoice batch import validation', () => {
     expect(validateRow(row({ amount: '12.345' }))).toBe('开票金额格式不正确')
   })
 
-  it('only accepts the fixed invoice type', () => {
-    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型固定为技术服务费')
+  it('accepts allowed invoice types and rejects unsupported invoice types', () => {
+    expect(validateRow(row({ invoiceType: '技术服务费' }))).toBeNull()
+    expect(validateRow(row({ invoiceType: 'AI订阅服务费' }))).toBeNull()
+    expect(validateRow(row({ invoiceType: '计算服务费' }))).toBeNull()
+    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型必须为技术服务费、AI订阅服务费或计算服务费')
   })
 
   it('compares duplicate rows after normalization', () => {

@@ -84,11 +84,25 @@ public class JwtUtil {
     }
     
     /**
+     * 安全提取数值型 Claim 并转换为 Long（兼顾 JSON 反序列化时 Integer 与 Long 类型）
+     */
+    public static Long getLongClaim(Claims claims, String claimName) {
+        if (claims == null) {
+            return null;
+        }
+        Object value = claims.get(claimName);
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return null;
+    }
+    
+    /**
      * 从 token 中获取用户ID
      */
     public Long getUserIdFromToken(String token) {
         Claims claims = getClaimsFromToken(token);
-        return claims.get("userId", Long.class);
+        return getLongClaim(claims, "userId");
     }
     
     /**
@@ -113,7 +127,7 @@ public class JwtUtil {
 
     public Long getAuthVersionFromToken(String token) {
         Claims claims = getClaimsFromToken(token);
-        return claims.get("authVersion", Long.class);
+        return getLongClaim(claims, "authVersion");
     }
 
     public Claims parseClaims(String token) {

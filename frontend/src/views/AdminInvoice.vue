@@ -105,7 +105,7 @@
           <strong>{{ emptyText }}</strong>
         </div>
         <div v-else class="table-scroll desktop-records">
-          <el-table :data="filteredInvoices" v-loading="loading" class="records-table">
+          <el-table :data="paginatedInvoices" v-loading="loading" class="records-table">
             <el-table-column prop="companyName" label="公司名称" min-width="210">
               <template #default="{ row }">
                 <div class="company-cell">
@@ -155,7 +155,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="270" align="center" fixed="right">
+            <el-table-column label="操作" width="290" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="action-cell-wrapper">
                   <template v-if="row.status === 'PENDING'">
@@ -186,7 +186,7 @@
                       accept=".jpg,.jpeg,.png"
                       class="upload-btn-wrapper"
                     >
-                      <el-button type="primary" size="small" :icon="UploadFilled" :loading="uploadingId === row.id" plain>
+                      <el-button type="primary" size="small" :icon="UploadFilled" :loading="uploadingId === row.id" plain class="action-btn">
                         选择
                       </el-button>
                     </el-upload>
@@ -195,9 +195,11 @@
                     <el-button
                       :key="`preview-${row.id}`"
                       type="primary"
+                      plain
                       size="small"
                       :icon="ZoomIn"
                       :loading="previewingId === row.id"
+                      class="action-btn"
                       @click="handlePreview(row)"
                     >
                       查看
@@ -208,9 +210,22 @@
                       plain
                       size="small"
                       :icon="Download"
+                      class="action-btn"
                       @click="handleDownload(row)"
                     >
                       下载
+                    </el-button>
+                    <el-button
+                      :key="`copy-${row.id}`"
+                      type="primary"
+                      plain
+                      size="small"
+                      :icon="CopyDocument"
+                      :loading="copyingId === row.id"
+                      class="action-btn"
+                      @click="handleCopyImage(row)"
+                    >
+                      复制
                     </el-button>
                   </template>
                   <span v-else class="empty-action"><i class="empty-dot"></i>暂不可用</span>
@@ -220,6 +235,7 @@
                       :key="`edit-${row.id}`"
                       size="small"
                       :icon="EditPen"
+                      class="action-btn icon-only-btn"
                       @click="handleEditInvoice(row)"
                     />
                   </el-tooltip>
@@ -231,7 +247,7 @@
 
         <!-- 移动端卡片视图 -->
         <div v-if="filteredInvoices.length > 0" v-loading="loading" class="mobile-records">
-          <article v-for="row in filteredInvoices" :key="row.id" class="admin-record-card">
+          <article v-for="row in paginatedInvoices" :key="row.id" class="admin-record-card">
             <div class="record-card-header">
               <div class="company-cell">
                 <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
@@ -302,11 +318,28 @@
                 <el-button type="primary" plain :icon="Download" @click="handleDownload(row)">
                   下载文件
                 </el-button>
+                <el-button type="primary" plain :icon="CopyDocument" :loading="copyingId === row.id" @click="handleCopyImage(row)">
+                  复制图片
+                </el-button>
               </template>
               <!-- 移动端修改按钮 -->
               <el-button :icon="EditPen" @click="handleEditInvoice(row)">修改信息</el-button>
             </div>
           </article>
+        </div>
+
+        <div v-if="filteredInvoices.length > 0" class="pagination-bar">
+          <span>共 {{ filteredInvoices.length }} 条记录</span>
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="filteredInvoices.length"
+            layout="sizes, prev, pager, next, jumper"
+            background
+            @size-change="handlePageSizeChange"
+            @current-change="handleCurrentChange"
+          />
         </div>
       </AnimatedContent>
     </main>
@@ -338,6 +371,11 @@
           <span>加载中…</span>
         </div>
       </div>
+      <template #footer v-if="previewSrc && !previewError">
+        <div class="dialog-footer">
+          <el-button type="primary" plain :icon="CopyDocument" @click="handleCopyPreviewImage">复制图片</el-button>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- 修改发票信息弹窗 -->
@@ -392,6 +430,8 @@
         <el-form-item label="开票类型" prop="invoiceType">
           <el-select v-model="editForm.invoiceType" placeholder="请选择开票类型" class="type-select">
             <el-option label="技术服务费" value="技术服务费" />
+            <el-option label="AI订阅服务费" value="AI订阅服务费" />
+            <el-option label="计算服务费" value="计算服务费" />
           </el-select>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
@@ -423,7 +463,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import type { UploadRawFile } from 'element-plus'
 import {
@@ -455,11 +495,13 @@ import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import { useUserStore } from '@/stores/user'
 import { saveBlobResponse } from '@/utils/download'
+import { copyImageToClipboard } from '@/utils/clipboard'
 import { ApiRequestError } from '@/utils/request'
 
 const userStore = useUserStore()
 const loading = ref(false)
 const uploadingId = ref<number | null>(null)
+const copyingId = ref<number | null>(null)
 const pasteActiveId = ref<number | null>(null)
 const invoices = ref<Invoice[]>([])
 const statusFilter = ref('ALL')
@@ -503,6 +545,34 @@ const filteredInvoices = computed(() => {
     return matchesStatus && matchesUser && matchesKeyword
   })
 })
+
+const page = ref(1)
+const pageSize = ref(10)
+
+const paginatedInvoices = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredInvoices.value.slice(start, start + pageSize.value)
+})
+
+watch([searchKeyword, statusFilter, userFilter], () => {
+  page.value = 1
+})
+
+watch(filteredInvoices, (newList) => {
+  const maxPage = Math.ceil(newList.length / pageSize.value) || 1
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
+const handlePageSizeChange = (val: number) => {
+  pageSize.value = val
+  page.value = 1
+}
+
+const handleCurrentChange = (val: number) => {
+  page.value = val
+}
 
 const emptyText = computed(() => {
   if (searchKeyword.value.trim()) return '未找到匹配的发票申请记录'
@@ -597,6 +667,41 @@ const handleDownload = async (row: Invoice) => {
     ElMessage.success('下载成功')
   } catch {
     // 错误提示由请求拦截器统一处理
+  }
+}
+
+const handleCopyImage = async (row: Invoice) => {
+  if (copyingId.value !== null) return
+  copyingId.value = row.id
+  try {
+    const response = await invoiceApi.previewInvoice(row.id)
+    const blob = response.data
+
+    if (blob.type === 'application/pdf' || row.fileName?.toLowerCase().endsWith('.pdf')) {
+      ElMessage.warning('该发票为 PDF 格式，暂不支持直接复制图片，请使用下载功能')
+      return
+    }
+
+    await copyImageToClipboard(blob)
+    ElMessage.success('发票图片已复制到剪贴板')
+  } catch (error: any) {
+    console.error('复制发票图片失败', error)
+    const msg = error?.message || '复制图片失败，请稍后重试'
+    ElMessage.error(msg)
+  } finally {
+    copyingId.value = null
+  }
+}
+
+const handleCopyPreviewImage = async () => {
+  if (!previewSrc.value) return
+  try {
+    const res = await fetch(previewSrc.value)
+    const blob = await res.blob()
+    await copyImageToClipboard(blob)
+    ElMessage.success('发票图片已复制到剪贴板')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '复制图片失败，请稍后重试')
   }
 }
 
@@ -959,16 +1064,41 @@ onBeforeUnmount(onPreviewClose)
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  white-space: nowrap;
+}
+
+.action-cell-wrapper :deep(.el-button),
+.action-cell-wrapper .el-button {
+  margin-left: 0 !important;
+}
+
+.action-cell-wrapper :deep(.action-btn),
+.action-cell-wrapper .action-btn {
+  height: 28px;
+  padding: 0 8px;
+  font-size: 12px;
+  border-radius: 6px;
+}
+
+.action-cell-wrapper :deep(.icon-only-btn),
+.action-cell-wrapper .icon-only-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .paste-zone {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 10px;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
   border: 1.5px dashed var(--color-border-strong);
   border-radius: 6px;
   font-size: 12px;

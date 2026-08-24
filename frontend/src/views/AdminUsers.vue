@@ -232,7 +232,7 @@
             v-model:page-size="pageSize"
             :page-sizes="[10, 20, 50, 100]"
             :total="total"
-            layout="sizes, prev, pager, next"
+            layout="sizes, prev, pager, next, jumper"
             background
             @size-change="handlePageSizeChange"
             @current-change="loadUsers"
@@ -323,7 +323,7 @@
             </el-form>
           </el-tab-pane>
           <el-tab-pane label="历史记录" name="history">
-            <el-table :data="quotaTransactions" stripe max-height="300">
+            <el-table :data="paginatedQuotaTransactions" stripe max-height="300">
               <el-table-column prop="transactionType" label="类型" width="100">
                 <template #default="{ row }">
                   <el-tag :type="getTransactionTypeTag(row.transactionType)" size="small">
@@ -349,6 +349,18 @@
                 <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
               </el-table-column>
             </el-table>
+            <div v-if="quotaTransactions.length > 0" class="dialog-pagination-bar">
+              <span>共 {{ quotaTransactions.length }} 条记录</span>
+              <el-pagination
+                v-model:current-page="quotaHistoryPage"
+                v-model:page-size="quotaHistoryPageSize"
+                :page-sizes="[5, 10, 20]"
+                :total="quotaTransactions.length"
+                layout="sizes, prev, pager, next"
+                small
+                background
+              />
+            </div>
           </el-tab-pane>
         </el-tabs>
       </template>
@@ -362,7 +374,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import type { FormInstance, FormRules } from 'element-plus'
@@ -439,6 +451,13 @@ const quotaActiveTab = ref('recharge')
 const quotaForm = reactive<{ amount: number; remark: string }>({
   amount: 0,
   remark: ''
+})
+const quotaHistoryPage = ref(1)
+const quotaHistoryPageSize = ref(10)
+
+const paginatedQuotaTransactions = computed(() => {
+  const start = (quotaHistoryPage.value - 1) * quotaHistoryPageSize.value
+  return quotaTransactions.value.slice(start, start + quotaHistoryPageSize.value)
 })
 const quotaPendingIdempotencyKey = ref<string | null>(null)
 let quotaDialogRequestId = 0
@@ -630,6 +649,7 @@ const openQuotaDialog = async (user: ManagedUser) => {
   quotaForm.amount = 0
   quotaForm.remark = ''
   quotaPendingIdempotencyKey.value = null
+  quotaHistoryPage.value = 1
   
   try {
     const [userQuota, transactions] = await Promise.all([
@@ -849,6 +869,21 @@ onMounted(loadUsers)
   color: var(--color-text-muted);
   font-size: 12px;
   white-space: nowrap;
+}
+
+.dialog-pagination-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.dialog-pagination-bar > span {
+  color: var(--color-text-muted);
+  font-size: 12px;
 }
 
 .dialog-context {

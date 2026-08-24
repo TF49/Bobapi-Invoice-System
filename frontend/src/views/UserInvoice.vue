@@ -70,7 +70,34 @@
             </div>
           </div>
           <div class="panel-actions">
-            <span class="result-count"><i></i>{{ invoices.length }} 条记录</span>
+            <div class="filter-control">
+              <span class="filter-label"><Calendar />时间</span>
+              <el-date-picker
+                v-model="dateRange"
+                type="daterange"
+                range-separator="至"
+                start-placeholder="开始日期"
+                end-placeholder="结束日期"
+                value-format="YYYY-MM-DD"
+                :shortcuts="dateShortcuts"
+                clearable
+                class="date-picker"
+                aria-label="筛选申请时间"
+              />
+            </div>
+            <div class="filter-control">
+              <span class="filter-label"><Filter />状态</span>
+              <el-select
+                v-model="statusFilter"
+                aria-label="筛选开票状态"
+                class="status-select"
+              >
+                <el-option label="全部状态" value="ALL" />
+                <el-option label="待开票" value="PENDING" />
+                <el-option label="已开票" value="COMPLETED" />
+              </el-select>
+            </div>
+            <span class="result-count"><i></i>{{ filteredInvoices.length }} 条记录</span>
             <el-button
               type="primary"
               :icon="Plus"
@@ -90,12 +117,12 @@
           </div>
         </div>
 
-        <div v-if="!loading && invoices.length === 0" class="table-empty-state">
+        <div v-if="!loading && filteredInvoices.length === 0" class="table-empty-state">
           <span><Files /></span>
-          <strong>暂无发票记录</strong>
+          <strong>{{ invoices.length === 0 ? '暂无发票记录' : '未找到符合条件的发票记录' }}</strong>
         </div>
         <div v-else class="table-scroll desktop-records">
-          <el-table :data="invoices" v-loading="loading" class="records-table">
+          <el-table :data="paginatedInvoices" v-loading="loading" class="records-table">
             <el-table-column prop="id" label="申请编号" width="112">
               <template #default="{ row }">
                 <span class="invoice-id">{{ formatInvoiceId(row.id) }}</span>
@@ -145,7 +172,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="188" align="center" fixed="right">
+            <el-table-column label="操作" width="240" align="center" fixed="right">
               <template #default="{ row }">
                 <div v-if="row.downloadable && row.fileExists" class="record-actions">
                   <el-button
@@ -168,6 +195,17 @@
                   >
                     下载
                   </el-button>
+                  <el-button
+                    class="record-action-button"
+                    type="primary"
+                    plain
+                    size="small"
+                    :icon="CopyDocument"
+                    :loading="copyingId === row.id"
+                    @click="handleCopyImage(row)"
+                  >
+                    复制
+                  </el-button>
                 </div>
                 <span v-else class="empty-action"><i></i>等待开票</span>
               </template>
@@ -175,8 +213,8 @@
           </el-table>
         </div>
 
-        <div v-if="invoices.length > 0" v-loading="loading" class="mobile-records">
-          <article v-for="row in invoices" :key="row.id" class="invoice-record-card">
+        <div v-if="filteredInvoices.length > 0" v-loading="loading" class="mobile-records">
+          <article v-for="row in paginatedInvoices" :key="row.id" class="invoice-record-card">
             <div class="record-card-header">
               <div class="company-cell">
                 <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
@@ -226,12 +264,35 @@
               <el-button type="primary" plain :icon="Download" @click="handleDownload(row)">
                 下载文件
               </el-button>
+              <el-button
+                type="primary"
+                plain
+                :icon="CopyDocument"
+                :loading="copyingId === row.id"
+                @click="handleCopyImage(row)"
+              >
+                复制图片
+              </el-button>
             </div>
             <div v-else class="record-pending-note">
               <Clock />
               <span>管理员处理完成后，可在这里查看和下载发票</span>
             </div>
           </article>
+        </div>
+
+        <div v-if="filteredInvoices.length > 0" class="pagination-bar">
+          <span>共 {{ filteredInvoices.length }} 条记录</span>
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="filteredInvoices.length"
+            layout="sizes, prev, pager, next, jumper"
+            background
+            @size-change="handlePageSizeChange"
+            @current-change="handleCurrentChange"
+          />
         </div>
       </AnimatedContent>
     </main>
@@ -343,6 +404,8 @@
         <el-form-item label="开票类型" prop="invoiceType">
           <el-select v-model="form.invoiceType" placeholder="请选择开票类型" class="type-select">
             <el-option label="技术服务费" value="技术服务费" />
+            <el-option label="AI订阅服务费" value="AI订阅服务费" />
+            <el-option label="计算服务费" value="计算服务费" />
           </el-select>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
@@ -398,6 +461,11 @@
           <span>加载中…</span>
         </div>
       </div>
+      <template #footer v-if="previewSrc && !previewError">
+        <div class="dialog-footer">
+          <el-button type="primary" plain :icon="CopyDocument" @click="handleCopyPreviewImage">复制图片</el-button>
+        </div>
+      </template>
     </el-dialog>
 
     <!-- AI 识别结果确认弹窗 -->
@@ -429,7 +497,7 @@
           </div>
           <div class="ai-confirm-row">
             <dt>开票类型</dt>
-            <dd><el-tag size="small" type="info" effect="plain">技术服务费</el-tag></dd>
+            <dd><el-tag size="small" type="info" effect="plain">{{ aiConfirmData?.invoiceType || form.invoiceType || '技术服务费' }}</el-tag></dd>
           </div>
         </dl>
         <div class="ai-confirm-hint">
@@ -463,13 +531,16 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage, type FormInstance } from 'element-plus'
 import {
+  Calendar,
   Check,
   CircleCheck,
   Clock,
   Coin,
+  CopyDocument,
   Download,
   EditPen,
   Files,
+  Filter,
   InfoFilled,
   List,
   Loading,
@@ -492,6 +563,7 @@ import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import InvoiceBatchImportDialog from '@/components/InvoiceBatchImportDialog.vue'
 import { saveBlobResponse } from '@/utils/download'
+import { copyImageToClipboard } from '@/utils/clipboard'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import { ApiRequestError } from '@/utils/request'
 
@@ -500,6 +572,86 @@ const loading = ref(false)
 const submitting = ref(false)
 const invoices = ref<Invoice[]>([])
 const pendingIdempotencyKey = ref<string | null>(null)
+const copyingId = ref<number | null>(null)
+
+// 筛选相关状态
+const statusFilter = ref<'ALL' | 'PENDING' | 'COMPLETED'>('ALL')
+const dateRange = ref<[string, string] | null>(null)
+const dateShortcuts = [
+  {
+    text: '近 7 天',
+    value: () => {
+      const end = new Date()
+      const start = new Date()
+      start.setTime(start.getTime() - 3600 * 1000 * 24 * 7)
+      return [start, end]
+    }
+  },
+  {
+    text: '近 30 天',
+    value: () => {
+      const end = new Date()
+      const start = new Date()
+      start.setTime(start.getTime() - 3600 * 1000 * 24 * 30)
+      return [start, end]
+    }
+  },
+  {
+    text: '本月',
+    value: () => {
+      const end = new Date()
+      const start = new Date(end.getFullYear(), end.getMonth(), 1)
+      return [start, end]
+    }
+  }
+]
+
+const filteredInvoices = computed(() => {
+  return invoices.value.filter(invoice => {
+    // 状态筛选
+    if (statusFilter.value !== 'ALL' && invoice.status !== statusFilter.value) {
+      return false
+    }
+    // 上传时间/申请时间筛选
+    if (dateRange.value && dateRange.value.length === 2 && dateRange.value[0] && dateRange.value[1]) {
+      const startMs = new Date(`${dateRange.value[0]}T00:00:00`).getTime()
+      const endMs = new Date(`${dateRange.value[1]}T23:59:59.999`).getTime()
+      const createdAtMs = new Date(invoice.createdAt).getTime()
+      if (Number.isNaN(createdAtMs) || createdAtMs < startMs || createdAtMs > endMs) {
+        return false
+      }
+    }
+    return true
+  })
+})
+
+const page = ref(1)
+const pageSize = ref(10)
+
+const paginatedInvoices = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return filteredInvoices.value.slice(start, start + pageSize.value)
+})
+
+watch([statusFilter, dateRange], () => {
+  page.value = 1
+})
+
+watch(filteredInvoices, (newList) => {
+  const maxPage = Math.ceil(newList.length / pageSize.value) || 1
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
+const handlePageSizeChange = (val: number) => {
+  pageSize.value = val
+  page.value = 1
+}
+
+const handleCurrentChange = (val: number) => {
+  page.value = val
+}
 
 // 批量导入相关
 const batchImportVisible = ref(false)
@@ -720,7 +872,7 @@ const handleAiParse = async () => {
 
     aiStep.value = 'idle'
     aiProgress.value = 0
-    aiConfirmData.value = { companyName, taxNumber, amount, invoiceType: '技术服务费' }
+    aiConfirmData.value = { companyName, taxNumber, amount, invoiceType: form.invoiceType || '技术服务费' }
     aiConfirmVisible.value = true
 
   } catch (error: any) {
@@ -745,7 +897,7 @@ const handleAiConfirm = () => {
   if (data.amount !== null && Number.isFinite(data.amount) && data.amount >= 0.01) {
     form.amount = data.amount
   }
-  form.invoiceType = '技术服务费'
+  form.invoiceType = data.invoiceType || form.invoiceType || '技术服务费'
 
   // 关闭确认弹窗，收起 AI 面板，让用户回到表单自行复核
   aiConfirmVisible.value = false
@@ -857,12 +1009,47 @@ const handleDownload = async (row: Invoice) => {
   }
 }
 
+const handleCopyImage = async (row: Invoice) => {
+  if (copyingId.value !== null) return
+  copyingId.value = row.id
+  try {
+    const response = await invoiceApi.previewInvoice(row.id)
+    const blob = response.data
+
+    if (blob.type === 'application/pdf' || row.fileName?.toLowerCase().endsWith('.pdf')) {
+      ElMessage.warning('该发票为 PDF 格式，暂不支持直接复制图片，请使用下载功能')
+      return
+    }
+
+    await copyImageToClipboard(blob)
+    ElMessage.success('发票图片已复制到剪贴板')
+  } catch (error: any) {
+    console.error('复制发票图片失败', error)
+    const msg = error?.message || '复制图片失败，请稍后重试'
+    ElMessage.error(msg)
+  } finally {
+    copyingId.value = null
+  }
+}
+
+const handleCopyPreviewImage = async () => {
+  if (!previewSrc.value) return
+  try {
+    const res = await fetch(previewSrc.value)
+    const blob = await res.blob()
+    await copyImageToClipboard(blob)
+    ElMessage.success('发票图片已复制到剪贴板')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '复制图片失败，请稍后重试')
+  }
+}
+
 const showBatchImportDialog = () => {
   batchImportVisible.value = true
 }
 
 const handleBatchImportSuccess = async () => {
-  await loadInvoices()
+  await Promise.all([loadInvoices(), loadQuota()])
 }
 
 watch(
@@ -883,26 +1070,50 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.records-panel .panel-header {
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
 .panel-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 
+.filter-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.date-picker {
+  width: 250px !important;
+  flex-shrink: 0 !important;
+}
+
+.status-select {
+  width: 125px !important;
+  flex-shrink: 0 !important;
+}
+
 .submit-action-button {
+  flex-shrink: 0;
   box-shadow: 0 4px 12px rgba(18, 113, 91, 0.2);
+}
+
+.batch-import-button {
+  flex-shrink: 0;
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: #c8ded7;
 }
 
 .amount-input,
 .type-select {
   width: 100%;
-}
-
-.batch-import-button {
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
-  border-color: #c8ded7;
 }
 
 .batch-import-button:hover,
@@ -1381,8 +1592,23 @@ onBeforeUnmount(() => {
 
 @media (max-width: 720px) {
   .records-panel .panel-header {
-    align-items: center;
-    flex-direction: row;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  .records-panel .panel-actions {
+    width: 100%;
+  }
+
+  .records-panel .filter-control {
+    width: 100%;
+  }
+
+  .records-panel .date-picker,
+  .records-panel .status-select {
+    flex: 1;
+    width: 100%;
   }
 
   .desktop-records {

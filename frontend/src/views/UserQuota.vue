@@ -76,7 +76,7 @@
         </div>
 
         <div v-else class="table-scroll desktop-records">
-          <el-table :data="transactions" v-loading="loading" class="records-table">
+          <el-table :data="paginatedTransactions" v-loading="loading" class="records-table">
             <el-table-column prop="id" label="记录编号" width="112">
               <template #default="{ row }">
                 <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
@@ -124,7 +124,7 @@
         </div>
 
         <div v-if="transactions.length > 0" v-loading="loading" class="mobile-records">
-          <article v-for="row in transactions" :key="row.id" class="transaction-record-card">
+          <article v-for="row in paginatedTransactions" :key="row.id" class="transaction-record-card">
             <div class="record-card-header">
               <div class="type-cell">
                 <el-tag class="status-tag" :class="getTransactionTagClass(row.transactionType)">
@@ -158,13 +158,27 @@
             </dl>
           </article>
         </div>
+
+        <div v-if="transactions.length > 0" class="pagination-bar">
+          <span>共 {{ transactions.length }} 条记录</span>
+          <el-pagination
+            v-model:current-page="page"
+            v-model:page-size="pageSize"
+            :page-sizes="[10, 20, 50, 100]"
+            :total="transactions.length"
+            layout="sizes, prev, pager, next, jumper"
+            background
+            @size-change="handlePageSizeChange"
+            @current-change="handleCurrentChange"
+          />
+        </div>
       </AnimatedContent>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Coin, Filter, List, Remove, Wallet } from '@element-plus/icons-vue'
 import { quotaApi, type QuotaTransaction, type UserQuota } from '@/api/quota'
@@ -184,6 +198,30 @@ const quota = ref<UserQuota>({
 const transactions = ref<QuotaTransaction[]>([])
 const filterType = ref('')
 
+const page = ref(1)
+const pageSize = ref(10)
+
+const paginatedTransactions = computed(() => {
+  const start = (page.value - 1) * pageSize.value
+  return transactions.value.slice(start, start + pageSize.value)
+})
+
+watch(transactions, (newList) => {
+  const maxPage = Math.ceil(newList.length / pageSize.value) || 1
+  if (page.value > maxPage) {
+    page.value = maxPage
+  }
+})
+
+const handlePageSizeChange = (val: number) => {
+  pageSize.value = val
+  page.value = 1
+}
+
+const handleCurrentChange = (val: number) => {
+  page.value = val
+}
+
 const loadQuota = async () => {
   try {
     quota.value = await quotaApi.getMyQuota()
@@ -194,6 +232,7 @@ const loadQuota = async () => {
 
 const loadTransactions = async () => {
   loading.value = true
+  page.value = 1
   try {
     transactions.value = await quotaApi.getMyTransactions(filterType.value || undefined)
   } catch (error: any) {
