@@ -62,6 +62,7 @@ export interface AiParseResponse {
   companyName: string | null
   taxNumber: string | null
   amount: number | null
+  invoiceType: string | null
   confidence: 'HIGH' | 'LOW'
   hint: string | null
 }
@@ -71,6 +72,7 @@ export interface AiVerifyRequest {
   companyName: string | null
   taxNumber: string | null
   amount: number | null
+  invoiceType: string | null
 }
 
 export const invoiceApi = {

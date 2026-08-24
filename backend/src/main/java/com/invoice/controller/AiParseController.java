@@ -91,7 +91,8 @@ public class AiParseController {
                 request.getText(),
                 request.getCompanyName(),
                 request.getTaxNumber(),
-                request.getAmount()
+                request.getAmount(),
+                request.getInvoiceType()
         );
         return ApiResponse.success("核查完成", result);
     }

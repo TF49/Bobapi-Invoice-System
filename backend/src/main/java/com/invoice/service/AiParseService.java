@@ -32,8 +32,9 @@ public interface AiParseService {
      * @param companyName 第一阶段提取的公司名称（可为 null）
      * @param taxNumber   第一阶段提取的税号（可为 null）
      * @param amount      第一阶段提取的金额（可为 null）
+     * @param invoiceType 第一阶段提取的开票类型（可为 null）
      * @return 核查并修正后的识别结果，未识别到的字段为 null
      */
-    AiParseResponse verify(String text, String companyName, String taxNumber, BigDecimal amount);
+    AiParseResponse verify(String text, String companyName, String taxNumber, BigDecimal amount, String invoiceType);
 }
 

@@ -36,19 +36,21 @@ public class StubAiParseService implements AiParseService {
                 null,
                 null,
                 null,
+                null,
                 "LOW",
                 "AI 识别服务暂未开通，请手动填写发票信息"
         );
     }
 
     @Override
-    public AiParseResponse verify(String text, String companyName, String taxNumber, BigDecimal amount) {
+    public AiParseResponse verify(String text, String companyName, String taxNumber, BigDecimal amount, String invoiceType) {
         log.warn("AI 核查服务尚未配置，直接透传初步提取结果。");
         // Stub 模式：直接将第一阶段的提取结果原样返回，UI 进度条仍可正常走完
         return new AiParseResponse(
                 companyName,
                 taxNumber,
                 amount,
+                invoiceType,
                 "LOW",
                 "AI 核查服务暂未开通，已直接使用初步识别结果，请人工核实"
         );

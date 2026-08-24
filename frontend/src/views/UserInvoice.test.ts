@@ -193,6 +193,7 @@ describe('UserInvoice', () => {
       companyName: '某某智能科技有限公司',
       taxNumber: '91110108MA01TEST99',
       amount: 888.5,
+      invoiceType: null,
       confidence: 'HIGH',
       hint: null
     })
@@ -200,6 +201,7 @@ describe('UserInvoice', () => {
       companyName: '某某智能科技有限公司（核查）',
       taxNumber: '91110108MA01TEST99',
       amount: 888.5,
+      invoiceType: null,
       confidence: 'HIGH',
       hint: null
     })
@@ -272,6 +274,86 @@ describe('UserInvoice', () => {
       expect.any(String)
     )
     expect(ElMessage.success).toHaveBeenCalledWith('提交成功')
+  })
+
+  it('fills AI-recognized invoiceType into form when AI returns a non-default type', async () => {
+    // AI 识别出文本中包含「AI订阅服务费」
+    mockedApi.parseInvoiceText.mockResolvedValue({
+      companyName: '某某AI科技有限公司',
+      taxNumber: '91110108MA01TEST99',
+      amount: 500.0,
+      invoiceType: 'AI订阅服务费',
+      confidence: 'HIGH',
+      hint: null
+    })
+    mockedApi.verifyInvoiceText.mockResolvedValue({
+      companyName: '某某AI科技有限公司',
+      taxNumber: '91110108MA01TEST99',
+      amount: 500.0,
+      invoiceType: 'AI订阅服务费',
+      confidence: 'HIGH',
+      hint: null
+    })
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const aiToggleBtn = page.find('.ai-parse-header')
+    await aiToggleBtn.trigger('click')
+    await flushPromises()
+
+    const aiTextarea = page.find('.ai-parse-body textarea')
+    await aiTextarea.setValue('AI订阅服务费 某某AI科技有限公司 税号：91110108MA01TEST99 金额：500元')
+
+    vi.useFakeTimers()
+    const aiParseBtn = page.findAll('.ai-parse-actions button').find(b => b.text().includes('识别'))
+    await aiParseBtn!.trigger('click')
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(1000)
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(500)
+    await flushPromises()
+
+    vi.useRealTimers()
+    await flushPromises()
+
+    // 验证确认弹窗显示了正确的 AI 识别类型
+    expect(document.body.innerHTML).toContain('AI订阅服务费')
+
+    // 点击「填入表单」
+    const fillBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('button'))
+      .find(b => b.textContent?.includes('填入表单'))
+    expect(fillBtn).toBeDefined()
+    fillBtn!.click()
+    await flushPromises()
+
+    // 验证 verifyInvoiceText 第二阶段调用时携带了第一阶段识别的 invoiceType
+    expect(mockedApi.verifyInvoiceText).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ invoiceType: 'AI订阅服务费' })
+    )
+
+    // 提交申请，验证最终提交时使用的是 AI 识别出的 invoiceType
+    const submitBtn = Array.from(document.querySelectorAll<HTMLButtonElement>('.submit-invoice-dialog .dialog-footer button'))
+      .find(b => b.textContent?.includes('提交申请'))
+    submitBtn!.click()
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyName: '某某AI科技有限公司',
+        taxNumber: '91110108MA01TEST99',
+        amount: 500.0,
+        invoiceType: 'AI订阅服务费'
+      }),
+      expect.any(String)
+    )
   })
 
   it('allows submitting with AI订阅服务费 invoice type', async () => {

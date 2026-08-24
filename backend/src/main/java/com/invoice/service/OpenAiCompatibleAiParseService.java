@@ -35,6 +35,9 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
 
     private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleAiParseService.class);
 
+    /** 允许的开票类型白名单（直接引用 InvoiceService 中的权威定义，两处保持同步） */
+    private static final java.util.Set<String> ALLOWED_INVOICE_TYPES = InvoiceService.ALLOWED_INVOICE_TYPES;
+
     /** 第一阶段：从原文中提取发票字段 */
     private static final String EXTRACT_SYSTEM_PROMPT = """
             你是一个专业的发票信息提取助手。请从用户提供的发票相关文本中提取关键信息。
@@ -43,7 +46,8 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             {
               "companyName": "企业/公司完整名称（字符串，若未找到则为 null）",
               "taxNumber": "纳税人识别号/统一社会信用代码（15-20位大写字母数字，若未找到则为 null）",
-              "amount": 1234.56（开票金额数字，单位元，若未找到则为 null）
+              "amount": 1234.56（开票金额数字，单位元，若未找到则为 null）,
+              "invoiceType": "开票类型（仅限：技术服务费、AI订阅服务费、计算服务费三者之一；若文本中未明确提及任何一种则输出 null）"
             }
             """;
 
@@ -55,7 +59,8 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             {
               "companyName": "经核查确认或修正后的企业/公司完整名称（字符串，若文本中未找到则为 null）",
               "taxNumber": "经核查确认或修正后的纳税人识别号（15-20位大写字母数字，若文本中未找到则为 null）",
-              "amount": 1234.56（经核查确认或修正后的开票金额，单位元，若文本中未找到则为 null）
+              "amount": 1234.56（经核查确认或修正后的开票金额，单位元，若文本中未找到则为 null）,
+              "invoiceType": "经核查确认或修正后的开票类型（仅限：技术服务费、AI订阅服务费、计算服务费三者之一；若文本中未明确提及任何一种则输出 null）"
             }
             """;
 
@@ -94,8 +99,8 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
     }
 
     @Override
-    public AiParseResponse verify(String text, String companyName, String taxNumber, BigDecimal amount) {
-        String userMessage = buildVerifyUserMessage(text, companyName, taxNumber, amount);
+    public AiParseResponse verify(String text, String companyName, String taxNumber, BigDecimal amount, String invoiceType) {
+        String userMessage = buildVerifyUserMessage(text, companyName, taxNumber, amount, invoiceType);
         return callAiAndParse(VERIFY_SYSTEM_PROMPT, userMessage);
     }
 
@@ -106,7 +111,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
     /**
      * 构建核查阶段的用户消息（原文 + 初步提取结果）
      */
-    private String buildVerifyUserMessage(String text, String companyName, String taxNumber, BigDecimal amount) {
+    private String buildVerifyUserMessage(String text, String companyName, String taxNumber, BigDecimal amount, String invoiceType) {
         return String.format("""
                         原始文本：
                         %s
@@ -115,11 +120,13 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
                         - 公司名称：%s
                         - 纳税人识别号：%s
                         - 开票金额：%s 元
+                        - 开票类型：%s
                         """,
                 text,
                 companyName != null ? companyName : "未识别",
                 taxNumber != null ? taxNumber : "未识别",
-                amount != null ? amount.toPlainString() : "未识别"
+                amount != null ? amount.toPlainString() : "未识别",
+                invoiceType != null ? invoiceType : "未识别"
         );
     }
 
@@ -227,6 +234,15 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             }
         }
 
+        // 提取并校验 invoiceType（白名单过滤，不在白名单内则返回 null）
+        String invoiceType = null;
+        if (parsedJson.hasNonNull("invoiceType")) {
+            String candidate = parsedJson.get("invoiceType").asText("").trim();
+            if (ALLOWED_INVOICE_TYPES.contains(candidate)) {
+                invoiceType = candidate;
+            }
+        }
+
         // 计算置信度与提示
         boolean hasCompany = companyName != null && !companyName.isBlank();
         boolean hasTax = taxNumber != null && !taxNumber.isBlank();
@@ -242,6 +258,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
                 companyName,
                 taxNumber,
                 amount,
+                invoiceType,
                 confidence,
                 hint.isEmpty() ? null : hint.toString().trim()
         );

@@ -43,6 +43,7 @@ class AiParseControllerTest {
                 "北京科技有限公司",
                 "91110108MA01TEST99",
                 new BigDecimal("1234.50"),
+                "技术服务费",
                 "HIGH",
                 null
         ));
@@ -58,13 +59,14 @@ class AiParseControllerTest {
         assertThat(response.getData().getCompanyName()).isEqualTo("北京科技有限公司");
         assertThat(response.getData().getTaxNumber()).isEqualTo("91110108MA01TEST99");
         assertThat(response.getData().getAmount()).isEqualByComparingTo("1234.50");
+        assertThat(response.getData().getInvoiceType()).isEqualTo("技术服务费");
         assertThat(response.getData().getConfidence()).isEqualTo("HIGH");
     }
 
     @Test
     void rateLimitsExcessiveAiRequestsPerUser() {
         AiParseService mockService = mock(AiParseService.class);
-        when(mockService.parse(anyString())).thenReturn(new AiParseResponse(null, null, null, "LOW", null));
+        when(mockService.parse(anyString())).thenReturn(new AiParseResponse(null, null, null, null, "LOW", null));
 
         AiParseController controller = new AiParseController(mockService, new RateLimitService());
         JwtUserPrincipal principal = new JwtUserPrincipal(1L, "testuser", "USER", 0L);
@@ -85,11 +87,17 @@ class AiParseControllerTest {
     @Test
     void verifiesInvoiceDataSuccessfully() {
         AiParseService mockService = mock(AiParseService.class);
-        when(mockService.verify(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
+        when(mockService.verify(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any()))
                 .thenReturn(new AiParseResponse(
                         "北京科技有限公司（核查）",
                         "91110108MA01TEST99",
                         new BigDecimal("1234.50"),
+                        "技术服务费",
                         "HIGH",
                         null
                 ));
@@ -102,9 +110,11 @@ class AiParseControllerTest {
         request.setCompanyName("北京科技有限公司");
         request.setTaxNumber("91110108MA01TEST99");
         request.setAmount(new BigDecimal("1234.50"));
+        request.setInvoiceType("技术服务费");
 
         ApiResponse<AiParseResponse> response = controller.verifyInvoice(request, principal);
         assertThat(response.getCode()).isEqualTo(200);
         assertThat(response.getData().getCompanyName()).isEqualTo("北京科技有限公司（核查）");
+        assertThat(response.getData().getInvoiceType()).isEqualTo("技术服务费");
     }
 }

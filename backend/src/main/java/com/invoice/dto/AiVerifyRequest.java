@@ -40,4 +40,10 @@ public class AiVerifyRequest {
     @DecimalMin(value = "0.01", message = "金额不能小于 0.01")
     @DecimalMax(value = "9999999999.99", message = "金额超出有效范围")
     private BigDecimal amount;
+
+    /**
+     * 初步提取的开票类型（可为 null，若有则辅助 AI 核查；必须为允许的类型之一）
+     */
+    @Size(max = 50, message = "开票类型长度不能超过 50 个字符")
+    private String invoiceType;
 }

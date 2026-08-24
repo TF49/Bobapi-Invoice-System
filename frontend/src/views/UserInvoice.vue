@@ -847,7 +847,8 @@ const handleAiParse = async () => {
       invoiceApi.verifyInvoiceText(text, {
         companyName: res1.companyName,
         taxNumber: res1.taxNumber,
-        amount: res1.amount !== null ? Number(res1.amount) : null
+        amount: res1.amount !== null ? Number(res1.amount) : null,
+        invoiceType: res1.invoiceType ?? null
       }),
       animateProgress(50, 90, 1500)
     ])
@@ -872,7 +873,9 @@ const handleAiParse = async () => {
 
     aiStep.value = 'idle'
     aiProgress.value = 0
-    aiConfirmData.value = { companyName, taxNumber, amount, invoiceType: form.invoiceType || '技术服务费' }
+    // invoiceType 优先使用 AI 识别结果，未识别到（null）时回退到表单当前值
+    const recognizedInvoiceType = res2.invoiceType || res1.invoiceType || form.invoiceType || '技术服务费'
+    aiConfirmData.value = { companyName, taxNumber, amount, invoiceType: recognizedInvoiceType }
     aiConfirmVisible.value = true
 
   } catch (error: any) {

@@ -30,7 +30,13 @@ public class AiParseResponse {
     private BigDecimal amount;
 
     /**
-     * 置信度：HIGH（三个字段全部识别到）/ LOW（部分字段未识别到）
+     * 识别到的开票类型（技术服务费 / AI订阅服务费 / 计算服务费），未识别或不在白名单内则为 null
+     */
+    private String invoiceType;
+
+    /**
+     * 置信度：HIGH（公司名称、税号、开票金额三个核心字段全部识别到）/ LOW（部分核心字段未识别到）
+     * <p>开票类型（invoiceType）为辅助字段，不影响置信度计算。</p>
      */
     private String confidence;
 
