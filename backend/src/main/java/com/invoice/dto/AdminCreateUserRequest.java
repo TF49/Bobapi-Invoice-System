@@ -21,4 +21,7 @@ public class AdminCreateUserRequest {
     @NotBlank(message = "角色不能为空")
     @Pattern(regexp = "^(USER|INVOICE_CLERK|ADMIN)$", message = "角色只能是 USER、INVOICE_CLERK 或 ADMIN")
     private String role;
+
+    @Size(max = 200, message = "备注不能超过 200 个字符")
+    private String remark;
 }

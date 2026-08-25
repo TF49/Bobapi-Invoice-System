@@ -7,6 +7,7 @@ export interface ManagedUser {
   username: string
   role: UserRole
   enabled: boolean
+  remark?: string | null
   createdAt: string
   updatedAt: string
   self: boolean
@@ -46,6 +47,7 @@ export interface CreateUserRequest {
   username: string
   password: string
   role: UserRole
+  remark?: string
 }
 
 export const userApi = {
@@ -63,6 +65,10 @@ export const userApi = {
 
   updateStatus(id: number, enabled: boolean) {
     return request.put<any, ManagedUser>(`/users/admin/${id}/status`, { enabled })
+  },
+
+  updateRemark(id: number, remark: string) {
+    return request.put<any, ManagedUser>(`/users/admin/${id}/remark`, { remark })
   },
 
   resetPassword(id: number, password: string) {

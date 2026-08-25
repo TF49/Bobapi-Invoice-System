@@ -23,6 +23,11 @@ public class User {
      */
     private String role;
 
+    /**
+     * 管理员填写的用户备注
+     */
+    private String remark;
+
     private Boolean enabled;
 
     private Long authVersion;

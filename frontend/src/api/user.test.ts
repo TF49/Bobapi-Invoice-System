@@ -38,16 +38,18 @@ describe('userApi', () => {
   })
 
   it('uses the expected write endpoints and request bodies', () => {
-    userApi.createUser({ username: 'alice', password: 'pass123', role: 'USER' })
+    userApi.createUser({ username: 'alice', password: 'pass123', role: 'USER', remark: '测试备注' })
     userApi.updateRole(2, 'ADMIN')
     userApi.updateStatus(2, false)
+    userApi.updateRemark(2, 'VIP 客户')
     userApi.resetPassword(2, 'newpass9')
 
     expect(mockedRequest.post).toHaveBeenCalledWith('/users/admin', {
-      username: 'alice', password: 'pass123', role: 'USER'
+      username: 'alice', password: 'pass123', role: 'USER', remark: '测试备注'
     })
     expect(mockedRequest.put).toHaveBeenCalledWith('/users/admin/2/role', { role: 'ADMIN' })
     expect(mockedRequest.put).toHaveBeenCalledWith('/users/admin/2/status', { enabled: false })
+    expect(mockedRequest.put).toHaveBeenCalledWith('/users/admin/2/remark', { remark: 'VIP 客户' })
     expect(mockedRequest.put).toHaveBeenCalledWith('/users/admin/2/password', { password: 'newpass9' })
   })
 })

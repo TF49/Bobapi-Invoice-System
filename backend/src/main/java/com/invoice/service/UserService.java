@@ -62,10 +62,19 @@ public class UserService {
      */
     @Transactional
     public User createUser(String username, String password, String role) {
+        return createUser(username, password, role, null);
+    }
+
+    /**
+     * 创建用户（带备注）
+     */
+    @Transactional
+    public User createUser(String username, String password, String role, String remark) {
         User user = new User();
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(password));
         user.setRole(role);
+        user.setRemark(remark != null && !remark.isBlank() ? remark.trim() : null);
         user.setEnabled(true);
         user.setAuthVersion(0L);
         try {
@@ -82,7 +91,8 @@ public class UserService {
                                                String role, Boolean enabled, Long currentUserId) {
         LambdaQueryWrapper<User> wrapper = new LambdaQueryWrapper<>();
         if (keyword != null && !keyword.isBlank()) {
-            wrapper.like(User::getUsername, keyword.trim());
+            String kw = keyword.trim();
+            wrapper.and(w -> w.like(User::getUsername, kw).or().like(User::getRemark, kw));
         }
         if (role != null) {
             wrapper.eq(User::getRole, role);
@@ -127,9 +137,12 @@ public class UserService {
         );
     }
 
-
     public AdminUserResponse createAdminUser(String username, String password, String role, Long currentUserId) {
-        User user = createUser(username, password, role);
+        return createAdminUser(username, password, role, null, currentUserId);
+    }
+
+    public AdminUserResponse createAdminUser(String username, String password, String role, String remark, Long currentUserId) {
+        User user = createUser(username, password, role, remark);
         // Attach quota snapshot for USER-role accounts so the table row renders
         // the correct balance immediately without waiting for a full page reload.
         if ("USER".equals(role)) {
@@ -177,6 +190,15 @@ public class UserService {
 
         target.setEnabled(enabled);
         target.setAuthVersion(nextAuthVersion(target));
+        userMapper.updateById(target);
+        return buildResponseWithQuota(target, currentUserId);
+    }
+
+    @Transactional
+    public AdminUserResponse updateRemark(Long targetUserId, String remark, Long currentUserId) {
+        User target = requireUserForUpdate(targetUserId);
+        String trimmed = (remark != null && !remark.isBlank()) ? remark.trim() : null;
+        target.setRemark(trimmed);
         userMapper.updateById(target);
         return buildResponseWithQuota(target, currentUserId);
     }

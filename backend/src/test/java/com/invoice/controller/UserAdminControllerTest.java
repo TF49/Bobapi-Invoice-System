@@ -2,6 +2,7 @@ package com.invoice.controller;
 
 import com.invoice.config.SecurityConfig;
 import com.invoice.dto.AdminUserPageResponse;
+import com.invoice.dto.AdminUserResponse;
 import com.invoice.dto.AdminUserStats;
 import com.invoice.exception.BusinessException;
 import com.invoice.exception.GlobalExceptionHandler;
@@ -139,6 +140,32 @@ class UserAdminControllerTest {
                         .content("{\"enabled\":false}"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(40903));
+    }
+
+    @Test
+    void allowsAdministratorToUpdateRemark() throws Exception {
+        when(userService.updateRemark(2L, "VIP 客户", 1L))
+                .thenReturn(new AdminUserResponse(
+                        2L, "alice", "USER", true, "VIP 客户", null, null, false, null));
+
+        mockMvc.perform(put("/users/admin/2/remark")
+                        .with(authentication(auth("ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"VIP 客户\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.remark").value("VIP 客户"));
+    }
+
+    @Test
+    void validatesRemarkLength() throws Exception {
+        String longRemark = "a".repeat(201);
+        mockMvc.perform(put("/users/admin/2/remark")
+                        .with(authentication(auth("ADMIN")))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"remark\":\"" + longRemark + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001));
     }
 
     @Test

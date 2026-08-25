@@ -78,8 +78,8 @@
             class="keyword-input"
             clearable
             :prefix-icon="Search"
-            aria-label="按用户名搜索"
-            placeholder="搜索用户名"
+            aria-label="按用户名或备注搜索"
+            placeholder="搜索用户名或备注"
             maxlength="50"
             @keyup.enter="applyFilters"
             @clear="applyFilters"
@@ -123,13 +123,60 @@
         </div>
         <div v-else class="table-scroll user-table-scroll">
           <el-table :data="users" v-loading="loading" row-key="id">
-            <el-table-column prop="username" label="用户名" min-width="190">
+            <el-table-column prop="username" label="用户名" min-width="220">
               <template #default="{ row }">
                 <div class="username-cell">
                   <span class="row-avatar">{{ row.username.slice(0, 1).toUpperCase() }}</span>
-                  <div>
-                    <strong>{{ row.username }}</strong>
-                    <small v-if="row.self">当前账号</small>
+                  <div class="username-info">
+                    <div class="username-title">
+                      <strong>{{ row.username }}</strong>
+                      <small v-if="row.self">当前账号</small>
+                    </div>
+
+                    <!-- 备注编辑态 -->
+                    <div v-if="editingRemarkId === row.id" class="inline-remark-editor" @click.stop>
+                      <el-input
+                        ref="inlineRemarkInputRef"
+                        v-model="currentEditingRemark"
+                        size="small"
+                        placeholder="输入备注，最多200字"
+                        maxlength="200"
+                        clearable
+                        @keyup.enter="saveInlineRemark(row)"
+                        @keyup.esc="cancelInlineRemark"
+                      />
+                      <div class="inline-remark-actions">
+                        <el-button size="small" @click="cancelInlineRemark">取消</el-button>
+                        <el-button
+                          size="small"
+                          type="primary"
+                          :loading="remarkLoadingId === row.id"
+                          @click="saveInlineRemark(row)"
+                        >
+                          保存
+                        </el-button>
+                      </div>
+                    </div>
+
+                    <!-- 备注展示态 -->
+                    <div v-else class="remark-display" @click="startEditRemark(row)">
+                      <span
+                        v-if="row.remark"
+                        class="remark-filled"
+                        :title="`备注: ${row.remark} (点击修改)`"
+                      >
+                        <el-icon class="remark-icon"><EditPen /></el-icon>
+                        <span class="remark-val">{{ row.remark }}</span>
+                      </span>
+                      <span
+                        v-else
+                        class="remark-placeholder"
+                        title="点击添加备注"
+                      >
+                        <el-icon class="remark-icon"><Plus /></el-icon>
+                        <span>添加备注</span>
+                      </span>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -245,6 +292,9 @@
       <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-position="top">
         <el-form-item label="用户名" prop="username">
           <el-input v-model="createForm.username" maxlength="20" autocomplete="off" placeholder="2-20 位汉字、字母、数字或下划线" />
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input v-model="createForm.remark" maxlength="200" autocomplete="off" placeholder="可选，由管理员填写用户备注" />
         </el-form-item>
         <el-form-item label="初始密码" prop="password">
           <el-input v-model="createForm.password" type="password" show-password maxlength="20" autocomplete="new-password" placeholder="6-20 位，必须包含字母和数字" />
@@ -382,6 +432,7 @@ import {
   Avatar,
   CircleCheck,
   CircleClose,
+  EditPen,
   Key,
   Plus,
   RefreshRight,
@@ -423,10 +474,11 @@ const filters = reactive<{ keyword: string; role: RoleFilter; status: StatusFilt
 const createDialogVisible = ref(false)
 const createSubmitting = ref(false)
 const createFormRef = ref<FormInstance>()
-const createForm = reactive<{ username: string; password: string; role: UserRole }>({
+const createForm = reactive<{ username: string; password: string; role: UserRole; remark: string }>({
   username: '',
   password: '',
-  role: 'USER'
+  role: 'USER',
+  remark: ''
 })
 const roleOptions = [
   { label: '普通用户', value: 'USER' },
@@ -471,7 +523,8 @@ const fieldValidator = (validator: (value: string) => string | null) =>
 const createRules: FormRules = {
   username: [{ validator: fieldValidator(validateUsername), trigger: 'blur' }],
   password: [{ validator: fieldValidator(validatePassword), trigger: 'blur' }],
-  role: [{ required: true, message: '请选择角色', trigger: 'change' }]
+  role: [{ required: true, message: '请选择角色', trigger: 'change' }],
+  remark: [{ max: 200, message: '备注不能超过 200 个字符', trigger: 'blur' }]
 }
 
 const passwordRules: FormRules = {
@@ -522,10 +575,47 @@ const handlePageSizeChange = () => {
   loadUsers()
 }
 
+const editingRemarkId = ref<number | null>(null)
+const currentEditingRemark = ref('')
+const remarkLoadingId = ref<number | null>(null)
+const inlineRemarkInputRef = ref<any>()
+
+const startEditRemark = (row: ManagedUser) => {
+  editingRemarkId.value = row.id
+  currentEditingRemark.value = row.remark || ''
+  setTimeout(() => {
+    inlineRemarkInputRef.value?.focus?.()
+  }, 50)
+}
+
+const cancelInlineRemark = () => {
+  editingRemarkId.value = null
+  currentEditingRemark.value = ''
+}
+
+const saveInlineRemark = async (row: ManagedUser) => {
+  if (remarkLoadingId.value !== null) return
+  const newRemark = currentEditingRemark.value.trim()
+  remarkLoadingId.value = row.id
+  try {
+    const updated = await userApi.updateRemark(row.id, newRemark)
+    row.remark = updated.remark
+    ElMessage.success('备注更新成功')
+    editingRemarkId.value = null
+    currentEditingRemark.value = ''
+  } catch (error: any) {
+    console.error('更新备注失败', error)
+    ElMessage.error(error?.message || '更新备注失败')
+  } finally {
+    remarkLoadingId.value = null
+  }
+}
+
 const openCreateDialog = () => {
   createForm.username = ''
   createForm.password = ''
   createForm.role = 'USER'
+  createForm.remark = ''
   createDialogVisible.value = true
 }
 
@@ -536,7 +626,12 @@ const submitCreateUser = async () => {
 
   createSubmitting.value = true
   try {
-    await userApi.createUser({ ...createForm })
+    await userApi.createUser({
+      username: createForm.username,
+      password: createForm.password,
+      role: createForm.role,
+      remark: createForm.remark.trim() || undefined
+    })
     ElMessage.success('用户创建成功')
     createDialogVisible.value = false
     page.value = 1
@@ -829,21 +924,102 @@ onMounted(loadUsers)
   font-weight: 700;
 }
 
-.username-cell div {
-  display: grid;
-  gap: 2px;
+.username-info {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-.username-cell strong {
+.username-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.username-title strong {
   color: var(--color-text);
   font-size: 13px;
   font-weight: 650;
 }
 
-.username-cell small {
+.username-title small {
   color: var(--color-primary);
   font-size: 10px;
   font-weight: 600;
+}
+
+.remark-display {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  width: fit-content;
+}
+
+.remark-filled {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-secondary, #606266);
+  background: var(--color-surface-muted, #f4f5f7);
+  padding: 1px 6px;
+  border-radius: 4px;
+  max-width: 170px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.remark-filled:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary-soft);
+}
+
+.remark-val {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remark-placeholder {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-text-muted, #909399);
+  padding: 1px 4px;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.remark-placeholder:hover {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.remark-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.inline-remark-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+  background: var(--color-surface, #ffffff);
+  border: 1px solid var(--color-primary, #409eff);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  width: 200px;
+  margin-top: 2px;
+}
+
+.inline-remark-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .inline-control-wrap,

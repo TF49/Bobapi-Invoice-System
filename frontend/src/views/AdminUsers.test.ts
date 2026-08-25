@@ -15,6 +15,7 @@ vi.mock('@/api/user', () => ({
     createUser: vi.fn(),
     updateRole: vi.fn(),
     updateStatus: vi.fn(),
+    updateRemark: vi.fn(),
     resetPassword: vi.fn()
   }
 }))
@@ -33,6 +34,7 @@ const admin: ManagedUser = {
   username: 'admin',
   role: 'ADMIN',
   enabled: true,
+  remark: '系统总管',
   createdAt: '2026-08-18T10:00:00',
   updatedAt: '2026-08-18T10:00:00',
   self: true
@@ -43,6 +45,7 @@ const alice: ManagedUser = {
   username: 'alice',
   role: 'USER',
   enabled: true,
+  remark: null,
   createdAt: '2026-08-18T11:00:00',
   updatedAt: '2026-08-18T11:00:00',
   self: false,
@@ -124,6 +127,7 @@ describe('AdminUsers', () => {
     localStorage.setItem('role', 'ADMIN')
     mockedApi.getUsers.mockResolvedValue(pageResult)
     mockedApi.updateStatus.mockResolvedValue({ ...alice, enabled: false })
+    mockedApi.updateRemark.mockResolvedValue({ ...alice, remark: 'VIP 客户' })
     mockedApi.resetPassword.mockResolvedValue(admin)
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
   })
@@ -145,9 +149,16 @@ describe('AdminUsers', () => {
     expect(page.findAll('.el-switch')[0].classes()).toContain('is-disabled')
   })
 
+  it('displays user remarks and placeholder for empty remarks', async () => {
+    const page = await mountPage()
+
+    expect(page.text()).toContain('系统总管')
+    expect(page.text()).toContain('添加备注')
+  })
+
   it('sends search and pagination changes back to the server', async () => {
     const page = await mountPage()
-    const searchInput = page.find('input[placeholder="搜索用户名"]')
+    const searchInput = page.find('input[placeholder="搜索用户名或备注"]')
     await searchInput.setValue('alice')
     await searchInput.trigger('keyup.enter')
     await flushPromises()
@@ -226,5 +237,33 @@ describe('AdminUsers', () => {
 
     expect(quotaApi.getUserQuota).toHaveBeenCalledWith(2)
     expect(quotaApi.getUserTransactions).toHaveBeenCalledWith(2)
+  })
+
+  it('handles remark inline editing, saving, and canceling', async () => {
+    const page = await mountPage()
+
+    // 初始状态：admin 展示 "系统总管"，alice 展示 "添加备注"
+    expect(page.text()).toContain('系统总管')
+    expect(page.text()).toContain('添加备注')
+
+    // 点击 alice 所在行的 remark-display 打开行内编辑
+    const remarkDisplays = page.findAll('.remark-display')
+    expect(remarkDisplays.length).toBeGreaterThanOrEqual(2)
+    await remarkDisplays[1].trigger('click')
+    await flushPromises()
+
+    // 编辑态：出现输入框与按钮
+    const input = page.find('.inline-remark-editor input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('VIP 客户')
+
+    // 点击保存
+    const saveBtn = page.find('.inline-remark-editor .el-button--primary')
+    await saveBtn.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.updateRemark).toHaveBeenCalledWith(2, 'VIP 客户')
+    expect(ElMessage.success).toHaveBeenCalledWith('备注更新成功')
+    expect(page.find('.inline-remark-editor').exists()).toBe(false)
   })
 })

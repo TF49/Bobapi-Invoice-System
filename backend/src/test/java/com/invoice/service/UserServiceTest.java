@@ -100,12 +100,25 @@ class UserServiceTest {
     void createsEnabledUserWithEncryptedPasswordAndInitialVersion() {
         when(passwordEncoder.encode("pass123")).thenReturn("encoded");
 
-        User created = userService.createUser("alice", "pass123", "USER");
+        User created = userService.createUser("alice", "pass123", "USER", "技术部");
 
         assertEquals("encoded", created.getPassword());
         assertEquals(Boolean.TRUE, created.getEnabled());
         assertEquals(0L, created.getAuthVersion());
+        assertEquals("技术部", created.getRemark());
         verify(userMapper).insert(created);
+    }
+
+    @Test
+    void updatesUserRemark() {
+        User target = user(2L, "alice", "USER", true, 0L);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+
+        AdminUserResponse response = userService.updateRemark(2L, "  VIP客户  ", 1L);
+
+        assertEquals("VIP客户", target.getRemark());
+        assertEquals("VIP客户", response.remark());
+        verify(userMapper).updateById(target);
     }
 
     @Test

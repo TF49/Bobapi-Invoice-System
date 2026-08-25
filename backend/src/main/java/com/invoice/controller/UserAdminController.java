@@ -4,6 +4,7 @@ import com.invoice.dto.AdminAdjustQuotaRequest;
 import com.invoice.dto.AdminCreateUserRequest;
 import com.invoice.dto.AdminRechargeQuotaRequest;
 import com.invoice.dto.AdminResetPasswordRequest;
+import com.invoice.dto.AdminUpdateRemarkRequest;
 import com.invoice.dto.AdminUpdateRoleRequest;
 import com.invoice.dto.AdminUpdateStatusRequest;
 import com.invoice.dto.AdminUserPageResponse;
@@ -78,8 +79,18 @@ public class UserAdminController {
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("write", principal.userId(), 30, 42904, "用户管理操作过于频繁，请稍后再试");
         AdminUserResponse user = userService.createAdminUser(
-                request.getUsername(), request.getPassword(), request.getRole(), principal.userId());
+                request.getUsername(), request.getPassword(), request.getRole(), request.getRemark(), principal.userId());
         return ApiResponse.success("用户创建成功", user);
+    }
+
+    @PutMapping("/{id}/remark")
+    public ApiResponse<AdminUserResponse> updateRemark(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @Valid @RequestBody AdminUpdateRemarkRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("write", principal.userId(), 30, 42904, "用户管理操作过于频繁，请稍后再试");
+        return ApiResponse.success("备注更新成功",
+                userService.updateRemark(id, request.getRemark(), principal.userId()));
     }
 
     @PutMapping("/{id}/role")
