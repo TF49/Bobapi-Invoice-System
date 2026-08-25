@@ -4,7 +4,7 @@
 
     <main class="workspace-content">
       <AnimatedContent tag="section" class="stats-grid quota-stats-grid" :distance="10">
-        <SpotlightCard class="stat-card">
+        <SpotlightCard class="stat-card balance-card">
           <div class="stat-card-content">
             <span class="stat-icon success"><Wallet /></span>
             <div class="stat-copy">
@@ -15,6 +15,15 @@
             </div>
             <p class="stat-note">可用于开票的剩余余额</p>
           </div>
+          <el-button
+            type="primary"
+            size="small"
+            :icon="Plus"
+            class="balance-recharge-btn"
+            @click="showRechargeDialog = true"
+          >
+            快速充值
+          </el-button>
         </SpotlightCard>
 
         <SpotlightCard class="stat-card">
@@ -45,149 +54,244 @@
       </AnimatedContent>
 
       <AnimatedContent tag="section" class="surface-panel records-panel" :delay="80">
-        <div class="panel-header">
-          <div class="panel-heading">
-            <span class="panel-heading-icon"><List /></span>
-            <div>
-              <h2>额度使用记录</h2>
-              <p>查看变动明细与余额轨迹</p>
-            </div>
-          </div>
-          <div class="filter-control">
-            <span class="filter-label"><Filter /> 筛选类型</span>
-            <el-select
-              v-model="filterType"
-              placeholder="全部类型"
-              clearable
-              style="width: 140px"
-              @change="loadTransactions"
+        <div class="panel-header tab-header">
+          <div class="header-tabs">
+            <button
+              type="button"
+              class="tab-btn"
+              :class="{ 'is-active': activeTab === 'transactions' }"
+              @click="activeTab = 'transactions'"
             >
-              <el-option label="全部类型" value="" />
-              <el-option label="充值" value="RECHARGE" />
-              <el-option label="扣除" value="DEDUCT" />
-              <el-option label="调整" value="ADJUST" />
-            </el-select>
+              <span class="tab-icon"><List /></span>
+              <span>额度变动明细</span>
+            </button>
+            <button
+              type="button"
+              class="tab-btn"
+              :class="{ 'is-active': activeTab === 'requests' }"
+              @click="activeTab = 'requests'"
+            >
+              <span class="tab-icon"><Tickets /></span>
+              <span>充值申请记录</span>
+              <span v-if="pendingRequestsCount > 0" class="pending-badge">{{ pendingRequestsCount }}</span>
+            </button>
+          </div>
+
+          <div class="panel-right-actions">
+            <!-- 额度流水筛选 -->
+            <div v-if="activeTab === 'transactions'" class="filter-control">
+              <span class="filter-label"><Filter /> 筛选类型</span>
+              <el-select
+                v-model="filterType"
+                placeholder="全部类型"
+                clearable
+                style="width: 130px"
+                @change="loadTransactions"
+              >
+                <el-option label="全部类型" value="" />
+                <el-option label="充值" value="RECHARGE" />
+                <el-option label="扣除" value="DEDUCT" />
+                <el-option label="调整" value="ADJUST" />
+              </el-select>
+            </div>
+
+            <!-- 充值申请筛选 -->
+            <div v-else class="filter-control">
+              <span class="filter-label"><Filter /> 筛选状态</span>
+              <el-select
+                v-model="requestFilterStatus"
+                placeholder="全部状态"
+                clearable
+                style="width: 130px"
+              >
+                <el-option label="全部状态" value="" />
+                <el-option label="待审核" value="PENDING" />
+                <el-option label="已通过" value="APPROVED" />
+                <el-option label="已拒绝" value="REJECTED" />
+              </el-select>
+            </div>
+
+            <el-button type="primary" :icon="Plus" class="recharge-action-btn" @click="showRechargeDialog = true">
+              申请充值
+            </el-button>
           </div>
         </div>
 
-        <div v-if="!loading && transactions.length === 0" class="table-empty-state">
-          <span><Wallet /></span>
-          <strong>暂无额度使用记录</strong>
-        </div>
+        <!-- 1. 额度变动明细 Tab 内容 -->
+        <template v-if="activeTab === 'transactions'">
+          <div v-if="!loading && transactions.length === 0" class="table-empty-state">
+            <span><Wallet /></span>
+            <strong>暂无额度使用记录</strong>
+          </div>
 
-        <div v-else class="table-scroll desktop-records">
-          <el-table :data="paginatedTransactions" v-loading="loading" class="records-table">
-            <el-table-column prop="id" label="记录编号" width="112">
-              <template #default="{ row }">
-                <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="transactionType" label="变动类型" width="124" align="center">
-              <template #default="{ row }">
-                <el-tag class="status-tag" :class="getTransactionTagClass(row.transactionType)">
-                  <i class="status-dot"></i>
-                  {{ getTransactionTypeLabel(row.transactionType) }}
-                </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column prop="amount" label="变动金额" width="150" align="right">
-              <template #default="{ row }">
-                <span class="money-cell" :class="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
-                  {{ row.amount > 0 ? '+' : '' }}{{ formatCurrency(row.amount) }}
-                </span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="balanceBefore" label="变更前余额" width="150" align="right">
-              <template #default="{ row }">
-                <span class="money-cell text-muted">{{ formatCurrency(row.balanceBefore) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="balanceAfter" label="变更后余额" width="150" align="right">
-              <template #default="{ row }">
-                <span class="money-cell">{{ formatCurrency(row.balanceAfter) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="remark" label="备注说明" min-width="200">
-              <template #default="{ row }">
-                <span class="remark-cell">{{ row.remark || '-' }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="createdAt" label="记录时间" width="168">
-              <template #default="{ row }">
-                <div class="date-cell">
-                  <span>{{ formatDateParts(row.createdAt).date }}</span>
-                  <small>{{ formatDateParts(row.createdAt).time }}</small>
-                </div>
-              </template>
-            </el-table-column>
-          </el-table>
-        </div>
+          <div v-else class="table-scroll desktop-records">
+            <el-table :data="paginatedTransactions" v-loading="loading" class="records-table">
+              <el-table-column prop="id" label="记录编号" width="112">
+                <template #default="{ row }">
+                  <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="transactionType" label="变动类型" width="124" align="center">
+                <template #default="{ row }">
+                  <el-tag class="status-tag" :class="getTransactionTagClass(row.transactionType)">
+                    <i class="status-dot"></i>
+                    {{ getTransactionTypeLabel(row.transactionType) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="amount" label="变动金额" width="150" align="right">
+                <template #default="{ row }">
+                  <span class="money-cell" :class="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
+                    {{ row.amount > 0 ? '+' : '' }}{{ formatCurrency(row.amount) }}
+                  </span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="balanceBefore" label="变更前余额" width="150" align="right">
+                <template #default="{ row }">
+                  <span class="money-cell text-muted">{{ formatCurrency(row.balanceBefore) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="balanceAfter" label="变更后余额" width="150" align="right">
+                <template #default="{ row }">
+                  <span class="money-cell">{{ formatCurrency(row.balanceAfter) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="remark" label="备注说明" min-width="200">
+                <template #default="{ row }">
+                  <span class="remark-cell">{{ row.remark || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="createdAt" label="记录时间" width="168">
+                <template #default="{ row }">
+                  <div class="date-cell">
+                    <span>{{ formatDateParts(row.createdAt).date }}</span>
+                    <small>{{ formatDateParts(row.createdAt).time }}</small>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
 
-        <div v-if="transactions.length > 0" v-loading="loading" class="mobile-records">
-          <article v-for="row in paginatedTransactions" :key="row.id" class="transaction-record-card">
-            <div class="record-card-header">
-              <div class="type-cell">
-                <el-tag class="status-tag" :class="getTransactionTagClass(row.transactionType)">
-                  <i class="status-dot"></i>
-                  {{ getTransactionTypeLabel(row.transactionType) }}
-                </el-tag>
-                <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
-              </div>
-              <strong class="money-cell" :class="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
-                {{ row.amount > 0 ? '+' : '' }}{{ formatCurrency(row.amount) }}
-              </strong>
-            </div>
+          <div v-if="transactions.length > 0" class="pagination-bar">
+            <span>共 {{ transactions.length }} 条记录</span>
+            <el-pagination
+              v-model:current-page="page"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="transactions.length"
+              layout="sizes, prev, pager, next, jumper"
+              background
+              @size-change="handlePageSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
+        </template>
 
-            <dl class="record-card-details">
-              <div>
-                <dt>变更前余额</dt>
-                <dd>{{ formatCurrency(row.balanceBefore) }}</dd>
-              </div>
-              <div>
-                <dt>变更后余额</dt>
-                <dd>{{ formatCurrency(row.balanceAfter) }}</dd>
-              </div>
-              <div>
-                <dt>备注说明</dt>
-                <dd>{{ row.remark || '-' }}</dd>
-              </div>
-              <div>
-                <dt>记录时间</dt>
-                <dd>{{ formatDateTime(row.createdAt) }}</dd>
-              </div>
-            </dl>
-          </article>
-        </div>
+        <!-- 2. 充值申请记录 Tab 内容 -->
+        <template v-else>
+          <div v-if="!loadingRequests && filteredMyRequests.length === 0" class="table-empty-state">
+            <span><Tickets /></span>
+            <strong>暂无充值申请记录</strong>
+          </div>
 
-        <div v-if="transactions.length > 0" class="pagination-bar">
-          <span>共 {{ transactions.length }} 条记录</span>
-          <el-pagination
-            v-model:current-page="page"
-            v-model:page-size="pageSize"
-            :page-sizes="[10, 20, 50, 100]"
-            :total="transactions.length"
-            layout="sizes, prev, pager, next, jumper"
-            background
-            @size-change="handlePageSizeChange"
-            @current-change="handleCurrentChange"
-          />
-        </div>
+          <div v-else class="table-scroll desktop-records">
+            <el-table :data="paginatedMyRequests" v-loading="loadingRequests" class="records-table">
+              <el-table-column prop="id" label="申请编号" width="112">
+                <template #default="{ row }">
+                  <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="amount" label="充值金额" width="140" align="right">
+                <template #default="{ row }">
+                  <span class="money-cell amount-positive">+{{ formatCurrency(row.amount) }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="status" label="审核状态" width="120" align="center">
+                <template #default="{ row }">
+                  <el-tag class="status-tag" :class="getRequestStatusClass(row.status)">
+                    <i class="status-dot"></i>
+                    {{ getRequestStatusLabel(row.status) }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="screenshotUrl" label="充值凭证" width="110" align="center">
+                <template #default="{ row }">
+                  <el-image
+                    v-if="row.screenshotUrl"
+                    :src="getImageUrl(row.screenshotUrl)"
+                    :preview-src-list="[getImageUrl(row.screenshotUrl)]"
+                    preview-teleported
+                    fit="cover"
+                    class="screenshot-thumb"
+                  />
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="remark" label="用户备注" min-width="150">
+                <template #default="{ row }">
+                  <span class="remark-cell">{{ row.remark || '-' }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="adminRemark" label="管理员反馈" min-width="160">
+                <template #default="{ row }">
+                  <span v-if="row.adminRemark" :class="row.status === 'REJECTED' ? 'danger-note' : 'remark-cell'">
+                    {{ row.adminRemark }}
+                  </span>
+                  <span v-else class="text-muted">-</span>
+                </template>
+              </el-table-column>
+              <el-table-column prop="createdAt" label="申请时间" width="168">
+                <template #default="{ row }">
+                  <div class="date-cell">
+                    <span>{{ formatDateParts(row.createdAt).date }}</span>
+                    <small>{{ formatDateParts(row.createdAt).time }}</small>
+                  </div>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div v-if="filteredMyRequests.length > 0" class="pagination-bar">
+            <span>共 {{ filteredMyRequests.length }} 条记录</span>
+            <el-pagination
+              v-model:current-page="requestPage"
+              v-model:page-size="requestPageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="filteredMyRequests.length"
+              layout="sizes, prev, pager, next, jumper"
+              background
+              @size-change="handleRequestPageSizeChange"
+              @current-change="handleRequestCurrentChange"
+            />
+          </div>
+        </template>
       </AnimatedContent>
     </main>
+
+    <RechargeRequestDialog
+      v-model="showRechargeDialog"
+      @success="handleRechargeSuccess"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { Coin, Filter, List, Remove, Wallet } from '@element-plus/icons-vue'
+import { Coin, Filter, List, Plus, Remove, Tickets, Wallet } from '@element-plus/icons-vue'
 import { quotaApi, type QuotaTransaction, type UserQuota } from '@/api/quota'
+import { rechargeRequestApi, type RechargeRequest } from '@/api/rechargeRequest'
+import { getImageUrl } from '@/utils/imageUrl'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
+import RechargeRequestDialog from '@/components/RechargeRequestDialog.vue'
 
+const activeTab = ref<'transactions' | 'requests'>('transactions')
 const loading = ref(false)
+const loadingRequests = ref(false)
+
 const quota = ref<UserQuota>({
   userId: 0,
   balance: 0,
@@ -196,20 +300,46 @@ const quota = ref<UserQuota>({
 })
 
 const transactions = ref<QuotaTransaction[]>([])
+const myRequests = ref<RechargeRequest[]>([])
 const filterType = ref('')
+const requestFilterStatus = ref('')
+const showRechargeDialog = ref(false)
 
 const page = ref(1)
 const pageSize = ref(10)
+const requestPage = ref(1)
+const requestPageSize = ref(10)
+
+const pendingRequestsCount = computed(() =>
+  myRequests.value.filter((r) => r.status === 'PENDING').length
+)
+
+const filteredMyRequests = computed(() => {
+  if (!requestFilterStatus.value) return myRequests.value
+  return myRequests.value.filter((r) => r.status === requestFilterStatus.value)
+})
 
 const paginatedTransactions = computed(() => {
   const start = (page.value - 1) * pageSize.value
   return transactions.value.slice(start, start + pageSize.value)
 })
 
+const paginatedMyRequests = computed(() => {
+  const start = (requestPage.value - 1) * requestPageSize.value
+  return filteredMyRequests.value.slice(start, start + requestPageSize.value)
+})
+
 watch(transactions, (newList) => {
   const maxPage = Math.ceil(newList.length / pageSize.value) || 1
   if (page.value > maxPage) {
     page.value = maxPage
+  }
+})
+
+watch(filteredMyRequests, (newList) => {
+  const maxPage = Math.ceil(newList.length / requestPageSize.value) || 1
+  if (requestPage.value > maxPage) {
+    requestPage.value = maxPage
   }
 })
 
@@ -220,6 +350,15 @@ const handlePageSizeChange = (val: number) => {
 
 const handleCurrentChange = (val: number) => {
   page.value = val
+}
+
+const handleRequestPageSizeChange = (val: number) => {
+  requestPageSize.value = val
+  requestPage.value = 1
+}
+
+const handleRequestCurrentChange = (val: number) => {
+  requestPage.value = val
 }
 
 const loadQuota = async () => {
@@ -242,6 +381,17 @@ const loadTransactions = async () => {
   }
 }
 
+const loadMyRequests = async () => {
+  loadingRequests.value = true
+  try {
+    myRequests.value = await rechargeRequestApi.getMyRequests()
+  } catch (error: any) {
+    ElMessage.error(error.message || '加载充值申请记录失败')
+  } finally {
+    loadingRequests.value = false
+  }
+}
+
 const getTransactionTypeLabel = (type: string) => {
   const labels: Record<string, string> = {
     RECHARGE: '充值',
@@ -258,6 +408,24 @@ const getTransactionTagClass = (type: string) => {
     ADJUST: 'is-pending'
   }
   return classes[type] || ''
+}
+
+const getRequestStatusLabel = (status: string) => {
+  const labels: Record<string, string> = {
+    PENDING: '待审核',
+    APPROVED: '已通过',
+    REJECTED: '已拒绝'
+  }
+  return labels[status] || status
+}
+
+const getRequestStatusClass = (status: string) => {
+  const classes: Record<string, string> = {
+    PENDING: 'is-pending',
+    APPROVED: 'is-completed',
+    REJECTED: 'is-danger'
+  }
+  return classes[status] || ''
 }
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('zh-CN', {
@@ -289,9 +457,16 @@ const formatDateParts = (value: string) => {
   }
 }
 
+const handleRechargeSuccess = () => {
+  loadQuota()
+  loadTransactions()
+  loadMyRequests()
+}
+
 onMounted(() => {
   loadQuota()
   loadTransactions()
+  loadMyRequests()
 })
 </script>
 
@@ -420,5 +595,109 @@ onMounted(() => {
     font-size: 13px;
     font-weight: 600;
   }
+}
+.balance-card {
+  position: relative;
+}
+
+.balance-card :deep(.spotlight-card) {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.balance-recharge-btn {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  border-radius: 6px;
+  font-weight: 550;
+}
+
+.tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.header-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-surface-soft, #f4f7f6);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+.panel-right-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.recharge-action-btn {
+  font-weight: 600;
+  border-radius: 6px;
+}
+
+.tab-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 550;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 160ms ease;
+}
+
+.tab-btn:hover {
+  color: var(--color-text);
+}
+
+.tab-btn.is-active {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.tab-icon {
+  display: flex;
+  align-items: center;
+}
+
+.pending-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  font-size: 11px;
+  color: #fff;
+  background: #c9463d;
+  border-radius: 9px;
+  line-height: 1;
+}
+
+.screenshot-thumb {
+  width: 44px;
+  height: 44px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.danger-note {
+  color: #c9463d;
+  font-size: 13px;
+  font-weight: 550;
 }
 </style>

@@ -33,6 +33,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.invoice.dto.AdminUpdateInvoiceRequest;
+import com.invoice.dto.UpdateInvoiceProcessedRequest;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -146,6 +147,20 @@ public class InvoiceController {
                 request.getRemark(),
                 principal.userId());
         return ApiResponse.success("修改成功", invoice);
+    }
+
+    @PutMapping("/{id}/processed")
+    public ApiResponse<InvoiceResponse> updateInvoiceProcessed(
+            @PathVariable Long id,
+            @Valid @RequestBody UpdateInvoiceProcessedRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-processed:user:" + principal.userId(),
+                60, Duration.ofMinutes(1), 42905, "操作过于频繁，请稍后再试");
+        boolean isAdminOrClerk = "ADMIN".equals(principal.role()) || "INVOICE_CLERK".equals(principal.role());
+        InvoiceResponse invoice = invoiceService.updateInvoiceProcessed(
+                id, principal.userId(), isAdminOrClerk, request.getIsProcessed());
+        return ApiResponse.success("更新成功", invoice);
     }
 
     @PostMapping("/admin/{id}/upload")

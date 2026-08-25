@@ -91,6 +91,18 @@ class InvoiceControllerTest {
                 org.mockito.ArgumentMatchers.anyList());
     }
 
+    @Test
+    void delegatesUpdateInvoiceProcessedToService() {
+        InvoiceService invoiceService = mock(InvoiceService.class);
+        InvoiceController controller = new InvoiceController(invoiceService, new RateLimitService());
+        JwtUserPrincipal principal = new JwtUserPrincipal(8L, "user", "USER", 0L);
+        com.invoice.dto.UpdateInvoiceProcessedRequest req = new com.invoice.dto.UpdateInvoiceProcessedRequest(true);
+
+        controller.updateInvoiceProcessed(15L, req, principal);
+
+        verify(invoiceService).updateInvoiceProcessed(15L, 8L, false, true);
+    }
+
     private BatchInvoiceRequest batchRequest() {
         BatchInvoiceItemRequest item = new BatchInvoiceItemRequest();
         item.setRowNumber(2);

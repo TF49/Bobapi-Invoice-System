@@ -41,6 +41,7 @@ CREATE TABLE `invoice` (
     `invoice_type` VARCHAR(100) NOT NULL DEFAULT '技术服务费' COMMENT '开票类型',
     `remark` VARCHAR(500) DEFAULT NULL COMMENT '备注',
     `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待开票，COMPLETED-已开票',
+    `is_processed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '用户已处理标记：0-未处理，1-已处理',
     `file_path` VARCHAR(500) DEFAULT NULL COMMENT '服务端存储文件名',
     `file_name` VARCHAR(255) DEFAULT NULL COMMENT '原始发票文件名',
     `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT '单条创建请求幂等键；批量申请明细为空',

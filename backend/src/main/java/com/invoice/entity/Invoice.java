@@ -44,6 +44,12 @@ public class Invoice {
      * 状态：PENDING-待开票，COMPLETED-已开票
      */
     private String status;
+
+    /**
+     * 用户已处理标记：0-未处理，1-已处理
+     */
+    @TableField("is_processed")
+    private Boolean isProcessed;
     
     /**
      * 发票文件路径

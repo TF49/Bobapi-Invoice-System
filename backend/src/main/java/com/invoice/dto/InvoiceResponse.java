@@ -16,6 +16,7 @@ public record InvoiceResponse(
         String invoiceType,
         String remark,
         String status,
+        boolean isProcessed,
         Long userId,
         String username,
         LocalDateTime createdAt,
@@ -40,6 +41,7 @@ public record InvoiceResponse(
             exists = resolved.startsWith(normalizedRoot) && Files.isRegularFile(resolved);
         }
         boolean downloadable = exists && isSupportedImage(invoice.getFileName());
+        boolean isProcessed = invoice.getIsProcessed() != null && invoice.getIsProcessed();
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getCompanyName(),
@@ -48,6 +50,7 @@ public record InvoiceResponse(
                 invoice.getInvoiceType(),
                 invoice.getRemark(),
                 invoice.getStatus(),
+                isProcessed,
                 invoice.getUserId(),
                 username,
                 invoice.getCreatedAt(),

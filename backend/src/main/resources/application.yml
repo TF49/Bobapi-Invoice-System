@@ -43,8 +43,6 @@ mybatis-plus:
       logic-delete-field: deleted
       logic-delete-value: 1
       logic-not-delete-value: 0
-#图片上传
-  uploadpath: /home/images/
 
 # JWT 配置
 jwt:

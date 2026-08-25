@@ -12,7 +12,8 @@ vi.mock('@/api/invoice', () => ({
     getAllInvoices: vi.fn(),
     uploadInvoice: vi.fn(),
     downloadInvoice: vi.fn(),
-    previewInvoice: vi.fn()
+    previewInvoice: vi.fn(),
+    updateProcessed: vi.fn()
   }
 }))
 

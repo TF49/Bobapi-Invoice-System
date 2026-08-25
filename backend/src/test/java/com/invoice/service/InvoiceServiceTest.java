@@ -405,6 +405,54 @@ class InvoiceServiceTest {
         verify(invoiceMapper).update(isNull(), any());
     }
 
+    @Test
+    void updatesProcessedStatusSuccessfullyForOwner() {
+        Invoice invoice = invoice(15L, 8L, "COMPLETED");
+        invoice.setIsProcessed(false);
+        when(invoiceMapper.selectById(15L)).thenReturn(invoice);
+
+        InvoiceResponse response = service.updateInvoiceProcessed(15L, 8L, false, true);
+
+        assertThat(response.id()).isEqualTo(15L);
+        verify(invoiceMapper).update(isNull(), any());
+    }
+
+    @Test
+    void updatesProcessedStatusSuccessfullyForAdmin() {
+        Invoice invoice = invoice(16L, 8L, "COMPLETED");
+        invoice.setIsProcessed(false);
+        when(invoiceMapper.selectById(16L)).thenReturn(invoice);
+
+        InvoiceResponse response = service.updateInvoiceProcessed(16L, 1L, true, true);
+
+        assertThat(response.id()).isEqualTo(16L);
+        verify(invoiceMapper).update(isNull(), any());
+    }
+
+    @Test
+    void throwsForbiddenWhenNonOwnerUpdatesProcessedStatus() {
+        Invoice invoice = invoice(17L, 8L, "COMPLETED");
+        when(invoiceMapper.selectById(17L)).thenReturn(invoice);
+
+        assertThatThrownBy(() -> service.updateInvoiceProcessed(17L, 99L, false, true))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(40301);
+        verify(invoiceMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void throwsUnprocessableWhenInvoiceIsNotCompleted() {
+        Invoice invoice = invoice(18L, 8L, "PENDING");
+        when(invoiceMapper.selectById(18L)).thenReturn(invoice);
+
+        assertThatThrownBy(() -> service.updateInvoiceProcessed(18L, 8L, false, true))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(42201);
+        verify(invoiceMapper, never()).update(isNull(), any());
+    }
+
     private byte[] imageBytes(String format, int width, int height) throws Exception {
         BufferedImage image = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
         try (ByteArrayOutputStream output = new ByteArrayOutputStream()) {

@@ -16,7 +16,8 @@ vi.mock('@/api/invoice', () => ({
     previewInvoice: vi.fn(),
     downloadInvoice: vi.fn(),
     parseInvoiceText: vi.fn(),
-    verifyInvoiceText: vi.fn()
+    verifyInvoiceText: vi.fn(),
+    updateProcessed: vi.fn()
   }
 }))
 
@@ -468,5 +469,55 @@ describe('UserInvoice', () => {
     const remarkWarning = page.find('.remark-warning-text')
     expect(remarkWarning.exists()).toBe(true)
     expect(remarkWarning.text()).toContain('请加急开具')
+  })
+
+  it('renders processed indicator when isProcessed is true and not when false', async () => {
+    mockedApi.getMyInvoices.mockResolvedValue([
+      {
+        ...completedInvoice,
+        id: 101,
+        companyName: '已处理公司',
+        isProcessed: true
+      },
+      {
+        ...completedInvoice,
+        id: 102,
+        companyName: '未处理公司',
+        isProcessed: false
+      }
+    ])
+
+    const page = await mountPage()
+    const indicators = page.findAll('.processed-row-indicator')
+    expect(indicators.length).toBe(1)
+  })
+
+  it('calls updateProcessed when checkbox is toggled in preview dialog', async () => {
+    const invoice = {
+      ...completedInvoice,
+      id: 201,
+      isProcessed: false
+    }
+    mockedApi.getMyInvoices.mockResolvedValue([invoice])
+    mockedApi.previewInvoice.mockResolvedValue({
+      data: new Blob(['fake-image'], { type: 'image/png' })
+    } as never)
+    mockedApi.updateProcessed.mockResolvedValue({
+      ...invoice,
+      isProcessed: true
+    } as never)
+
+    const page = await mountPage()
+    const previewBtn = page.findAll('button').find(b => b.text().includes('查看'))
+    expect(previewBtn).toBeDefined()
+    await previewBtn!.trigger('click')
+    await flushPromises()
+
+    const checkbox = page.find('.preview-processed-check input[type="checkbox"]')
+    expect(checkbox.exists()).toBe(true)
+    await checkbox.setValue(true)
+    await flushPromises()
+
+    expect(mockedApi.updateProcessed).toHaveBeenCalledWith(201, true)
   })
 })

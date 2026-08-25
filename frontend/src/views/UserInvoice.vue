@@ -228,7 +228,7 @@
                     复制
                   </el-button>
                   <span
-                    v-if="processedInvoiceIds.has(row.id)"
+                    v-if="row.isProcessed"
                     class="processed-row-indicator"
                     title="已标记处理"
                   >✓</span>
@@ -254,7 +254,7 @@
                 {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
               </el-tag>
               <el-tag
-                v-if="processedInvoiceIds.has(row.id)"
+                v-if="row.isProcessed"
                 class="processed-tag"
                 type="success"
                 size="small"
@@ -507,6 +507,8 @@
         <div class="dialog-footer preview-dialog-footer">
           <el-checkbox
             v-model="isCurrentPreviewProcessed"
+            :disabled="updatingProcessed"
+            @change="handleToggleProcessed"
             class="preview-processed-check"
             :class="{ 'is-done': isCurrentPreviewProcessed }"
           >
@@ -626,7 +628,6 @@ import {
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
 import { quotaApi } from '@/api/quota'
-import { useUserStore } from '@/stores/user'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
@@ -636,8 +637,6 @@ import { saveBlobResponse } from '@/utils/download'
 import { copyImageToClipboard } from '@/utils/clipboard'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import { ApiRequestError } from '@/utils/request'
-
-const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -741,35 +740,42 @@ const previewError = ref(false)
 let previewController: AbortController | null = null
 let previewRequestId = 0
 
-// 已处理标记（本地持久化，按用户名隔离，不依赖后端）
-const processedStorageKey = () => `processedInvoiceIds_${userStore.username}`
-
-const loadProcessedIds = (): Set<number> => {
-  try {
-    const raw = localStorage.getItem(processedStorageKey())
-    if (raw) return new Set(JSON.parse(raw) as number[])
-  } catch { /* ignore */ }
-  return new Set()
-}
-const processedInvoiceIds = ref<Set<number>>(loadProcessedIds())
-
+// 已处理标记状态（服务端持久化与实时同步）
+const updatingProcessed = ref(false)
 const isCurrentPreviewProcessed = computed({
-  get: () => previewingRow.value ? processedInvoiceIds.value.has(previewingRow.value.id) : false,
+  get: () => Boolean(previewingRow.value?.isProcessed),
   set: (val: boolean) => {
-    if (!previewingRow.value) return
-    const id = previewingRow.value.id
-    const ids = new Set(processedInvoiceIds.value)
-    if (val) {
-      ids.add(id)
-    } else {
-      ids.delete(id)
+    if (previewingRow.value) {
+      previewingRow.value.isProcessed = val
     }
-    processedInvoiceIds.value = ids
-    try {
-      localStorage.setItem(processedStorageKey(), JSON.stringify([...ids]))
-    } catch { /* storage quota exceeded */ }
   }
 })
+
+const handleToggleProcessed = async (val: boolean | string | number) => {
+  if (!previewingRow.value) return
+  const row = previewingRow.value
+  const targetVal = Boolean(val)
+  const originalVal = !targetVal
+  updatingProcessed.value = true
+  try {
+    const updated = await invoiceApi.updateProcessed(row.id, targetVal)
+    row.isProcessed = updated.isProcessed
+    const targetItem = invoices.value.find(item => item.id === row.id)
+    if (targetItem) {
+      targetItem.isProcessed = updated.isProcessed
+    }
+    ElMessage.success(targetVal ? '已标记为已处理' : '已取消处理标记')
+  } catch {
+    row.isProcessed = originalVal
+    const targetItem = invoices.value.find(item => item.id === row.id)
+    if (targetItem) {
+      targetItem.isProcessed = originalVal
+    }
+    ElMessage.error('更新处理状态失败，请重试')
+  } finally {
+    updatingProcessed.value = false
+  }
+}
 
 const form = reactive<InvoiceRequest>({
   companyName: '',

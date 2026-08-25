@@ -128,6 +128,7 @@ public class InvoiceService {
         invoice.setInvoiceType(normalizedInvoiceType);
         invoice.setRemark(remark == null ? null : remark.trim());
         invoice.setStatus("PENDING");
+        invoice.setIsProcessed(false);
         invoice.setUserId(userId);
         invoice.setIdempotencyKey(idempotencyKey);
 
@@ -233,6 +234,7 @@ public class InvoiceService {
             invoice.setInvoiceType(item.invoiceType());
             invoice.setRemark(item.remark());
             invoice.setStatus("PENDING");
+            invoice.setIsProcessed(false);
             invoice.setUserId(userId);
             invoice.setBatchId(batch.getId());
             invoice.setBatchRowNumber(item.rowNumber());
@@ -557,6 +559,32 @@ public class InvoiceService {
         User user = userMapper.selectById(updated.getUserId());
         String username = user != null ? user.getUsername() : null;
         log.info("[Admin] Invoice #{} updated successfully (userId={})", invoiceId, invoice.getUserId());
+        return InvoiceResponse.from(updated, uploadRoot, username);
+    }
+
+    /**
+     * 更新发票的用户已处理标记（用户仅可更新自己的发票，管理员或开票员可更新任意发票）
+     */
+    @Transactional
+    public InvoiceResponse updateInvoiceProcessed(Long invoiceId, Long currentUserId,
+                                                  boolean isAdminOrClerk, boolean isProcessed) {
+        Invoice invoice = requireInvoice(invoiceId);
+        if (!isAdminOrClerk && !Objects.equals(invoice.getUserId(), currentUserId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "无权修改其他用户的发票处理状态");
+        }
+        if (!"COMPLETED".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "只有已开票的发票可以标记处理状态");
+        }
+
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.eq(Invoice::getId, invoiceId)
+                .set(Invoice::getIsProcessed, isProcessed)
+                .set(Invoice::getUpdatedAt, LocalDateTime.now());
+        invoiceMapper.update(null, update);
+
+        Invoice updated = requireInvoice(invoiceId);
+        User user = userMapper.selectById(updated.getUserId());
+        String username = user != null ? user.getUsername() : null;
         return InvoiceResponse.from(updated, uploadRoot, username);
     }
 

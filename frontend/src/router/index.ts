@@ -37,6 +37,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, role: 'ADMIN' }
   },
   {
+    path: '/admin/recharge-requests',
+    name: 'AdminRechargeRequests',
+    component: () => import('@/views/AdminRechargeRequests.vue'),
+    meta: { requiresAuth: true, role: 'ADMIN' }
+  },
+  {
     path: '/dashboard',
     name: 'Dashboard',
     component: () => import('@/views/Dashboard.vue'),

@@ -51,10 +51,12 @@ public class SecurityConfig {
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/auth/**").permitAll()
+                .requestMatchers("/recharge-requests/screenshot/**").permitAll()
                 .requestMatchers("/doc.html", "/webjars/**", "/v3/api-docs/**", "/swagger-resources/**").permitAll()
                 .requestMatchers("/invoices/admin/dashboard").hasRole("ADMIN")
                 .requestMatchers("/invoices/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
                 .requestMatchers("/users/admin/**").hasRole("ADMIN")
+                .requestMatchers("/recharge-requests/admin/**").hasRole("ADMIN")
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exceptions -> exceptions

@@ -16,6 +16,7 @@ export interface Invoice {
   downloadable: boolean
   fileExists: boolean
   fileName?: string
+  isProcessed?: boolean
 }
 
 export interface InvoiceRequest {
@@ -134,6 +135,11 @@ export const invoiceApi = {
   // 管理员修改发票信息
   updateInvoice(id: number, data: InvoiceRequest) {
     return request.put<any, Invoice>(`/invoices/admin/${id}`, data)
+  },
+
+  // 更新发票已处理标记
+  updateProcessed(id: number, isProcessed: boolean) {
+    return request.put<any, Invoice>(`/invoices/${id}/processed`, { isProcessed })
   }
 }
 

@@ -249,6 +249,11 @@
                     >
                       复制
                     </el-button>
+                    <span
+                      v-if="row.isProcessed"
+                      class="processed-row-indicator"
+                      title="已标记处理"
+                    >✓</span>
                   </template>
                   <span v-else class="empty-action"><i class="empty-dot"></i>暂不可用</span>
                   <!-- 修改按钮（所有行都显示） -->
@@ -278,6 +283,16 @@
               <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
                 <i class="status-dot"></i>
                 {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
+              </el-tag>
+              <el-tag
+                v-if="row.isProcessed"
+                class="processed-tag"
+                type="success"
+                size="small"
+                effect="plain"
+              >
+                <el-icon><Check /></el-icon>
+                已处理
               </el-tag>
             </div>
 
@@ -400,7 +415,16 @@
         </div>
       </div>
       <template #footer v-if="previewSrc && !previewError">
-        <div class="dialog-footer">
+        <div class="dialog-footer preview-dialog-footer">
+          <el-checkbox
+            v-model="isCurrentPreviewProcessed"
+            :disabled="updatingProcessed"
+            @change="handleToggleProcessed"
+            class="preview-processed-check"
+            :class="{ 'is-done': isCurrentPreviewProcessed }"
+          >
+            {{ isCurrentPreviewProcessed ? '✓ 已处理' : '标记已处理' }}
+          </el-checkbox>
           <el-button type="primary" plain :icon="CopyDocument" @click="handleCopyPreviewImage">复制图片</el-button>
         </div>
       </template>
@@ -540,11 +564,49 @@ const searchKeyword = ref('')
 // 预览状态
 const previewVisible = ref(false)
 const previewingId = ref<number | null>(null)
+const previewingRow = ref<Invoice | null>(null)
 const previewSrc = ref<string | null>(null)
 const previewTitle = ref('')
 const previewError = ref(false)
 let previewController: AbortController | null = null
 let previewRequestId = 0
+
+// 已处理标记状态（服务端持久化与实时同步）
+const updatingProcessed = ref(false)
+const isCurrentPreviewProcessed = computed({
+  get: () => Boolean(previewingRow.value?.isProcessed),
+  set: (val: boolean) => {
+    if (previewingRow.value) {
+      previewingRow.value.isProcessed = val
+    }
+  }
+})
+
+const handleToggleProcessed = async (val: boolean | string | number) => {
+  if (!previewingRow.value) return
+  const row = previewingRow.value
+  const targetVal = Boolean(val)
+  const originalVal = !targetVal
+  updatingProcessed.value = true
+  try {
+    const updated = await invoiceApi.updateProcessed(row.id, targetVal)
+    row.isProcessed = updated.isProcessed
+    const targetItem = invoices.value.find(item => item.id === row.id)
+    if (targetItem) {
+      targetItem.isProcessed = updated.isProcessed
+    }
+    ElMessage.success(targetVal ? '已标记为已处理' : '已取消处理标记')
+  } catch {
+    row.isProcessed = originalVal
+    const targetItem = invoices.value.find(item => item.id === row.id)
+    if (targetItem) {
+      targetItem.isProcessed = originalVal
+    }
+    ElMessage.error('更新处理状态失败，请重试')
+  } finally {
+    updatingProcessed.value = false
+  }
+}
 
 const getCompanyInitial = (companyName: string) => companyName.trim().charAt(0) || '企'
 
@@ -921,6 +983,7 @@ const handlePreview = async (row: Invoice) => {
   const requestId = ++previewRequestId
   previewController = new AbortController()
   previewingId.value = row.id
+  previewingRow.value = row
   previewTitle.value = `发票预览 — ${row.companyName}`
   previewError.value = false
   previewSrc.value = null
@@ -958,6 +1021,9 @@ const onPreviewClose = () => {
 
 const onPreviewClosed = () => {
   previewError.value = false
+  if (!previewVisible.value) {
+    previewingRow.value = null
+  }
 }
 
 onBeforeUnmount(onPreviewClose)
@@ -1390,6 +1456,49 @@ onBeforeUnmount(onPreviewClose)
 
 .type-select {
   width: 100%;
+}
+
+:global(.invoice-preview-dialog .el-dialog__footer .preview-dialog-footer) {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.preview-processed-check {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.preview-processed-check.is-done :deep(.el-checkbox__label) {
+  color: var(--el-color-success);
+  font-weight: 500;
+}
+
+.preview-processed-check.is-done :deep(.el-checkbox__inner) {
+  background-color: var(--el-color-success);
+  border-color: var(--el-color-success);
+}
+
+.processed-row-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--el-color-success);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+.processed-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
 }
 </style>
 
