@@ -2,10 +2,12 @@
 
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import ElementPlus, { ElMessage } from 'element-plus'
+import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UserInvoice from './UserInvoice.vue'
 import { invoiceApi, type Invoice } from '@/api/invoice'
 import { quotaApi } from '@/api/quota'
+import { useUserStore } from '@/stores/user'
 
 vi.mock('@/api/invoice', () => ({
   invoiceApi: {
@@ -24,7 +26,12 @@ vi.mock('@/api/quota', () => ({
   }
 }))
 
+vi.mock('@/stores/user', () => ({
+  useUserStore: vi.fn()
+}))
+
 const mockedQuotaApi = vi.mocked(quotaApi)
+const mockedUseUserStore = vi.mocked(useUserStore)
 
 const mockedApi = vi.mocked(invoiceApi)
 let wrapper: VueWrapper | null = null
@@ -49,7 +56,7 @@ async function mountPage() {
   wrapper = mount(UserInvoice, {
     attachTo: document.body,
     global: {
-      plugins: [ElementPlus],
+      plugins: [ElementPlus, createPinia()],
       stubs: {
         AppHeader: { template: '<header>我的发票</header>' },
         AnimatedContent: { template: '<section><slot /></section>' },
@@ -65,6 +72,9 @@ async function mountPage() {
 
 describe('UserInvoice', () => {
   beforeEach(() => {
+    mockedUseUserStore.mockReturnValue({
+      user: { id: 2, username: 'test_user', role: 'USER' }
+    } as never)
     mockedApi.getMyInvoices.mockResolvedValue([])
     mockedApi.createInvoice.mockResolvedValue({} as never)
     // 默认提供足够的额度，避免提交时被额度检查拦截
@@ -437,5 +447,26 @@ describe('UserInvoice', () => {
     expect(page.text()).toContain('测试公司_1')
     expect(page.text()).toContain('测试公司_10')
     expect(page.text()).not.toContain('测试公司_11')
+  })
+
+  it('renders warning danger tag for non-default invoiceType and warning text for remark', async () => {
+    mockedApi.getMyInvoices.mockResolvedValue([
+      {
+        ...completedInvoice,
+        id: 10,
+        companyName: '自定义类目公司',
+        invoiceType: 'AI订阅服务费',
+        remark: '请加急开具'
+      }
+    ])
+
+    const page = await mountPage()
+    const warningTag = page.find('.warning-type-tag')
+    expect(warningTag.exists()).toBe(true)
+    expect(warningTag.text()).toContain('AI订阅服务费')
+
+    const remarkWarning = page.find('.remark-warning-text')
+    expect(remarkWarning.exists()).toBe(true)
+    expect(remarkWarning.text()).toContain('请加急开具')
   })
 })

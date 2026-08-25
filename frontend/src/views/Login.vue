@@ -17,8 +17,23 @@
       <div class="form-options">
         <el-checkbox v-model="form.rememberMe">7 天内保持登录</el-checkbox>
       </div>
-      <el-button class="submit-button" type="primary" :icon="Right" native-type="submit" :loading="loading">
-        登录系统
+      <el-alert
+        v-if="lockCountdown > 0"
+        type="error"
+        :closable="false"
+        show-icon
+        class="lock-alert"
+        :title="`登录失败次数过多或请求过于频繁，请等待 ${lockCountdown} 秒后重试`"
+      />
+      <el-button
+        class="submit-button"
+        type="primary"
+        :icon="Right"
+        native-type="submit"
+        :loading="loading"
+        :disabled="lockCountdown > 0"
+      >
+        {{ lockCountdown > 0 ? `已锁定 (${lockCountdown}s)` : '登录系统' }}
       </el-button>
       <p class="auth-switch">
         还没有账号？
@@ -29,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Lock, Right, User } from '@element-plus/icons-vue'
@@ -41,6 +56,69 @@ const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
+const lockCountdown = ref(0)
+let countdownTimer: ReturnType<typeof setInterval> | null = null
+
+const LOCK_STORAGE_KEY = 'invoice_login_lock_until'
+
+const startCountdown = (seconds: number) => {
+  if (seconds <= 0) return
+  const lockUntil = Date.now() + seconds * 1000
+  try {
+    sessionStorage.setItem(LOCK_STORAGE_KEY, String(lockUntil))
+  } catch {
+    // ignore storage error
+  }
+
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+  }
+  lockCountdown.value = Math.ceil(seconds)
+  countdownTimer = setInterval(() => {
+    const remainingMs = lockUntil - Date.now()
+    const remainingSec = Math.max(0, Math.ceil(remainingMs / 1000))
+    lockCountdown.value = remainingSec
+    if (remainingSec <= 0) {
+      if (countdownTimer) {
+        clearInterval(countdownTimer)
+        countdownTimer = null
+      }
+      try {
+        sessionStorage.removeItem(LOCK_STORAGE_KEY)
+      } catch {
+        // ignore
+      }
+    }
+  }, 1000)
+}
+
+const restoreLockState = () => {
+  try {
+    const saved = sessionStorage.getItem(LOCK_STORAGE_KEY)
+    if (saved) {
+      const lockUntil = Number(saved)
+      const remainingMs = lockUntil - Date.now()
+      const remainingSec = Math.ceil(remainingMs / 1000)
+      if (remainingSec > 0) {
+        startCountdown(remainingSec)
+      } else {
+        sessionStorage.removeItem(LOCK_STORAGE_KEY)
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+onMounted(() => {
+  restoreLockState()
+})
+
+onUnmounted(() => {
+  if (countdownTimer) {
+    clearInterval(countdownTimer)
+  }
+})
 
 const form = reactive({
   username: '',
@@ -61,12 +139,17 @@ const rules = {
 }
 
 const handleLogin = async () => {
-  if (loading.value) return
+  if (loading.value || lockCountdown.value > 0) return
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
   loading.value = true
   try {
     const response = await authApi.login(form)
+    try {
+      sessionStorage.removeItem(LOCK_STORAGE_KEY)
+    } catch {
+      // ignore
+    }
     // 先写 role，再写 token，确保路由守卫触发时 role 已存在
     userStore.setUser({ username: response.username, role: response.role })
     userStore.setToken(response.token, form.rememberMe)
@@ -77,8 +160,12 @@ const handleLogin = async () => {
     } else {
       router.push('/user')
     }
-  } catch {
-    // 错误提示由请求拦截器统一处理
+  } catch (err: any) {
+    // 错误提示已由请求拦截器统一处理，当检测到 429 频控/锁定时启动倒计时
+    if (err && (err.code === 42901 || err.code === 42900)) {
+      const waitSeconds = typeof err.data === 'number' && err.data > 0 ? err.data : 60
+      startCountdown(waitSeconds)
+    }
   } finally {
     loading.value = false
   }
@@ -95,6 +182,10 @@ const goToRegister = () => {
   align-items: center;
   justify-content: space-between;
   margin: -4px 0 24px;
+}
+
+.lock-alert {
+  margin-bottom: 16px;
 }
 
 .submit-button {

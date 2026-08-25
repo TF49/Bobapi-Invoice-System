@@ -83,7 +83,7 @@ CREATE TABLE `invoice_batch` (
   COLLATE=utf8mb4_unicode_ci
   COMMENT='发票申请批次表';
 
--- 默认账号：admin / admin123，user / user123
+-- 默认账号：admin（高强度密码），user / user123
 INSERT INTO `user` (`username`, `password`, `role`) VALUES
-    ('admin', '$2a$10$MEaAb2ukAOIvQ2bBf5lhquRLTEbIz5OAa79pcbQQ3EXufSHL2mvNS', 'ADMIN'),
+    ('admin', '$2b$10$03QLUNY7Yr9xBWJwbugxdONqzssH03qsdhG2XBiG9.RxHQjniRkTG', 'ADMIN'),
     ('user', '$2a$10$8ORsuwbOGeGgarcH2nik8uvA1c8X4ah98zVMgpkkwIg.6PImYIRZ2', 'USER');

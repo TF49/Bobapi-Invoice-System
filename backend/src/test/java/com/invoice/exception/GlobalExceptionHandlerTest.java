@@ -51,7 +51,8 @@ class GlobalExceptionHandlerTest {
         mockMvc.perform(get("/test/rate-limit"))
                 .andExpect(status().isTooManyRequests())
                 .andExpect(header().string("Retry-After", "30"))
-                .andExpect(jsonPath("$.code").value(42900));
+                .andExpect(jsonPath("$.code").value(42900))
+                .andExpect(jsonPath("$.data").value(30));
     }
 
     @Test

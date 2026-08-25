@@ -157,4 +157,24 @@ describe('AdminInvoice', () => {
     expect(page.text()).toContain('管理员测试公司_10')
     expect(page.text()).not.toContain('管理员测试公司_11')
   })
+
+  it('renders danger tag for non-default invoiceType and warning text for remark', async () => {
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([
+      {
+        ...pendingInvoice,
+        id: 201,
+        invoiceType: '计算服务费',
+        remark: '需要电子发票'
+      }
+    ])
+
+    const page = await mountPage()
+    const warningTag = page.find('.warning-type-tag')
+    expect(warningTag.exists()).toBe(true)
+    expect(warningTag.text()).toContain('计算服务费')
+
+    const remarkWarning = page.find('.remark-warning-text')
+    expect(remarkWarning.exists()).toBe(true)
+    expect(remarkWarning.text()).toContain('需要电子发票')
+  })
 })

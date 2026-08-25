@@ -44,9 +44,26 @@ public class AuthController {
     @PostMapping("/login")
     public ApiResponse<LoginResponse> login(@Valid @RequestBody LoginRequest request, 
                                             HttpServletRequest httpRequest) {
+        String clientIp = getClientIP(httpRequest);
         // 获取客户端标识（IP + 用户名组合）
-        String clientKey = getClientIP(httpRequest) + ":" + request.getUsername().toLowerCase(Locale.ROOT);
+        String clientKey = clientIp + ":" + request.getUsername().toLowerCase(Locale.ROOT);
 
+        // 1. 优先检查是否已被防爆破机制锁定（避免被较短周期的速率限制覆盖准确的锁定剩余时间）
+        if (loginAttemptService.isLocked(clientKey)) {
+            long remainingTime = loginAttemptService.getRemainingLockTime(clientKey);
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42901,
+                    "登录失败次数过多，请 " + remainingTime + " 秒后再试", Math.max(1, remainingTime));
+        }
+
+        // 2. 单 IP 维度限流，防止针对不同用户名的密码喷洒攻击（Password Spraying）
+        RateLimitService.RateLimitResult ipRateLimit = rateLimitService.tryAcquire(
+                "login:ip:" + clientIp, 30, Duration.ofMinutes(1));
+        if (!ipRateLimit.allowed()) {
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42900,
+                    "登录请求过于频繁，请稍后再试", ipRateLimit.retryAfterSeconds());
+        }
+
+        // 3. IP + 用户名维度限流
         RateLimitService.RateLimitResult rateLimit = rateLimitService.tryAcquire(
                 "login:" + clientKey, 10, Duration.ofMinutes(1));
         if (!rateLimit.allowed()) {
@@ -54,30 +71,24 @@ public class AuthController {
                     "登录请求过于频繁，请稍后再试", rateLimit.retryAfterSeconds());
         }
         
-        // 检查是否被锁定
-        if (loginAttemptService.isLocked(clientKey)) {
-            long remainingTime = loginAttemptService.getRemainingLockTime(clientKey);
-            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, 42901,
-                    "登录失败次数过多，请 " + remainingTime + " 秒后再试", Math.max(1, remainingTime));
-        }
-        
         User user = userService.findByUsername(request.getUsername());
         
-        // 统一错误信息，防止用户枚举
+        // 统一错误信息并防御时间盲注（Timing Attack），防止通过耗时探测用户是否存在
         if (user == null) {
+            userService.validateDummyPassword(request.getPassword());
             loginAttemptService.loginFailed(clientKey);
             throw new BusinessException(HttpStatus.UNAUTHORIZED, 40101, "用户名或密码错误");
         }
         
         // 检查用户是否已被删除
         if (user.getDeleted() != null && user.getDeleted() == 1) {
-            loginAttemptService.loginFailed(clientKey);
+            recordLoginFailed(clientKey, user);
             throw new BusinessException(HttpStatus.UNAUTHORIZED, 40101, "用户名或密码错误");
         }
         
         if (!Boolean.TRUE.equals(user.getEnabled())
                 || !userService.validatePassword(request.getPassword(), user.getPassword())) {
-            loginAttemptService.loginFailed(clientKey);
+            recordLoginFailed(clientKey, user);
             throw new BusinessException(HttpStatus.UNAUTHORIZED, 40101, "用户名或密码错误");
         }
         
@@ -128,5 +139,13 @@ public class AuthController {
      */
     private String getClientIP(HttpServletRequest request) {
         return WebUtils.extractClientIp(request);
+    }
+
+    private void recordLoginFailed(String clientKey, User user) {
+        if (user != null && ("ADMIN".equalsIgnoreCase(user.getRole()) || "INVOICE_CLERK".equalsIgnoreCase(user.getRole()))) {
+            loginAttemptService.adminLoginFailed(clientKey);
+        } else {
+            loginAttemptService.loginFailed(clientKey);
+        }
     }
 }

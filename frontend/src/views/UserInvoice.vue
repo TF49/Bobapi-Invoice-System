@@ -146,14 +146,35 @@
                 <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="invoiceType" label="开票类型" width="120">
+            <el-table-column prop="invoiceType" label="开票类型" width="135">
               <template #default="{ row }">
-                <el-tag size="small" type="info" effect="plain">{{ row.invoiceType || '技术服务费' }}</el-tag>
+                <el-tag
+                  v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
+                  size="small"
+                  type="danger"
+                  effect="plain"
+                  class="warning-type-tag"
+                >
+                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                  <span>{{ row.invoiceType }}</span>
+                </el-tag>
+                <el-tag
+                  v-else
+                  size="small"
+                  type="info"
+                  effect="plain"
+                >
+                  {{ row.invoiceType || '技术服务费' }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
-                <span>{{ row.remark || '-' }}</span>
+                <span v-if="row.remark?.trim()" class="remark-warning-text">
+                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                  <span>{{ row.remark }}</span>
+                </span>
+                <span v-else>{{ row.remark || '-' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="status" label="开票状态" width="124" align="center">
@@ -172,7 +193,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="240" align="center" fixed="right">
+            <el-table-column label="操作" width="270" align="center" fixed="right">
               <template #default="{ row }">
                 <div v-if="row.downloadable && row.fileExists" class="record-actions">
                   <el-button
@@ -206,6 +227,11 @@
                   >
                     复制
                   </el-button>
+                  <span
+                    v-if="processedInvoiceIds.has(row.id)"
+                    class="processed-row-indicator"
+                    title="已标记处理"
+                  >✓</span>
                 </div>
                 <span v-else class="empty-action"><i></i>等待开票</span>
               </template>
@@ -227,6 +253,16 @@
                 <i class="status-dot"></i>
                 {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
               </el-tag>
+              <el-tag
+                v-if="processedInvoiceIds.has(row.id)"
+                class="processed-tag"
+                type="success"
+                size="small"
+                effect="plain"
+              >
+                <el-icon><Check /></el-icon>
+                已处理
+              </el-tag>
             </div>
 
             <dl class="record-card-details">
@@ -240,11 +276,17 @@
               </div>
               <div>
                 <dt>开票类型</dt>
-                <dd>{{ row.invoiceType || '技术服务费' }}</dd>
+                <dd :class="{ 'warning-invoice-type-text': (row.invoiceType?.trim() || '技术服务费') !== '技术服务费' }">
+                  <el-icon v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'" class="warning-icon-inline"><Warning /></el-icon>
+                  {{ row.invoiceType || '技术服务费' }}
+                </dd>
               </div>
-              <div v-if="row.remark">
+              <div v-if="row.remark?.trim()">
                 <dt>备注</dt>
-                <dd>{{ row.remark }}</dd>
+                <dd class="remark-warning-text">
+                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                  {{ row.remark }}
+                </dd>
               </div>
               <div>
                 <dt>申请时间</dt>
@@ -462,7 +504,14 @@
         </div>
       </div>
       <template #footer v-if="previewSrc && !previewError">
-        <div class="dialog-footer">
+        <div class="dialog-footer preview-dialog-footer">
+          <el-checkbox
+            v-model="isCurrentPreviewProcessed"
+            class="preview-processed-check"
+            :class="{ 'is-done': isCurrentPreviewProcessed }"
+          >
+            {{ isCurrentPreviewProcessed ? '✓ 已处理' : '标记已处理' }}
+          </el-checkbox>
           <el-button type="primary" plain :icon="CopyDocument" @click="handleCopyPreviewImage">复制图片</el-button>
         </div>
       </template>
@@ -497,7 +546,26 @@
           </div>
           <div class="ai-confirm-row">
             <dt>开票类型</dt>
-            <dd><el-tag size="small" type="info" effect="plain">{{ aiConfirmData?.invoiceType || form.invoiceType || '技术服务费' }}</el-tag></dd>
+            <dd>
+              <el-tag
+                v-if="(aiConfirmData?.invoiceType?.trim() || form.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
+                size="small"
+                type="danger"
+                effect="plain"
+                class="warning-type-tag"
+              >
+                <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                <span>{{ aiConfirmData?.invoiceType || form.invoiceType }}</span>
+              </el-tag>
+              <el-tag
+                v-else
+                size="small"
+                type="info"
+                effect="plain"
+              >
+                {{ aiConfirmData?.invoiceType || form.invoiceType || '技术服务费' }}
+              </el-tag>
+            </dd>
           </div>
         </dl>
         <div class="ai-confirm-hint">
@@ -553,10 +621,12 @@ import {
   Tickets,
   Upload,
   Wallet,
+  Warning,
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
 import { quotaApi } from '@/api/quota'
+import { useUserStore } from '@/stores/user'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
@@ -566,6 +636,8 @@ import { saveBlobResponse } from '@/utils/download'
 import { copyImageToClipboard } from '@/utils/clipboard'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import { ApiRequestError } from '@/utils/request'
+
+const userStore = useUserStore()
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -662,11 +734,42 @@ const quotaBalance = ref(0)
 // 预览相关状态
 const previewVisible = ref(false)
 const previewingId = ref<number | null>(null)
+const previewingRow = ref<Invoice | null>(null)
 const previewSrc = ref<string | null>(null)
 const previewTitle = ref('')
 const previewError = ref(false)
 let previewController: AbortController | null = null
 let previewRequestId = 0
+
+// 已处理标记（本地持久化，按用户名隔离，不依赖后端）
+const processedStorageKey = () => `processedInvoiceIds_${userStore.username}`
+
+const loadProcessedIds = (): Set<number> => {
+  try {
+    const raw = localStorage.getItem(processedStorageKey())
+    if (raw) return new Set(JSON.parse(raw) as number[])
+  } catch { /* ignore */ }
+  return new Set()
+}
+const processedInvoiceIds = ref<Set<number>>(loadProcessedIds())
+
+const isCurrentPreviewProcessed = computed({
+  get: () => previewingRow.value ? processedInvoiceIds.value.has(previewingRow.value.id) : false,
+  set: (val: boolean) => {
+    if (!previewingRow.value) return
+    const id = previewingRow.value.id
+    const ids = new Set(processedInvoiceIds.value)
+    if (val) {
+      ids.add(id)
+    } else {
+      ids.delete(id)
+    }
+    processedInvoiceIds.value = ids
+    try {
+      localStorage.setItem(processedStorageKey(), JSON.stringify([...ids]))
+    } catch { /* storage quota exceeded */ }
+  }
+})
 
 const form = reactive<InvoiceRequest>({
   companyName: '',
@@ -956,6 +1059,7 @@ const handlePreview = async (row: Invoice) => {
   const requestId = ++previewRequestId
   previewController = new AbortController()
   previewingId.value = row.id
+  previewingRow.value = row
   previewTitle.value = `发票预览 — ${row.companyName}`
   previewError.value = false
   previewSrc.value = null
@@ -1000,6 +1104,12 @@ const onPreviewClose = () => {
 
 const onPreviewClosed = () => {
   previewError.value = false
+  // Only clear the row reference when the dialog is truly closed.
+  // If the user quickly opens another invoice during the close animation,
+  // previewVisible will already be true again — don't overwrite the new row.
+  if (!previewVisible.value) {
+    previewingRow.value = null
+  }
 }
 
 const handleDownload = async (row: Invoice) => {
@@ -1521,10 +1631,90 @@ onBeforeUnmount(() => {
   margin-top: 1px;
 }
 
+.warning-icon-inline {
+  margin-right: 3px;
+  font-size: 13px;
+  vertical-align: -1.5px;
+  flex-shrink: 0;
+}
+
+.warning-type-tag {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.remark-warning-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  color: var(--color-danger, #c9463d) !important;
+  font-weight: 550;
+}
+
+.remark-warning-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning-invoice-type-text {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-danger, #c9463d) !important;
+  font-weight: 600;
+}
+
 .dialog-footer {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
+}
+
+:global(.invoice-preview-dialog .el-dialog__footer .preview-dialog-footer) {
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* 已处理打标控件 */
+.preview-processed-check {
+  font-size: 13px;
+  color: var(--el-text-color-regular);
+}
+
+.preview-processed-check.is-done :deep(.el-checkbox__label) {
+  color: var(--el-color-success);
+  font-weight: 500;
+}
+
+.preview-processed-check.is-done :deep(.el-checkbox__inner) {
+  background-color: var(--el-color-success);
+  border-color: var(--el-color-success);
+}
+
+/* 已处理小指示符（桌面表格，按钮右侧） */
+.processed-row-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background-color: var(--el-color-success);
+  color: #fff;
+  font-size: 11px;
+  font-weight: bold;
+  flex-shrink: 0;
+  cursor: default;
+}
+
+/* 已处理标签（移动端卡片） */
+.processed-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex-shrink: 0;
 }
 
 /* 预览弹窗 */
@@ -1637,7 +1827,8 @@ onBeforeUnmount(() => {
     display: flex;
     align-items: flex-start;
     justify-content: space-between;
-    gap: 12px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
     padding-bottom: 14px;
     border-bottom: 1px solid var(--color-border);
   }

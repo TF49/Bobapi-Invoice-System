@@ -30,13 +30,13 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException exception) {
+    public ResponseEntity<ApiResponse<Long>> handleBusinessException(BusinessException exception) {
         HttpHeaders headers = new HttpHeaders();
         if (exception.getRetryAfterSeconds() != null) {
             headers.set(HttpHeaders.RETRY_AFTER, String.valueOf(exception.getRetryAfterSeconds()));
         }
         return new ResponseEntity<>(
-                ApiResponse.error(exception.getCode(), exception.getMessage()),
+                ApiResponse.error(exception.getCode(), exception.getMessage(), exception.getRetryAfterSeconds()),
                 headers,
                 exception.getStatus()
         );

@@ -202,11 +202,21 @@ public class UserService {
         return AdminUserResponse.from(user, currentUserId);
     }
     
+    // 预计算的虚拟密码哈希，用于当用户不存在时执行空跑匹配，消除时间盲注（Timing Attack）测定用户存在性的风险
+    private static final String DUMMY_BCRYPT_HASH = "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+
     /**
      * 验证密码
      */
     public boolean validatePassword(String rawPassword, String encodedPassword) {
         return passwordEncoder.matches(rawPassword, encodedPassword);
+    }
+
+    /**
+     * 执行虚拟密码比对（耗时与真实校验一致，约 80-120ms），防止时间盲注枚举用户名
+     */
+    public void validateDummyPassword(String rawPassword) {
+        passwordEncoder.matches(rawPassword != null ? rawPassword : "", DUMMY_BCRYPT_HASH);
     }
 
     private AdminUserStats getUserStats() {

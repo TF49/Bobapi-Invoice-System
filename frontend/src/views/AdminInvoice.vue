@@ -129,14 +129,36 @@
                 <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="invoiceType" label="开票类型" width="120">
+            <el-table-column prop="invoiceType" label="开票类型" width="135">
               <template #default="{ row }">
-                <el-tag size="small" type="info" effect="plain" class="type-tag">{{ row.invoiceType || '技术服务费' }}</el-tag>
+                <el-tag
+                  v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
+                  size="small"
+                  type="danger"
+                  effect="plain"
+                  class="type-tag warning-type-tag"
+                >
+                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                  <span>{{ row.invoiceType }}</span>
+                </el-tag>
+                <el-tag
+                  v-else
+                  size="small"
+                  type="info"
+                  effect="plain"
+                  class="type-tag"
+                >
+                  {{ row.invoiceType || '技术服务费' }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
-                <span class="remark-text">{{ row.remark || '-' }}</span>
+                <span v-if="row.remark?.trim()" class="remark-text remark-warning-text">
+                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                  <span>{{ row.remark }}</span>
+                </span>
+                <span v-else class="remark-text">-</span>
               </template>
             </el-table-column>
             <el-table-column prop="status" label="状态" width="110" align="center">
@@ -274,11 +296,17 @@
               </div>
               <div>
                 <dt>开票类型</dt>
-                <dd>{{ row.invoiceType || '技术服务费' }}</dd>
+                <dd :class="{ 'warning-invoice-type-text': (row.invoiceType?.trim() || '技术服务费') !== '技术服务费' }">
+                  <el-icon v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'" class="warning-icon-inline"><Warning /></el-icon>
+                  {{ row.invoiceType || '技术服务费' }}
+                </dd>
               </div>
-              <div v-if="row.remark">
+              <div v-if="row.remark?.trim()">
                 <dt>备注</dt>
-                <dd>{{ row.remark }}</dd>
+                <dd class="remark-warning-text">
+                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                  {{ row.remark }}
+                </dd>
               </div>
               <div>
                 <dt>申请时间</dt>
@@ -486,6 +514,7 @@ import {
   UploadFilled,
   User,
   Wallet,
+  Warning,
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
@@ -1050,6 +1079,41 @@ onBeforeUnmount(onPreviewClose)
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.warning-icon-inline {
+  margin-right: 3px;
+  font-size: 13px;
+  vertical-align: -1.5px;
+  flex-shrink: 0;
+}
+
+.warning-type-tag {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.remark-warning-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  color: var(--color-danger, #c9463d) !important;
+  font-weight: 550;
+}
+
+.remark-warning-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warning-invoice-type-text {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-danger, #c9463d) !important;
+  font-weight: 600;
 }
 
 .status-dot {

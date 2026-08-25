@@ -70,8 +70,37 @@
           <el-table-column prop="companyName" label="公司名称" min-width="140" />
           <el-table-column prop="taxNumber" label="税号" width="150" />
           <el-table-column prop="amount" label="开票金额" width="110" />
-          <el-table-column prop="invoiceType" label="开票类型" width="110" />
-          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
+          <el-table-column prop="invoiceType" label="开票类型" width="135">
+            <template #default="{ row }">
+              <el-tag
+                v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
+                size="small"
+                type="danger"
+                effect="plain"
+                class="warning-type-tag"
+              >
+                <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                <span>{{ row.invoiceType }}</span>
+              </el-tag>
+              <el-tag
+                v-else
+                size="small"
+                type="info"
+                effect="plain"
+              >
+                {{ row.invoiceType || '技术服务费' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span v-if="row.remark?.trim()" class="remark-warning-text">
+                <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                <span>{{ row.remark }}</span>
+              </span>
+              <span v-else>-</span>
+            </template>
+          </el-table-column>
           <el-table-column label="校验状态" width="90">
             <template #default="{ row }">
               <el-tag v-if="row.error" type="danger" size="small">错误</el-tag>
@@ -148,7 +177,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { ElMessage, type UploadFile, type UploadInstance } from 'element-plus';
-import { Download, Upload } from '@element-plus/icons-vue';
+import { Download, Upload, Warning } from '@element-plus/icons-vue';
 import {
   parseInvoiceFile,
   validateAllRows,
@@ -410,5 +439,33 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
 .result-stats p {
   margin: 8px 0;
   color: #606266;
+}
+
+.warning-icon-inline {
+  margin-right: 3px;
+  font-size: 13px;
+  vertical-align: -1.5px;
+  flex-shrink: 0;
+}
+
+.warning-type-tag {
+  display: inline-flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.remark-warning-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  color: #f56c6c !important;
+  font-weight: 550;
+}
+
+.remark-warning-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
