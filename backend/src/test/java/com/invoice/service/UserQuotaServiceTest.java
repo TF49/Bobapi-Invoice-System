@@ -117,6 +117,40 @@ class UserQuotaServiceTest {
     }
 
     @Test
+    void deductsBatchQuotaSuccessfully() {
+        UserQuota quota = quota("500.00");
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(user(2L, "USER"));
+        when(userQuotaMapper.selectOne(any())).thenReturn(quota);
+
+        service.deductBatchQuota(2L, new BigDecimal("200.00"), 88L);
+
+        assertEquals(new BigDecimal("300.00"), quota.getBalance());
+        assertEquals(new BigDecimal("200.00"), quota.getTotalDeducted());
+        verify(userMapper).selectByIdForUpdate(2L);
+        verify(userQuotaMapper).updateById(quota);
+
+        ArgumentCaptor<UserQuotaTransaction> captor = ArgumentCaptor.forClass(UserQuotaTransaction.class);
+        verify(transactionMapper).insert(captor.capture());
+        assertEquals("DEDUCT", captor.getValue().getTransactionType());
+        assertEquals(new BigDecimal("-200.00"), captor.getValue().getAmount());
+        org.junit.jupiter.api.Assertions.assertTrue(captor.getValue().getRemark().contains("88"));
+    }
+
+    @Test
+    void rejectsBatchQuotaDeductionWithInsufficientBalance() {
+        UserQuota quota = quota("50.00");
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(user(2L, "USER"));
+        when(userQuotaMapper.selectOne(any())).thenReturn(quota);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> service.deductBatchQuota(2L, new BigDecimal("200.00"), 88L));
+
+        assertEquals(40002, exception.getCode());
+        verify(userQuotaMapper, never()).updateById(any(UserQuota.class));
+        verify(transactionMapper, never()).insert(any(UserQuotaTransaction.class));
+    }
+
+    @Test
     void autoCreatesMissingQuotaRecordsAndSyncsFromTransactionsInBatchQuery() {
         UserQuotaTransaction tx = transaction("RECHARGE", "10000.00", "充值", "key-1");
         tx.setBalanceBefore(BigDecimal.ZERO);

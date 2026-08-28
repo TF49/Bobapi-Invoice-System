@@ -31,6 +31,7 @@ class JwtAuthenticationFilterTest {
 
     @BeforeEach
     void setUp() {
+        SecurityContextHolder.clearContext();
         jwtUtil = new JwtUtil();
         ReflectionTestUtils.setField(jwtUtil, "secret",
                 "TestOnlyInvoiceJwtSecretThatIsLongEnoughForHS256Signing!");

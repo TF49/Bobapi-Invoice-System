@@ -247,6 +247,36 @@ public class UserQuotaService {
     }
 
     /**
+     * 批量扣除额度（批量开票时调用）
+     */
+    @Transactional
+    public void deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId) {
+        if (totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
+        }
+
+        requireUserRoleForUpdate(userId);
+        UserQuota quota = getUserQuotaWithLock(userId);
+        BigDecimal balanceBefore = quota.getBalance();
+
+        if (balanceBefore.compareTo(totalAmount) < 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40002, "额度不足，当前余额：" + balanceBefore + "，需要：" + totalAmount);
+        }
+
+        BigDecimal balanceAfter = balanceBefore.subtract(totalAmount);
+
+        // 更新额度
+        quota.setBalance(balanceAfter);
+        quota.setTotalDeducted(quota.getTotalDeducted().add(totalAmount));
+        quota.setUpdatedAt(LocalDateTime.now());
+        userQuotaMapper.updateById(quota);
+
+        // 记录交易历史
+        createTransaction(userId, "DEDUCT", totalAmount.negate(), balanceBefore, balanceAfter,
+                         null, "SYSTEM", null, "批量开票扣除(批次#" + batchId + ")", null);
+    }
+
+    /**
      * 管理员修改发票金额时同步调整用户额度
      * @param userId 发票申请用户ID
      * @param amountDiff 金额变化差额（newAmount - oldAmount）。正数表示发票金额增加需要补扣额度，负数表示发票金额减少需要退还额度

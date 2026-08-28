@@ -2,6 +2,8 @@ package com.invoice.controller;
 
 import com.invoice.dto.BatchInvoiceItemRequest;
 import com.invoice.dto.BatchInvoiceRequest;
+import com.invoice.dto.InvoiceResponse;
+import com.invoice.entity.Invoice;
 import com.invoice.exception.BusinessException;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.security.RateLimitService;
@@ -92,6 +94,28 @@ class InvoiceControllerTest {
     }
 
     @Test
+    void serializesInvoiceResponseWithExpectedFieldNames() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
+        InvoiceResponse response = new InvoiceResponse(
+                1L, "测试公司", "91410100MAE5H38A0F", new java.math.BigDecimal("100.00"),
+                "技术服务费", "", "COMPLETED", true, 2L, "user",
+                java.time.LocalDateTime.now(), java.time.LocalDateTime.now(),
+                true, true, "invoice.png"
+        );
+        String json = mapper.writeValueAsString(response);
+        System.out.println("SERIALIZED JSON: " + json);
+        org.assertj.core.api.Assertions.assertThat(json).contains("\"isProcessed\":true");
+
+        com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
+                new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), "test"), Invoice.class);
+        com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<Invoice> wrapper = new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<>();
+        wrapper.set(Invoice::getIsProcessed, true);
+        System.out.println("LAMBDA SQL SET: " + wrapper.getSqlSet());
+        org.assertj.core.api.Assertions.assertThat(wrapper.getSqlSet()).contains("is_processed=");
+    }
+
+    @Test
     void delegatesUpdateInvoiceProcessedToService() {
         InvoiceService invoiceService = mock(InvoiceService.class);
         InvoiceController controller = new InvoiceController(invoiceService, new RateLimitService());
@@ -101,6 +125,18 @@ class InvoiceControllerTest {
         controller.updateInvoiceProcessed(15L, req, principal);
 
         verify(invoiceService).updateInvoiceProcessed(15L, 8L, false, true);
+    }
+
+    @Test
+    void delegatesBatchUpdateInvoiceProcessedToService() {
+        InvoiceService invoiceService = mock(InvoiceService.class);
+        InvoiceController controller = new InvoiceController(invoiceService, new RateLimitService());
+        JwtUserPrincipal principal = new JwtUserPrincipal(8L, "user", "USER", 0L);
+        com.invoice.dto.BatchUpdateProcessedRequest req = new com.invoice.dto.BatchUpdateProcessedRequest(List.of(15L, 16L), true);
+
+        controller.batchUpdateInvoiceProcessed(req, principal);
+
+        verify(invoiceService).batchUpdateInvoiceProcessed(List.of(15L, 16L), 8L, false, true);
     }
 
     private BatchInvoiceRequest batchRequest() {

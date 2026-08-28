@@ -68,7 +68,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             } catch (Exception e) {
                 log.warn("JWT token validation exception for URI {}: {}", request.getRequestURI(), e.getMessage());
             }
-        } else if (!request.getRequestURI().startsWith("/api/auth/") && !request.getRequestURI().startsWith("/auth/")) {
+        } else if (SecurityContextHolder.getContext().getAuthentication() == null
+                && !request.getRequestURI().startsWith("/api/auth/")
+                && !request.getRequestURI().startsWith("/auth/")
+                && !request.getRequestURI().startsWith("/open/")
+                && !request.getRequestURI().startsWith("/api/open/")
+                && !isDocUri(request.getRequestURI())) {
             log.warn("Authorization header missing or invalid format ('{}') for request: {} {}",
                     authHeader, request.getMethod(), request.getRequestURI());
         }
@@ -86,5 +91,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
         
         filterChain.doFilter(request, response);
+    }
+
+    private boolean isDocUri(String uri) {
+        return uri.contains("/doc.html") || uri.contains("/v3/api-docs") || uri.contains("/swagger");
     }
 }

@@ -75,6 +75,15 @@
               <span>充值申请记录</span>
               <span v-if="pendingRequestsCount > 0" class="pending-badge">{{ pendingRequestsCount }}</span>
             </button>
+            <button
+              type="button"
+              class="tab-btn"
+              :class="{ 'is-active': activeTab === 'api' }"
+              @click="switchToApiTab"
+            >
+              <span class="tab-icon"><Connection /></span>
+              <span>OpenAPI 开发者密钥</span>
+            </button>
           </div>
 
           <div class="panel-right-actions">
@@ -96,7 +105,7 @@
             </div>
 
             <!-- 充值申请筛选 -->
-            <div v-else class="filter-control">
+            <div v-else-if="activeTab === 'requests'" class="filter-control">
               <span class="filter-label"><Filter /> 筛选状态</span>
               <el-select
                 v-model="requestFilterStatus"
@@ -111,7 +120,7 @@
               </el-select>
             </div>
 
-            <el-button type="primary" :icon="Plus" class="recharge-action-btn" @click="showRechargeDialog = true">
+            <el-button v-if="activeTab !== 'api'" type="primary" :icon="Plus" class="recharge-action-btn" @click="showRechargeDialog = true">
               申请充值
             </el-button>
           </div>
@@ -131,7 +140,7 @@
                   <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="transactionType" label="变动类型" width="124" align="center">
+              <el-table-column prop="transactionType" label="类型" width="104" align="center">
                 <template #default="{ row }">
                   <el-tag class="status-tag" :class="getTransactionTagClass(row.transactionType)">
                     <i class="status-dot"></i>
@@ -139,29 +148,24 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="amount" label="变动金额" width="150" align="right">
+              <el-table-column prop="amount" label="变动金额" width="140" align="right">
                 <template #default="{ row }">
                   <span class="money-cell" :class="row.amount >= 0 ? 'amount-positive' : 'amount-negative'">
-                    {{ row.amount > 0 ? '+' : '' }}{{ formatCurrency(row.amount) }}
+                    {{ row.amount >= 0 ? '+' : '' }}{{ formatCurrency(row.amount) }}
                   </span>
                 </template>
               </el-table-column>
-              <el-table-column prop="balanceBefore" label="变更前余额" width="150" align="right">
+              <el-table-column prop="balanceAfter" label="变动后余额" width="140" align="right">
                 <template #default="{ row }">
-                  <span class="money-cell text-muted">{{ formatCurrency(row.balanceBefore) }}</span>
+                  <span class="balance-after">{{ formatCurrency(row.balanceAfter) }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="balanceAfter" label="变更后余额" width="150" align="right">
-                <template #default="{ row }">
-                  <span class="money-cell">{{ formatCurrency(row.balanceAfter) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="remark" label="备注说明" min-width="200">
+              <el-table-column prop="remark" label="说明" min-width="200">
                 <template #default="{ row }">
                   <span class="remark-cell">{{ row.remark || '-' }}</span>
                 </template>
               </el-table-column>
-              <el-table-column prop="createdAt" label="记录时间" width="168">
+              <el-table-column prop="createdAt" label="时间" width="168">
                 <template #default="{ row }">
                   <div class="date-cell">
                     <span>{{ formatDateParts(row.createdAt).date }}</span>
@@ -188,7 +192,7 @@
         </template>
 
         <!-- 2. 充值申请记录 Tab 内容 -->
-        <template v-else>
+        <template v-else-if="activeTab === 'requests'">
           <div v-if="!loadingRequests && filteredMyRequests.length === 0" class="table-empty-state">
             <span><Tickets /></span>
             <strong>暂无充值申请记录</strong>
@@ -265,6 +269,93 @@
             />
           </div>
         </template>
+
+        <!-- 3. OpenAPI 开发者对接 Tab 内容 -->
+        <template v-else-if="activeTab === 'api'">
+          <div class="api-dev-tab-content" style="padding: 20px;">
+            <div style="background: var(--color-surface-subtle); border: 1px solid var(--color-border); border-radius: 12px; padding: 24px; margin-bottom: 24px;">
+              <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <div>
+                  <h3 style="font-size: 16px; font-weight: 600; margin: 0 0 6px 0;">我的 OpenAPI 调用凭证</h3>
+                  <p style="font-size: 13px; color: var(--color-text-secondary); margin: 0;">
+                    外部系统调用发票开放接口时，请在 HTTP 请求头中携带 <code style="background: rgba(0,0,0,0.06); padding: 2px 6px; border-radius: 4px;">X-API-KEY</code>。
+                  </p>
+                </div>
+                <el-tag :type="apiKeyData.apiKey && apiKeyData.apiKeyEnabled !== false ? 'success' : 'danger'" size="large">
+                  {{ apiKeyData.apiKey ? (apiKeyData.apiKeyEnabled !== false ? 'API Key 生效中' : 'API Key 已禁用') : '未生成 Key' }}
+                </el-tag>
+              </div>
+
+              <div style="display: flex; gap: 12px; align-items: center; margin-bottom: 20px;">
+                <el-input
+                  :model-value="apiKeyData.apiKey || '暂未生成 API Key，请点击右侧按钮生成'"
+                  readonly
+                  :type="showApiKeyText ? 'text' : 'password'"
+                  style="max-width: 480px;"
+                />
+                <el-button
+                  v-if="apiKeyData.apiKey"
+                  :icon="CopyDocument"
+                  @click="handleCopyApiKey(apiKeyData.apiKey)"
+                >
+                  复制 Key
+                </el-button>
+                <el-button
+                  type="primary"
+                  :loading="apiKeyGenerating"
+                  @click="handleGenerateApiKey"
+                >
+                  {{ apiKeyData.apiKey ? '重置生成新 Key' : '立即生成 API Key' }}
+                </el-button>
+              </div>
+
+              <div v-if="apiKeyData.apiKey" style="display: flex; align-items: center; gap: 10px; font-size: 13px;">
+                <span>启用状态：</span>
+                <el-switch
+                  :model-value="apiKeyData.apiKeyEnabled !== false"
+                  :loading="apiKeyStatusLoading"
+                  inline-prompt
+                  active-text="启用"
+                  inactive-text="禁用"
+                  @change="(val: string | number | boolean) => handleToggleApiKeyStatus(Boolean(val))"
+                />
+                <span style="color: var(--color-text-muted); font-size: 12px;">禁用后外部接口将拒绝调用</span>
+              </div>
+            </div>
+
+            <!-- OpenAPI 对接示例指南 -->
+            <div style="background: var(--color-surface); border: 1px solid var(--color-border); border-radius: 12px; padding: 24px;">
+              <h3 style="font-size: 16px; font-weight: 600; margin: 0 0 16px 0;">⚡ 快速接入示例 (cURL)</h3>
+              
+              <div style="margin-bottom: 20px;">
+                <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--color-primary);">1. 提交发票申请 (自动扣减额度)</div>
+                <pre style="background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; font-family: monospace;">curl -X POST http://localhost:9090/open/v1/invoices \
+  -H "Content-Type: application/json" \
+  -H "X-API-KEY: {{ apiKeyData.apiKey || 'your_api_key' }}" \
+  -d '{
+    "outTradeNo": "ORDER_20260828001",
+    "companyName": "测试企业有限公司",
+    "taxNumber": "91110000MA00000000",
+    "amount": 500.00,
+    "invoiceType": "技术服务费",
+    "remark": "外部系统自动化推单"
+  }'</pre>
+              </div>
+
+              <div style="margin-bottom: 20px;">
+                <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--color-primary);">2. 按外部商户订单号查询开票状态与发票下载</div>
+                <pre style="background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; font-family: monospace;">curl -X GET http://localhost:9090/open/v1/invoices/by-out-trade-no/ORDER_20260828001 \
+  -H "X-API-KEY: {{ apiKeyData.apiKey || 'your_api_key' }}"</pre>
+              </div>
+
+              <div>
+                <div style="font-size: 14px; font-weight: 600; margin-bottom: 8px; color: var(--color-primary);">3. 查询当前账户剩余可用额度</div>
+                <pre style="background: #1e1e2e; color: #cdd6f4; padding: 14px; border-radius: 8px; font-size: 12px; overflow-x: auto; font-family: monospace;">curl -X GET http://localhost:9090/open/v1/quota \
+  -H "X-API-KEY: {{ apiKeyData.apiKey || 'your_api_key' }}"</pre>
+              </div>
+            </div>
+          </div>
+        </template>
       </AnimatedContent>
     </main>
 
@@ -277,10 +368,11 @@
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Coin, Filter, List, Plus, Remove, Tickets, Wallet } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Coin, Connection, CopyDocument, Filter, List, Plus, Remove, Tickets, Wallet } from '@element-plus/icons-vue'
 import { quotaApi, type QuotaTransaction, type UserQuota } from '@/api/quota'
 import { rechargeRequestApi, type RechargeRequest } from '@/api/rechargeRequest'
+import { userApi, type ApiKeyData } from '@/api/user'
 import { getImageUrl } from '@/utils/imageUrl'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
@@ -288,9 +380,18 @@ import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import RechargeRequestDialog from '@/components/RechargeRequestDialog.vue'
 
-const activeTab = ref<'transactions' | 'requests'>('transactions')
+const activeTab = ref<'transactions' | 'requests' | 'api'>('transactions')
 const loading = ref(false)
 const loadingRequests = ref(false)
+const loadingApiKey = ref(false)
+const apiKeyGenerating = ref(false)
+const apiKeyStatusLoading = ref(false)
+const showApiKeyText = ref(true)
+
+const apiKeyData = ref<ApiKeyData>({
+  apiKey: null,
+  apiKeyEnabled: true
+})
 
 const quota = ref<UserQuota>({
   userId: 0,
@@ -461,6 +562,100 @@ const handleRechargeSuccess = () => {
   loadQuota()
   loadTransactions()
   loadMyRequests()
+}
+
+const switchToApiTab = () => {
+  activeTab.value = 'api'
+  loadApiKey()
+}
+
+const loadApiKey = async () => {
+  loadingApiKey.value = true
+  try {
+    const res = await userApi.getMyApiKey()
+    apiKeyData.value = res
+  } catch (error: any) {
+    console.error('加载 API Key 失败', error)
+  } finally {
+    loadingApiKey.value = false
+  }
+}
+
+const handleCopyApiKey = async (key: string) => {
+  let copied = false
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(key)
+      copied = true
+    } catch {
+      // Fall through to textarea fallback
+    }
+  }
+  if (!copied) {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = key
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      copied = document.execCommand('copy')
+      document.body.removeChild(textarea)
+    } catch {
+      copied = false
+    }
+  }
+  if (copied) {
+    ElMessage.success('API Key 已复制到剪贴板')
+  } else {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+const handleGenerateApiKey = async () => {
+  if (apiKeyGenerating.value) return
+  const isReset = Boolean(apiKeyData.value.apiKey)
+  if (isReset) {
+    try {
+      await ElMessageBox.confirm(
+        '重置后旧 API Key 将立即失效，您的外部系统接口调用将中断。确定要生成新的 API Key 吗？',
+        '重置 API Key 警告',
+        {
+          confirmButtonText: '确定重置',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
+  apiKeyGenerating.value = true
+  try {
+    const res = await userApi.generateMyApiKey()
+    apiKeyData.value = res
+    ElMessage.success(isReset ? 'API Key 重置成功' : 'API Key 生成成功')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '生成 API Key 失败')
+  } finally {
+    apiKeyGenerating.value = false
+  }
+}
+
+const handleToggleApiKeyStatus = async (enabled: boolean) => {
+  if (apiKeyStatusLoading.value) return
+  apiKeyStatusLoading.value = true
+  try {
+    const res = await userApi.updateMyApiKeyStatus(enabled)
+    apiKeyData.value = res
+    ElMessage.success(enabled ? 'API Key 已启用' : 'API Key 已禁用')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '更新 API Key 状态失败')
+  } finally {
+    apiKeyStatusLoading.value = false
+  }
 }
 
 onMounted(() => {

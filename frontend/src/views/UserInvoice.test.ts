@@ -17,7 +17,8 @@ vi.mock('@/api/invoice', () => ({
     downloadInvoice: vi.fn(),
     parseInvoiceText: vi.fn(),
     verifyInvoiceText: vi.fn(),
-    updateProcessed: vi.fn()
+    updateProcessed: vi.fn(),
+    batchUpdateProcessed: vi.fn()
   }
 }))
 
@@ -136,6 +137,39 @@ describe('UserInvoice', () => {
     expect(mockedApi.getMyInvoices).toHaveBeenCalledTimes(2)
   })
 
+  it('submits a new invoice successfully without tax number', async () => {
+    mockedApi.getMyInvoices.mockResolvedValue([completedInvoice])
+    mockedApi.createInvoice.mockResolvedValue(completedInvoice)
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    expect(openSubmitBtn).toBeDefined()
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('个人抬头')
+    await inputs[1].setValue('')
+    await inputs[2].setValue('100.00')
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      {
+        companyName: '个人抬头',
+        taxNumber: undefined,
+        amount: 100,
+        invoiceType: '技术服务费',
+        remark: undefined
+      },
+      expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
+    )
+    expect(ElMessage.success).toHaveBeenCalledWith('提交成功')
+  })
+
   it('filters invoices by status and upload time date range', async () => {
     const pendingInvoice: Invoice = {
       id: 2,
@@ -194,7 +228,7 @@ describe('UserInvoice', () => {
 
     expect(page.find('.result-count').text()).toContain('1 条记录')
     expect(page.find('.invoice-id').text()).toBe('#0001')
-    expect(page.findAll('.record-actions button')).toHaveLength(3)
+    expect(page.findAll('.record-actions .record-action-button')).toHaveLength(3)
     expect(page.findAll('.mobile-record-actions button')).toHaveLength(3)
     expect(page.find('.mobile-records').text()).toContain('¥300.01')
   })
@@ -488,7 +522,7 @@ describe('UserInvoice', () => {
     ])
 
     const page = await mountPage()
-    const indicators = page.findAll('.processed-row-indicator')
+    const indicators = page.findAll('.processed-row-indicator-btn.is-done')
     expect(indicators.length).toBe(1)
   })
 

@@ -6,6 +6,7 @@ import com.invoice.dto.AdminUserResponse;
 import com.invoice.dto.AdminUserStats;
 import com.invoice.exception.BusinessException;
 import com.invoice.exception.GlobalExceptionHandler;
+import com.invoice.security.ApiKeyAuthenticationFilter;
 import com.invoice.security.JwtAuthenticationFilter;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.security.RateLimitService;
@@ -48,7 +49,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         controllers = UserAdminController.class,
         excludeFilters = @ComponentScan.Filter(
                 type = FilterType.ASSIGNABLE_TYPE,
-                classes = {SecurityConfig.class, JwtAuthenticationFilter.class}
+                classes = {SecurityConfig.class, JwtAuthenticationFilter.class, ApiKeyAuthenticationFilter.class}
         )
 )
 @Import({GlobalExceptionHandler.class, UserAdminControllerTest.TestSecurityConfig.class})
@@ -146,7 +147,7 @@ class UserAdminControllerTest {
     void allowsAdministratorToUpdateRemark() throws Exception {
         when(userService.updateRemark(2L, "VIP 客户", 1L))
                 .thenReturn(new AdminUserResponse(
-                        2L, "alice", "USER", true, "VIP 客户", null, null, false, null));
+                        2L, "alice", "USER", null, true, true, "VIP 客户", null, null, false, null));
 
         mockMvc.perform(put("/users/admin/2/remark")
                         .with(authentication(auth("ADMIN")))

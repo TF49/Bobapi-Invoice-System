@@ -13,7 +13,8 @@ vi.mock('@/api/invoice', () => ({
     uploadInvoice: vi.fn(),
     downloadInvoice: vi.fn(),
     previewInvoice: vi.fn(),
-    updateProcessed: vi.fn()
+    updateProcessed: vi.fn(),
+    batchUpdateProcessed: vi.fn()
   }
 }))
 

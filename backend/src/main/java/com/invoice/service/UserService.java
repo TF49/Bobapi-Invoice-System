@@ -212,6 +212,38 @@ public class UserService {
         return buildResponseWithQuota(target, currentUserId);
     }
 
+    @Transactional
+    public String generateOrResetApiKey(Long targetUserId, Long currentUserId) {
+        User target = requireUserForUpdate(targetUserId);
+        String newApiKey = generateSecureApiKey();
+        target.setApiKey(newApiKey);
+        target.setApiKeyEnabled(true);
+        userMapper.updateById(target);
+        return newApiKey;
+    }
+
+    @Transactional
+    public boolean updateApiKeyStatus(Long targetUserId, boolean enabled, Long currentUserId) {
+        User target = requireUserForUpdate(targetUserId);
+        target.setApiKeyEnabled(enabled);
+        userMapper.updateById(target);
+        return enabled;
+    }
+
+    public com.invoice.dto.ApiKeyResponse getApiKey(Long userId) {
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40403, "用户不存在");
+        }
+        return new com.invoice.dto.ApiKeyResponse(user.getApiKey(), user.getApiKeyEnabled());
+    }
+
+    private String generateSecureApiKey() {
+        byte[] randomBytes = new byte[24];
+        new java.security.SecureRandom().nextBytes(randomBytes);
+        return "bk_live_" + java.util.HexFormat.of().formatHex(randomBytes);
+    }
+
     /**
      * Builds an AdminUserResponse that includes the quota snapshot for USER-role accounts.
      * This ensures table rows always reflect the current balance without requiring a full reload.

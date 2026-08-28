@@ -94,7 +94,9 @@
               >
                 <el-option label="全部状态" value="ALL" />
                 <el-option label="待开票" value="PENDING" />
-                <el-option label="已开票" value="COMPLETED" />
+                <el-option label="已开票 (全部)" value="COMPLETED" />
+                <el-option label="已开票 (未处理)" value="COMPLETED_UNPROCESSED" />
+                <el-option label="已开票 (已处理)" value="COMPLETED_PROCESSED" />
               </el-select>
             </div>
             <span class="result-count"><i></i>{{ filteredInvoices.length }} 条记录</span>
@@ -138,7 +140,7 @@
             </el-table-column>
             <el-table-column prop="taxNumber" label="税号" min-width="190">
               <template #default="{ row }">
-                <span class="tax-number-cell">{{ row.taxNumber }}</span>
+                <span class="tax-number-cell">{{ row.taxNumber || '-' }}</span>
               </template>
             </el-table-column>
             <el-table-column prop="amount" label="开票金额" width="130" align="right">
@@ -227,11 +229,18 @@
                   >
                     复制
                   </el-button>
-                  <span
-                    v-if="row.isProcessed"
-                    class="processed-row-indicator"
-                    title="已标记处理"
-                  >✓</span>
+                  <el-tooltip :content="row.isProcessed ? '已处理（点击取消）' : '未处理（点击标记已处理）'" placement="top">
+                    <button
+                      type="button"
+                      class="processed-row-indicator-btn"
+                      :class="{ 'is-done': row.isProcessed }"
+                      :disabled="togglingRowId === row.id"
+                      @click.stop="handleDirectToggleRow(row)"
+                    >
+                      <el-icon v-if="togglingRowId === row.id" class="is-loading"><Loading /></el-icon>
+                      <template v-else>{{ row.isProcessed ? '✓' : '○' }}</template>
+                    </button>
+                  </el-tooltip>
                 </div>
                 <span v-else class="empty-action"><i></i>等待开票</span>
               </template>
@@ -268,7 +277,7 @@
             <dl class="record-card-details">
               <div>
                 <dt>税号</dt>
-                <dd class="tax-number-cell">{{ row.taxNumber }}</dd>
+                <dd class="tax-number-cell">{{ row.taxNumber || '-' }}</dd>
               </div>
               <div>
                 <dt>开票金额</dt>
@@ -427,8 +436,8 @@
           <el-input
             v-model="form.taxNumber"
             :prefix-icon="Postcard"
-            placeholder="15-20 位大写字母或数字"
-            maxlength="20"
+            placeholder="选填，例如：91110108...（个人/无税号可留空）"
+            maxlength="100"
             @input="normalizeTaxNumber"
           />
         </el-form-item>
@@ -646,7 +655,7 @@ const pendingIdempotencyKey = ref<string | null>(null)
 const copyingId = ref<number | null>(null)
 
 // 筛选相关状态
-const statusFilter = ref<'ALL' | 'PENDING' | 'COMPLETED'>('ALL')
+const statusFilter = ref<'ALL' | 'PENDING' | 'COMPLETED' | 'COMPLETED_UNPROCESSED' | 'COMPLETED_PROCESSED'>('ALL')
 const dateRange = ref<[string, string] | null>(null)
 const dateShortcuts = [
   {
@@ -680,7 +689,11 @@ const dateShortcuts = [
 const filteredInvoices = computed(() => {
   return invoices.value.filter(invoice => {
     // 状态筛选
-    if (statusFilter.value !== 'ALL' && invoice.status !== statusFilter.value) {
+    if (statusFilter.value === 'COMPLETED_PROCESSED') {
+      if (invoice.status !== 'COMPLETED' || !invoice.isProcessed) return false
+    } else if (statusFilter.value === 'COMPLETED_UNPROCESSED') {
+      if (invoice.status !== 'COMPLETED' || invoice.isProcessed) return false
+    } else if (statusFilter.value !== 'ALL' && invoice.status !== statusFilter.value) {
       return false
     }
     // 上传时间/申请时间筛选
@@ -764,7 +777,7 @@ const handleToggleProcessed = async (val: boolean | string | number) => {
     if (targetItem) {
       targetItem.isProcessed = updated.isProcessed
     }
-    ElMessage.success(targetVal ? '已标记为已处理' : '已取消处理标记')
+    ElMessage.success(targetVal ? '已标记为已处理' : '已取消处理处理标记')
   } catch {
     row.isProcessed = originalVal
     const targetItem = invoices.value.find(item => item.id === row.id)
@@ -774,6 +787,74 @@ const handleToggleProcessed = async (val: boolean | string | number) => {
     ElMessage.error('更新处理状态失败，请重试')
   } finally {
     updatingProcessed.value = false
+  }
+}
+
+// 表格行快速切换已处理状态
+const togglingRowId = ref<number | null>(null)
+const handleDirectToggleRow = async (row: Invoice) => {
+  if (togglingRowId.value !== null) return
+  if (row.status !== 'COMPLETED') return
+  const targetVal = !row.isProcessed
+  const originalVal = row.isProcessed
+  togglingRowId.value = row.id
+  row.isProcessed = targetVal
+  try {
+    const updated = await invoiceApi.updateProcessed(row.id, targetVal)
+    row.isProcessed = updated.isProcessed
+    ElMessage.success(targetVal ? '已标记为已处理' : '已取消处理标记')
+  } catch {
+    row.isProcessed = originalVal
+    ElMessage.error('更新处理状态失败，请重试')
+  } finally {
+    togglingRowId.value = null
+  }
+}
+
+// 自动将旧版存储在客户端 localStorage 的历史已处理记录无感迁移至服务端数据库
+const migrateLegacyProcessedData = async () => {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return
+    const keysToMigrate: string[] = []
+    const allLegacyIds = new Set<number>()
+
+    const len = window.localStorage.length || 0
+    for (let i = 0; i < len; i++) {
+      const key = typeof window.localStorage.key === 'function' ? window.localStorage.key(i) : null
+      if (key && key.startsWith('processedInvoiceIds_')) {
+        keysToMigrate.push(key)
+        try {
+          const raw = window.localStorage.getItem(key)
+          if (raw) {
+            const ids = JSON.parse(raw)
+            if (Array.isArray(ids)) {
+              ids.forEach(id => {
+                const num = Number(id)
+                if (Number.isFinite(num)) allLegacyIds.add(num)
+              })
+            }
+          }
+        } catch { /* ignore parse error */ }
+      }
+    }
+
+    if (allLegacyIds.size > 0) {
+      const idArray = Array.from(allLegacyIds)
+      const chunkSize = 200
+      for (let i = 0; i < idArray.length; i += chunkSize) {
+        const chunk = idArray.slice(i, i + chunkSize)
+        await invoiceApi.batchUpdateProcessed(chunk, true)
+      }
+      for (const inv of invoices.value) {
+        if (allLegacyIds.has(inv.id) && inv.status === 'COMPLETED') {
+          inv.isProcessed = true
+        }
+      }
+    }
+
+    keysToMigrate.forEach(k => window.localStorage.removeItem(k))
+  } catch (e) {
+    console.warn('历史已处理记录自动同步异常:', e)
   }
 }
 
@@ -794,8 +875,7 @@ const completedAmount = computed(() => invoices.value
 const rules = {
   companyName: [{ required: true, message: '请输入公司名称', trigger: 'blur' }],
   taxNumber: [
-    { required: true, message: '请输入税号', trigger: 'blur' },
-    { pattern: /^[A-Z0-9]{15,20}$/, message: '税号格式不正确（15-20位大写字母或数字）', trigger: 'blur' }
+    { max: 100, message: '税号不能超过 100 个字符', trigger: 'blur' }
   ],
   amount: [
     { required: true, message: '请输入开票金额', trigger: 'blur' },
@@ -838,13 +918,14 @@ const formatInvoiceId = (id: number) => `#${String(id).padStart(4, '0')}`
 const getCompanyInitial = (companyName: string) => companyName.trim().charAt(0) || '企'
 
 const normalizeTaxNumber = (value: string) => {
-  form.taxNumber = value.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  form.taxNumber = value
 }
 
 const loadInvoices = async () => {
   loading.value = true
   try {
     invoices.value = await invoiceApi.getMyInvoices()
+    await migrateLegacyProcessedData()
   } catch (error) {
     console.error('加载发票列表失败', error)
   } finally {
@@ -1005,7 +1086,7 @@ const handleAiConfirm = () => {
 
   // 将 AI 识别结果回填到表单
   if (data.companyName) form.companyName = data.companyName.trim()
-  if (data.taxNumber)   form.taxNumber   = data.taxNumber.toUpperCase().replace(/[^A-Z0-9]/g, '')
+  if (data.taxNumber)   form.taxNumber   = data.taxNumber.trim()
   if (data.amount !== null && Number.isFinite(data.amount) && data.amount >= 0.01) {
     form.amount = data.amount
   }
@@ -1038,7 +1119,7 @@ const handleSubmit = async () => {
     pendingIdempotencyKey.value = idempotencyKey
     await invoiceApi.createInvoice({
       companyName: form.companyName.trim(),
-      taxNumber: form.taxNumber,
+      taxNumber: form.taxNumber?.trim() || undefined,
       amount: form.amount,
       invoiceType: form.invoiceType,
       remark: form.remark?.trim() || undefined
@@ -1699,20 +1780,46 @@ onBeforeUnmount(() => {
   border-color: var(--el-color-success);
 }
 
-/* 已处理小指示符（桌面表格，按钮右侧） */
-.processed-row-indicator {
+/* 已处理小指示符/快捷按钮（桌面表格，按钮右侧） */
+.processed-row-indicator-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
+  border: 1.5px dashed #b0bec5;
+  background-color: transparent;
+  color: #90a4ae;
+  font-size: 12px;
+  font-weight: bold;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  line-height: 1;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.processed-row-indicator-btn:hover {
+  border-style: solid;
+  border-color: var(--el-color-success);
+  color: var(--el-color-success);
+  background-color: color-mix(in srgb, var(--el-color-success) 10%, transparent);
+  transform: scale(1.1);
+}
+
+.processed-row-indicator-btn.is-done {
+  border: none;
   background-color: var(--el-color-success);
   color: #fff;
-  font-size: 11px;
-  font-weight: bold;
-  flex-shrink: 0;
-  cursor: default;
+  font-size: 13px;
+  box-shadow: 0 1px 4px rgba(46, 125, 50, 0.35);
+}
+
+.processed-row-indicator-btn.is-done:hover {
+  background-color: color-mix(in srgb, var(--el-color-success) 85%, black);
+  transform: scale(1.1);
 }
 
 /* 已处理标签（移动端卡片） */

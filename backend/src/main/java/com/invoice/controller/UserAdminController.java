@@ -170,6 +170,25 @@ public class UserAdminController {
         return ApiResponse.success(transactions);
     }
 
+    @PostMapping("/{id}/api-key/generate")
+    public ApiResponse<com.invoice.dto.ApiKeyResponse> generateApiKey(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("write", principal.userId(), 20, 42904, "操作过于频繁，请稍后再试");
+        String apiKey = userService.generateOrResetApiKey(id, principal.userId());
+        return ApiResponse.success("API Key 生成成功", new com.invoice.dto.ApiKeyResponse(apiKey, true));
+    }
+
+    @PutMapping("/{id}/api-key/status")
+    public ApiResponse<com.invoice.dto.ApiKeyResponse> updateApiKeyStatus(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @RequestParam boolean enabled,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("write", principal.userId(), 20, 42904, "操作过于频繁，请稍后再试");
+        userService.updateApiKeyStatus(id, enabled, principal.userId());
+        return ApiResponse.success("API Key 状态更新成功", userService.getApiKey(id));
+    }
+
     private void enforceRateLimit(String operation, Long userId, int limit, int code, String message) {
         RateLimitService.RateLimitResult result = rateLimitService.tryAcquire(
                 "admin-users:" + operation + ":" + userId, limit, RATE_WINDOW);

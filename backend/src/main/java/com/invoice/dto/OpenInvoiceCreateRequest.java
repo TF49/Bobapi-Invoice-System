@@ -1,18 +1,25 @@
 package com.invoice.dto;
 
-import lombok.Data;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import lombok.Data;
+
 import java.math.BigDecimal;
 
 /**
- * 管理员修改发票申请信息请求 DTO
+ * 开放接口发票申请请求
  */
 @Data
-public class AdminUpdateInvoiceRequest {
+public class OpenInvoiceCreateRequest {
+
+    /**
+     * 外部商户订单号（推荐传，用于幂等防重与状态查询）
+     */
+    @Size(max = 100, message = "外部订单号不能超过 100 个字符")
+    private String outTradeNo;
 
     @NotBlank(message = "公司名称不能为空")
     @Size(max = 200, message = "公司名称不能超过 200 个字符")
@@ -26,9 +33,8 @@ public class AdminUpdateInvoiceRequest {
     @Digits(integer = 10, fraction = 2, message = "开票金额最多 10 位整数和 2 位小数")
     private BigDecimal amount;
 
-    @NotBlank(message = "开票类型不能为空")
     @Size(max = 100, message = "开票类型不能超过 100 个字符")
-    private String invoiceType;
+    private String invoiceType = "技术服务费";
 
     @Size(max = 500, message = "备注不能超过 500 个字符")
     private String remark;

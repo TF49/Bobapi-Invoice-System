@@ -254,19 +254,35 @@
             <el-table-column prop="createdAt" label="创建时间" width="172">
               <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="102" align="center" fixed="right">
+            <el-table-column label="操作" width="186" align="center" fixed="right">
               <template #default="{ row }">
-                <el-tooltip :content="row.self ? '重置自己的密码后需重新登录' : '设置新密码'" placement="top">
-                  <el-button
-                    :icon="Key"
-                    size="small"
-                    plain
-                    :aria-label="`重置 ${row.username} 的密码`"
-                    @click="openPasswordDialog(row)"
-                  >
-                    重置
-                  </el-button>
-                </el-tooltip>
+                <div class="user-action-cell">
+                  <el-tooltip v-if="row.role === 'USER'" content="OpenAPI 开发者密钥管理" placement="top">
+                    <el-button
+                      type="primary"
+                      link
+                      class="user-action-btn"
+                      :icon="Connection"
+                      :aria-label="`管理 ${row.username} 的 API Key`"
+                      @click="openApiKeyDialog(row)"
+                    >
+                      API Key
+                    </el-button>
+                  </el-tooltip>
+                  <span v-if="row.role === 'USER'" class="action-divider" />
+                  <el-tooltip :content="row.self ? '重置自己的密码后需重新登录' : '设置新密码'" placement="top">
+                    <el-button
+                      type="primary"
+                      link
+                      class="user-action-btn"
+                      :icon="Key"
+                      :aria-label="`重置 ${row.username} 的密码`"
+                      @click="openPasswordDialog(row)"
+                    >
+                      重置密码
+                    </el-button>
+                  </el-tooltip>
+                </div>
               </template>
             </el-table-column>
           </el-table>
@@ -420,6 +436,77 @@
         <el-button v-if="quotaActiveTab === 'adjust'" type="warning" :loading="quotaSubmitting" @click="submitAdjustQuota">确认调整</el-button>
       </template>
     </el-dialog>
+
+    <!-- API Key 管理弹窗 -->
+    <el-dialog
+      v-model="apiKeyDialogVisible"
+      :title="`OpenAPI 开发者密钥 - ${selectedUserForApiKey?.username || ''}`"
+      width="min(92vw, 520px)"
+      destroy-on-close
+    >
+      <div v-if="selectedUserForApiKey" class="api-key-dialog-content">
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 18px"
+        >
+          <template #title>
+            此 API Key 用于外部业务系统调用 OpenAPI（如提单、查单、查额度）。请妥善保管。
+          </template>
+        </el-alert>
+
+        <div style="background: var(--color-surface-subtle); padding: 16px; border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--color-border);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <span style="font-size: 13px; font-weight: 500;">当前 API Key</span>
+            <el-tag :type="selectedUserForApiKey.apiKeyEnabled !== false ? 'success' : 'danger'" size="small">
+              {{ selectedUserForApiKey.apiKeyEnabled !== false ? '已启用' : '已禁用' }}
+            </el-tag>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <el-input
+              :model-value="selectedUserForApiKey.apiKey || '暂未生成 API Key'"
+              readonly
+              :type="showApiKeyText ? 'text' : 'password'"
+            />
+            <el-button
+              v-if="selectedUserForApiKey.apiKey"
+              :icon="CopyDocument"
+              @click="handleCopyApiKey(selectedUserForApiKey.apiKey)"
+            >
+              复制
+            </el-button>
+          </div>
+        </div>
+
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 13px;">密钥状态开关：</span>
+            <el-switch
+              v-if="selectedUserForApiKey.apiKey"
+              :model-value="selectedUserForApiKey.apiKeyEnabled !== false"
+              :loading="apiKeyStatusLoading"
+              inline-prompt
+              active-text="启用"
+              inactive-text="禁用"
+              @change="(val: string | number | boolean) => handleToggleApiKeyStatus(Boolean(val))"
+            />
+            <span v-else style="font-size: 12px; color: var(--color-text-muted);">需先生成密钥</span>
+          </div>
+
+          <el-button
+            type="primary"
+            :loading="apiKeyGenerating"
+            @click="handleGenerateApiKey"
+          >
+            {{ selectedUserForApiKey.apiKey ? '重置生成新 Key' : '生成 API Key' }}
+          </el-button>
+        </div>
+      </div>
+      <template #footer>
+        <el-button @click="apiKeyDialogVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -432,6 +519,8 @@ import {
   Avatar,
   CircleCheck,
   CircleClose,
+  Connection,
+  CopyDocument,
   EditPen,
   Key,
   Plus,
@@ -513,6 +602,105 @@ const paginatedQuotaTransactions = computed(() => {
 })
 const quotaPendingIdempotencyKey = ref<string | null>(null)
 let quotaDialogRequestId = 0
+
+// API Key 管理相关
+const apiKeyDialogVisible = ref(false)
+const selectedUserForApiKey = ref<ManagedUser | null>(null)
+const apiKeyGenerating = ref(false)
+const apiKeyStatusLoading = ref(false)
+const showApiKeyText = ref(true)
+
+const openApiKeyDialog = (row: ManagedUser) => {
+  selectedUserForApiKey.value = row
+  apiKeyDialogVisible.value = true
+}
+
+const handleCopyApiKey = async (key: string) => {
+  let copied = false
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(key)
+      copied = true
+    } catch {
+      // Fall through to textarea fallback
+    }
+  }
+  if (!copied) {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = key
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.select()
+      copied = document.execCommand('copy')
+      document.body.removeChild(textarea)
+    } catch {
+      copied = false
+    }
+  }
+  if (copied) {
+    ElMessage.success('API Key 已复制到剪贴板')
+  } else {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
+const handleGenerateApiKey = async () => {
+  if (!selectedUserForApiKey.value || apiKeyGenerating.value) return
+  const isReset = Boolean(selectedUserForApiKey.value.apiKey)
+  if (isReset) {
+    try {
+      await ElMessageBox.confirm(
+        '重置后旧 API Key 将立即失效，外部系统调用将中断。确定要生成新的 API Key 吗？',
+        '重置 API Key 警告',
+        {
+          confirmButtonText: '确定重置',
+          cancelButtonText: '取消',
+          type: 'warning'
+        }
+      )
+    } catch {
+      return
+    }
+  }
+
+  apiKeyGenerating.value = true
+  try {
+    const res = await userApi.generateApiKey(selectedUserForApiKey.value.id)
+    selectedUserForApiKey.value.apiKey = res.apiKey
+    selectedUserForApiKey.value.apiKeyEnabled = res.apiKeyEnabled
+    const row = users.value.find((u) => u.id === selectedUserForApiKey.value?.id)
+    if (row) {
+      row.apiKey = res.apiKey
+      row.apiKeyEnabled = res.apiKeyEnabled
+    }
+    ElMessage.success(isReset ? 'API Key 重置成功' : 'API Key 生成成功')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '生成 API Key 失败')
+  } finally {
+    apiKeyGenerating.value = false
+  }
+}
+
+const handleToggleApiKeyStatus = async (enabled: boolean) => {
+  if (!selectedUserForApiKey.value || apiKeyStatusLoading.value) return
+  apiKeyStatusLoading.value = true
+  try {
+    const res = await userApi.updateApiKeyStatus(selectedUserForApiKey.value.id, enabled)
+    selectedUserForApiKey.value.apiKeyEnabled = res.apiKeyEnabled
+    const row = users.value.find((u) => u.id === selectedUserForApiKey.value?.id)
+    if (row) {
+      row.apiKeyEnabled = res.apiKeyEnabled
+    }
+    ElMessage.success(enabled ? 'API Key 已启用' : 'API Key 已禁用')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '更新 API Key 状态失败')
+  } finally {
+    apiKeyStatusLoading.value = false
+  }
+}
 
 const fieldValidator = (validator: (value: string) => string | null) =>
   (_rule: unknown, value: string, callback: (error?: Error) => void) => {
@@ -900,9 +1088,8 @@ onMounted(loadUsers)
 
 .user-table-scroll .el-table {
   /* Minimum width accounts for all columns:
-   * username(190) + role(160) + status(142) + quota(210) + createdAt(172) + action(102) = 976px
-   * Set to 1000px to provide a small buffer and avoid premature horizontal scroll. */
-  min-width: 1000px;
+   * username(220) + role(160) + status(142) + quota(210) + createdAt(172) + action(186) = 1090px */
+  min-width: 1080px;
 }
 
 .username-cell {
@@ -1171,6 +1358,41 @@ onMounted(loadUsers)
   gap: 8px;
   color: var(--color-text-muted);
   font-size: 11px;
+}
+
+.user-action-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  width: 100%;
+  white-space: nowrap;
+}
+
+.user-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 6px;
+  margin: 0 !important;
+  border-radius: 4px;
+  height: 28px;
+  transition: all 0.15s ease;
+}
+
+.user-action-btn:hover {
+  background: var(--color-primary-subtle, rgba(18, 113, 91, 0.08));
+}
+
+.action-divider {
+  display: inline-block;
+  width: 1px;
+  height: 12px;
+  margin: 0 4px;
+  background: var(--color-border);
+  flex-shrink: 0;
 }
 
 @media (max-width: 820px) {

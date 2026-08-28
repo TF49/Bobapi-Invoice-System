@@ -4,7 +4,7 @@ import type { AxiosResponse } from 'axios'
 export interface Invoice {
   id: number
   companyName: string
-  taxNumber: string
+  taxNumber: string | null
   amount: number
   invoiceType: string
   remark?: string
@@ -21,7 +21,7 @@ export interface Invoice {
 
 export interface InvoiceRequest {
   companyName: string
-  taxNumber: string
+  taxNumber?: string
   amount: number
   invoiceType: string
   remark?: string
@@ -30,7 +30,7 @@ export interface InvoiceRequest {
 export interface BatchInvoiceItemRequest {
   rowNumber: number
   companyName: string
-  taxNumber: string
+  taxNumber?: string
   amount: string
   invoiceType: string
   remark?: string
@@ -140,6 +140,11 @@ export const invoiceApi = {
   // 更新发票已处理标记
   updateProcessed(id: number, isProcessed: boolean) {
     return request.put<any, Invoice>(`/invoices/${id}/processed`, { isProcessed })
+  },
+
+  // 批量更新发票已处理标记（用于历史本地数据自动云端同步）
+  batchUpdateProcessed(invoiceIds: number[], isProcessed: boolean) {
+    return request.put<any, number>('/invoices/batch/processed', { invoiceIds, isProcessed })
   }
 }
 

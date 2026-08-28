@@ -235,6 +235,7 @@ class InvoiceServiceTest {
         @SuppressWarnings("unchecked")
         org.mockito.ArgumentCaptor<List<Invoice>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
         verify(invoiceMapper).insertBatch(captor.capture());
+        verify(userQuotaService).deductBatchQuota(8L, new BigDecimal("120.50"), 50L);
         assertThat(captor.getValue()).first().satisfies(invoice -> {
             assertThat(invoice.getCompanyName()).isEqualTo("示例公司 A");
             assertThat(invoice.getTaxNumber()).isEqualTo("ABCDE12345678901");
@@ -451,6 +452,63 @@ class InvoiceServiceTest {
                 .extracting("code")
                 .isEqualTo(42201);
         verify(invoiceMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void batchUpdatesInvoiceProcessedForOwner() {
+        when(invoiceMapper.update(isNull(), any())).thenReturn(2);
+
+        int updatedCount = service.batchUpdateInvoiceProcessed(List.of(10L, 11L), 8L, false, true);
+
+        assertThat(updatedCount).isEqualTo(2);
+        verify(invoiceMapper).update(isNull(), any());
+    }
+
+    @Test
+    void batchUpdatesInvoiceProcessedReturnsZeroForEmptyList() {
+        int updatedCount = service.batchUpdateInvoiceProcessed(List.of(), 8L, false, true);
+
+        assertThat(updatedCount).isEqualTo(0);
+        verify(invoiceMapper, never()).update(isNull(), any());
+    }
+
+    @Test
+    void allowsCreatingInvoiceWithNullOrCustomTaxNumber() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        when(invoiceMapper.insert(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(100L);
+            return 1;
+        });
+
+        InvoiceResponse response = service.createInvoice(
+                8L,
+                "idemp-custom-tax-1",
+                "张三（个人）",
+                null,
+                new BigDecimal("50.00"),
+                "技术服务费",
+                "个人申请发票"
+        );
+
+        assertThat(response.id()).isEqualTo(100L);
+        assertThat(response.taxNumber()).isNull();
+        assertThat(response.companyName()).isEqualTo("张三（个人）");
+    }
+
+    @Test
+    void rejectsInvoiceWithTaxNumberExceeding100Chars() {
+        assertThatThrownBy(() -> service.createInvoice(
+                8L,
+                "idemp-tax-too-long",
+                "某公司",
+                "A".repeat(101),
+                new BigDecimal("50.00"),
+                "技术服务费",
+                null
+        ))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("税号不能超过 100 个字符");
     }
 
     private byte[] imageBytes(String format, int width, int height) throws Exception {

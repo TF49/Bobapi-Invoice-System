@@ -3,6 +3,7 @@ package com.invoice.controller;
 import com.invoice.dto.ApiResponse;
 import com.invoice.dto.BatchInvoiceRequest;
 import com.invoice.dto.BatchInvoiceResponse;
+import com.invoice.dto.BatchUpdateProcessedRequest;
 import com.invoice.dto.InvoiceRequest;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.exception.BusinessException;
@@ -161,6 +162,19 @@ public class InvoiceController {
         InvoiceResponse invoice = invoiceService.updateInvoiceProcessed(
                 id, principal.userId(), isAdminOrClerk, request.getIsProcessed());
         return ApiResponse.success("更新成功", invoice);
+    }
+
+    @PutMapping("/batch/processed")
+    public ApiResponse<Integer> batchUpdateInvoiceProcessed(
+            @Valid @RequestBody BatchUpdateProcessedRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-batch-processed:user:" + principal.userId(),
+                30, Duration.ofMinutes(1), 42905, "操作过于频繁，请稍后再试");
+        boolean isAdminOrClerk = "ADMIN".equals(principal.role()) || "INVOICE_CLERK".equals(principal.role());
+        int count = invoiceService.batchUpdateInvoiceProcessed(
+                request.getInvoiceIds(), principal.userId(), isAdminOrClerk, request.getIsProcessed());
+        return ApiResponse.success("批量更新成功", count);
     }
 
     @PostMapping("/admin/{id}/upload")

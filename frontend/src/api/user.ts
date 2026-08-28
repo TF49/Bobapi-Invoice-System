@@ -6,6 +6,8 @@ export interface ManagedUser {
   id: number
   username: string
   role: UserRole
+  apiKey?: string | null
+  apiKeyEnabled?: boolean
   enabled: boolean
   remark?: string | null
   createdAt: string
@@ -16,6 +18,11 @@ export interface ManagedUser {
     totalRecharged: number
     totalDeducted: number
   }
+}
+
+export interface ApiKeyData {
+  apiKey: string | null
+  apiKeyEnabled: boolean
 }
 
 export interface UserStats {
@@ -73,5 +80,25 @@ export const userApi = {
 
   resetPassword(id: number, password: string) {
     return request.put<any, ManagedUser>(`/users/admin/${id}/password`, { password })
+  },
+
+  generateApiKey(id: number) {
+    return request.post<any, ApiKeyData>(`/users/admin/${id}/api-key/generate`)
+  },
+
+  updateApiKeyStatus(id: number, enabled: boolean) {
+    return request.put<any, ApiKeyData>(`/users/admin/${id}/api-key/status`, null, { params: { enabled } })
+  },
+
+  getMyApiKey() {
+    return request.get<any, ApiKeyData>('/users/api-key')
+  },
+
+  generateMyApiKey() {
+    return request.post<any, ApiKeyData>('/users/api-key/generate')
+  },
+
+  updateMyApiKeyStatus(enabled: boolean) {
+    return request.put<any, ApiKeyData>('/users/api-key/status', null, { params: { enabled } })
   }
 }

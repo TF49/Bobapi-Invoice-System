@@ -2,6 +2,7 @@ package com.invoice.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.invoice.dto.ApiResponse;
+import com.invoice.security.ApiKeyAuthenticationFilter;
 import com.invoice.security.JwtAuthenticationFilter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -28,13 +29,16 @@ import java.util.List;
 @EnableWebSecurity
 public class SecurityConfig {
 
+    private final ApiKeyAuthenticationFilter apiKeyAuthenticationFilter;
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ObjectMapper objectMapper;
     private final List<String> allowedOrigins;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
+    public SecurityConfig(ApiKeyAuthenticationFilter apiKeyAuthenticationFilter,
+                          JwtAuthenticationFilter jwtAuthenticationFilter,
                           ObjectMapper objectMapper,
                           @Value("${app.cors.allowed-origins}") String allowedOrigins) {
+        this.apiKeyAuthenticationFilter = apiKeyAuthenticationFilter;
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.objectMapper = objectMapper;
         this.allowedOrigins = Arrays.stream(allowedOrigins.split(","))
@@ -57,14 +61,16 @@ public class SecurityConfig {
                 .requestMatchers("/invoices/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
                 .requestMatchers("/users/admin/**").hasRole("ADMIN")
                 .requestMatchers("/recharge-requests/admin/**").hasRole("ADMIN")
+                .requestMatchers("/open/**").authenticated()
                 .anyRequest().authenticated()
             )
             .exceptionHandling(exceptions -> exceptions
                 .authenticationEntryPoint((request, response, exception) ->
-                    writeSecurityError(response, 401, 40100, "请先登录或重新登录"))
+                    writeSecurityError(response, 401, 40100, "请先登录或提供有效的 API Key"))
                 .accessDeniedHandler((request, response, exception) ->
                     writeSecurityError(response, 403, 40300, "无权执行此操作"))
             )
+            .addFilterBefore(apiKeyAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         
         return http.build();

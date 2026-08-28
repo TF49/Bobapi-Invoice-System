@@ -99,11 +99,11 @@ describe('invoice batch import validation', () => {
 
   it('keeps valid rows and attaches row-level errors', () => {
     const result = validateAllRows([
-      row({ rowNumber: 2 }),
-      row({ rowNumber: 5, taxNumber: 'bad' })
+      row({ rowNumber: 2, taxNumber: '' }),
+      row({ rowNumber: 5, taxNumber: 'A'.repeat(101) })
     ])
     expect(result[0].error).toBeUndefined()
-    expect(result[1].error).toBe('税号格式不正确，应为 15-20 位字母或数字')
+    expect(result[1].error).toBe('税号不能超过 100 个字符')
     expect(result[1].rowNumber).toBe(5)
   })
 })

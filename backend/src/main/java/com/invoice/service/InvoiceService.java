@@ -62,7 +62,6 @@ public class InvoiceService {
     private static final Logger log = LoggerFactory.getLogger(InvoiceService.class);
 
     private static final long MAX_FILE_SIZE = 10L * 1024 * 1024;
-    private static final Pattern TAX_NUMBER_PATTERN = Pattern.compile("^[A-Z0-9]{15,20}$");
     private static final Pattern DECIMAL_AMOUNT_PATTERN = Pattern.compile("^\\d+(?:\\.\\d{1,2})?$");
     private static final BigDecimal MIN_INVOICE_AMOUNT = new BigDecimal("0.01");
     public static final String FIXED_INVOICE_TYPE = "技术服务费";
@@ -148,6 +147,100 @@ public class InvoiceService {
     }
 
     /**
+     * OpenAPI 开放接口：创建单条发票申请
+     */
+    @Transactional
+    public com.invoice.dto.OpenInvoiceResponse createOpenInvoice(
+            Long userId, String outTradeNo, String idempotencyKey,
+            String companyName, String taxNumber, BigDecimal amount,
+            String invoiceType, String remark) {
+        String normalizedOutTradeNo = (outTradeNo != null && !outTradeNo.isBlank()) ? outTradeNo.trim() : null;
+        String normalizedCompanyName = normalizeCompanyName(companyName);
+        String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
+        String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType);
+        BigDecimal normalizedAmount = normalizeAmount(amount);
+
+        // 1. 如果传了 outTradeNo，先检查 outTradeNo 幂等
+        if (normalizedOutTradeNo != null) {
+            Invoice existingByOutTradeNo = findByOutTradeNo(userId, normalizedOutTradeNo);
+            if (existingByOutTradeNo != null) {
+                return com.invoice.dto.OpenInvoiceResponse.from(existingByOutTradeNo, uploadRoot);
+            }
+        }
+
+        // 2. 如果传了 idempotencyKey，检查 idempotencyKey 幂等
+        String finalIdempotencyKey = idempotencyKey != null && !idempotencyKey.isBlank()
+                ? idempotencyKey.trim()
+                : (normalizedOutTradeNo != null ? ("open_" + normalizedOutTradeNo) : ("open_" + UUID.randomUUID().toString().replace("-", "")));
+
+        Invoice existingByKey = findByIdempotencyKey(userId, finalIdempotencyKey);
+        if (existingByKey != null) {
+            return com.invoice.dto.OpenInvoiceResponse.from(existingByKey, uploadRoot);
+        }
+
+        Invoice invoice = new Invoice();
+        invoice.setCompanyName(normalizedCompanyName);
+        invoice.setTaxNumber(normalizedTaxNumber);
+        invoice.setAmount(normalizedAmount);
+        invoice.setInvoiceType(normalizedInvoiceType);
+        invoice.setRemark(remark == null ? null : remark.trim());
+        invoice.setOutTradeNo(normalizedOutTradeNo);
+        invoice.setStatus("PENDING");
+        invoice.setIsProcessed(false);
+        invoice.setUserId(userId);
+        invoice.setIdempotencyKey(finalIdempotencyKey);
+
+        try {
+            invoiceMapper.insert(invoice);
+            // 插入发票成功后扣除额度并关联发票ID
+            userQuotaService.deductQuota(userId, normalizedAmount, invoice.getId());
+            return com.invoice.dto.OpenInvoiceResponse.from(invoice, uploadRoot);
+        } catch (DuplicateKeyException exception) {
+            if (normalizedOutTradeNo != null) {
+                Invoice concurrentlyCreated = findByOutTradeNo(userId, normalizedOutTradeNo);
+                if (concurrentlyCreated != null) {
+                    return com.invoice.dto.OpenInvoiceResponse.from(concurrentlyCreated, uploadRoot);
+                }
+            }
+            Invoice concurrentlyCreated = findByIdempotencyKey(userId, finalIdempotencyKey);
+            if (concurrentlyCreated != null) {
+                return com.invoice.dto.OpenInvoiceResponse.from(concurrentlyCreated, uploadRoot);
+            }
+            throw exception;
+        }
+    }
+
+    public com.invoice.dto.OpenInvoiceResponse getOpenInvoiceById(Long userId, Long invoiceId) {
+        Invoice invoice = requireInvoice(invoiceId);
+        if (!Objects.equals(invoice.getUserId(), userId)) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40401, "发票申请不存在");
+        }
+        return com.invoice.dto.OpenInvoiceResponse.from(invoice, uploadRoot);
+    }
+
+    public com.invoice.dto.OpenInvoiceResponse getOpenInvoiceByOutTradeNo(Long userId, String outTradeNo) {
+        if (outTradeNo == null || outTradeNo.isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "外部订单号不能为空");
+        }
+        Invoice invoice = findByOutTradeNo(userId, outTradeNo.trim());
+        if (invoice == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40401, "发票申请不存在");
+        }
+        return com.invoice.dto.OpenInvoiceResponse.from(invoice, uploadRoot);
+    }
+
+    public Invoice findByOutTradeNo(Long userId, String outTradeNo) {
+        if (outTradeNo == null || outTradeNo.isBlank()) {
+            return null;
+        }
+        LambdaQueryWrapper<Invoice> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Invoice::getUserId, userId)
+                .eq(Invoice::getOutTradeNo, outTradeNo.trim());
+        return invoiceMapper.selectOne(wrapper);
+    }
+
+    /**
      * 标准化公司名称：去除首尾空白
      */
     private String normalizeCompanyName(String companyName) {
@@ -155,10 +248,14 @@ public class InvoiceService {
     }
 
     /**
-     * 标准化税号：去除首尾空白并转大写
+     * 标准化税号：去除首尾空白并转大写，空值返回 null
      */
     private String normalizeTaxNumber(String taxNumber) {
-        return taxNumber == null ? "" : taxNumber.trim().toUpperCase(Locale.ROOT);
+        if (taxNumber == null) {
+            return null;
+        }
+        String trimmed = taxNumber.trim();
+        return trimmed.isEmpty() ? null : trimmed.toUpperCase(Locale.ROOT);
     }
 
     /**
@@ -246,6 +343,10 @@ public class InvoiceService {
             if (invoiceMapper.insertBatch(invoices) != invoices.size()) {
                 throw new IllegalStateException("批量写入数量不一致");
             }
+            // 批量插入成功后扣除对应额度并关联批次ID
+            userQuotaService.deductBatchQuota(userId, totalAmount, batch.getId());
+        } catch (BusinessException exception) {
+            throw exception;
         } catch (RuntimeException exception) {
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000,
                     "批量创建失败，已回滚所有记录");
@@ -329,7 +430,7 @@ public class InvoiceService {
                     ? null : item.getRemark().trim();
 
             if (errors.size() == initialErrorCount) {
-                String fingerprint = companyName + '\u0000' + taxNumber + '\u0000'
+                String fingerprint = companyName + '\u0000' + (taxNumber == null ? "" : taxNumber) + '\u0000'
                         + normalizedAmount.toPlainString() + '\u0000' + invoiceType;
                 if (!rowFingerprints.add(fingerprint)) {
                     addBatchError(errors, rowNumber, "row", "该行与批次内其他行完全重复");
@@ -375,14 +476,14 @@ public class InvoiceService {
     }
 
     /**
-     * 校验税号，返回错误信息或 null
+     * 校验税号，返回错误信息或 null（选填，最长 100 字符）
      */
     private String validateTaxNumber(String taxNumber) {
         if (taxNumber == null || taxNumber.isEmpty()) {
-            return "税号不能为空";
+            return null;
         }
-        if (!TAX_NUMBER_PATTERN.matcher(taxNumber).matches()) {
-            return "税号应为 15～20 位字母或数字";
+        if (taxNumber.length() > 100) {
+            return "税号不能超过 100 个字符";
         }
         return null;
     }
@@ -427,7 +528,7 @@ public class InvoiceService {
     }
 
     private void updateDigest(MessageDigest digest, String value) {
-        byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
+        byte[] bytes = (value == null ? "" : value).getBytes(StandardCharsets.UTF_8);
         digest.update(ByteBuffer.allocate(Integer.BYTES).putInt(bytes.length).array());
         digest.update(bytes);
     }
@@ -588,6 +689,33 @@ public class InvoiceService {
         return InvoiceResponse.from(updated, uploadRoot, username);
     }
 
+    /**
+     * 批量更新发票的用户已处理标记（仅允许更新属于自己的已开票发票，管理员或开票员可批量更新任意已开票发票）
+     */
+    @Transactional
+    public int batchUpdateInvoiceProcessed(List<Long> invoiceIds, Long currentUserId,
+                                           boolean isAdminOrClerk, boolean isProcessed) {
+        if (invoiceIds == null || invoiceIds.isEmpty()) {
+            return 0;
+        }
+        List<Long> cleanIds = invoiceIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (cleanIds.isEmpty()) {
+            return 0;
+        }
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.in(Invoice::getId, cleanIds)
+                .eq(Invoice::getStatus, "COMPLETED")
+                .set(Invoice::getIsProcessed, isProcessed)
+                .set(Invoice::getUpdatedAt, LocalDateTime.now());
+        if (!isAdminOrClerk) {
+            update.eq(Invoice::getUserId, currentUserId);
+        }
+        return invoiceMapper.update(null, update);
+    }
+
     public com.invoice.dto.DashboardStats getDashboardStats() {
         // 1. 使用一条 SQL 一次性查询总体统计指标（总数、待开数、已开数、已完成总金额），保证并发一致性并减少 RTT 开销。
         // 注意：totalAmount 仅统计 COMPLETED 状态发票金额。AdminInvoice 页面展示的「申请总金额」包含所有状态，两者口径不同。
@@ -731,8 +859,8 @@ public class InvoiceService {
     private InvoiceResponse validateRepeatedRequest(Invoice existing, String companyName,
                                                     String taxNumber, BigDecimal amount,
                                                     String invoiceType) {
-        boolean samePayload = existing.getCompanyName().equals(companyName)
-                && existing.getTaxNumber().equals(taxNumber)
+        boolean samePayload = Objects.equals(existing.getCompanyName(), companyName)
+                && Objects.equals(existing.getTaxNumber(), taxNumber)
                 && existing.getAmount().compareTo(amount) == 0
                 && Objects.equals(existing.getInvoiceType(), invoiceType);
         if (!samePayload) {

@@ -24,6 +24,16 @@ public class User {
     private String role;
 
     /**
+     * OpenAPI 调用密钥
+     */
+    private String apiKey;
+
+    /**
+     * API Key是否启用：1-启用，0-禁用
+     */
+    private Boolean apiKeyEnabled;
+
+    /**
      * 管理员填写的用户备注
      */
     private String remark;

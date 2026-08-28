@@ -45,7 +45,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             必须严格输出且只输出一个 JSON 对象，不得包含任何 Markdown 标记或多余文字，格式如下：
             {
               "companyName": "企业/公司完整名称（字符串，若未找到则为 null）",
-              "taxNumber": "纳税人识别号/统一社会信用代码（15-20位大写字母数字，若未找到则为 null）",
+              "taxNumber": "纳税人识别号/统一社会信用代码（字符串，若为个人、无税号或未找到则为 null）",
               "amount": 1234.56（开票金额数字，单位元，若未找到则为 null）,
               "invoiceType": "开票类型（仅限：技术服务费、AI订阅服务费、计算服务费三者之一；若文本中未明确提及任何一种则输出 null）"
             }
@@ -58,7 +58,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             必须严格输出且只输出一个 JSON 对象，不得包含任何 Markdown 标记或多余文字，格式如下：
             {
               "companyName": "经核查确认或修正后的企业/公司完整名称（字符串，若文本中未找到则为 null）",
-              "taxNumber": "经核查确认或修正后的纳税人识别号（15-20位大写字母数字，若文本中未找到则为 null）",
+              "taxNumber": "经核查确认或修正后的纳税人识别号（字符串，若个人/无税号或文本中未找到则为 null）",
               "amount": 1234.56（经核查确认或修正后的开票金额，单位元，若文本中未找到则为 null）,
               "invoiceType": "经核查确认或修正后的开票类型（仅限：技术服务费、AI订阅服务费、计算服务费三者之一；若文本中未明确提及任何一种则输出 null）"
             }
@@ -210,13 +210,14 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             companyName = null;
         }
 
-        // 提取并校验 taxNumber
+        // 提取并校验 taxNumber（选填，最长 100 字符）
         String taxNumber = parsedJson.hasNonNull("taxNumber")
                 ? parsedJson.get("taxNumber").asText().trim() : null;
         if (taxNumber != null) {
-            taxNumber = taxNumber.toUpperCase().replaceAll("[^A-Z0-9]", "");
-            if (taxNumber.length() < 15 || taxNumber.length() > 20) {
+            if (taxNumber.isBlank() || "null".equalsIgnoreCase(taxNumber) || "无".equals(taxNumber)) {
                 taxNumber = null;
+            } else if (taxNumber.length() > 100) {
+                taxNumber = taxNumber.substring(0, 100);
             }
         }
 
@@ -243,15 +244,13 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             }
         }
 
-        // 计算置信度与提示
+        // 计算置信度与提示：公司名称与金额为核心必选字段，税号为可选字段
         boolean hasCompany = companyName != null && !companyName.isBlank();
-        boolean hasTax = taxNumber != null && !taxNumber.isBlank();
         boolean hasAmount = amount != null && amount.compareTo(BigDecimal.ZERO) > 0;
 
-        String confidence = (hasCompany && hasTax && hasAmount) ? "HIGH" : "LOW";
+        String confidence = (hasCompany && hasAmount) ? "HIGH" : "LOW";
         StringBuilder hint = new StringBuilder();
         if (!hasCompany) hint.append("未识别到公司名称; ");
-        if (!hasTax) hint.append("未识别到有效税号(15-20位); ");
         if (!hasAmount) hint.append("未识别到有效金额; ");
 
         return new AiParseResponse(

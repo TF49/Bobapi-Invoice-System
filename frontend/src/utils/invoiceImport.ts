@@ -248,13 +248,9 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
     return '公司名称不能超过 200 个字符';
   }
 
-  // 税号校验
-  if (!row.taxNumber) {
-    return '税号不能为空';
-  }
-  const normalizedTaxNumber = row.taxNumber.toUpperCase();
-  if (!/^[A-Z0-9]{15,20}$/.test(normalizedTaxNumber)) {
-    return '税号格式不正确，应为 15-20 位字母或数字';
+  // 税号校验（选填，最长 100 字符）
+  if (row.taxNumber && row.taxNumber.trim().length > 100) {
+    return '税号不能超过 100 个字符';
   }
 
   // 金额校验
@@ -336,7 +332,8 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
       continue;
     }
     const normalizedAmount = normalizeAmount(row.amount) || row.amount.trim();
-    const key = `${row.companyName.trim()}|${row.taxNumber.trim().toUpperCase()}|${normalizedAmount}|${row.invoiceType.trim()}`;
+    const normalizedTaxNumber = row.taxNumber ? row.taxNumber.trim().toUpperCase() : '';
+    const key = `${row.companyName.trim()}|${normalizedTaxNumber}|${normalizedAmount}|${row.invoiceType.trim()}`;
     if (seen.has(key)) {
       duplicates.push(row.rowNumber);
     } else {

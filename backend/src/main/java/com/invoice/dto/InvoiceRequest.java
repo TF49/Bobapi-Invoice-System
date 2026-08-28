@@ -18,7 +18,7 @@ public class InvoiceRequest {
     @Size(max = 200, message = "公司名称不能超过 200 个字符")
     private String companyName;
     
-    @NotBlank(message = "税号不能为空")
+    @Size(max = 100, message = "税号不能超过 100 个字符")
     private String taxNumber;
     
     @NotNull(message = "开票金额不能为空")

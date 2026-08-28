@@ -39,6 +39,11 @@ public class Invoice {
      * 备注
      */
     private String remark;
+
+    /**
+     * 外部商户订单号（用于OpenAPI对接）
+     */
+    private String outTradeNo;
     
     /**
      * 状态：PENDING-待开票，COMPLETED-已开票

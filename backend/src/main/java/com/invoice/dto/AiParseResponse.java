@@ -20,7 +20,7 @@ public class AiParseResponse {
     private String companyName;
 
     /**
-     * 识别到的税号（15-20位大写字母或数字），未识别到则为 null
+     * 识别到的税号，未识别到或个人/无税号则为 null
      */
     private String taxNumber;
 
@@ -35,8 +35,8 @@ public class AiParseResponse {
     private String invoiceType;
 
     /**
-     * 置信度：HIGH（公司名称、税号、开票金额三个核心字段全部识别到）/ LOW（部分核心字段未识别到）
-     * <p>开票类型（invoiceType）为辅助字段，不影响置信度计算。</p>
+     * 置信度：HIGH（公司名称、开票金额核心字段全部识别到）/ LOW（核心字段未识别到）
+     * <p>税号（taxNumber）与开票类型（invoiceType）为可选/辅助字段，不强制影响置信度计算。</p>
      */
     private String confidence;
 
