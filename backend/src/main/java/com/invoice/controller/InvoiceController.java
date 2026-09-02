@@ -34,6 +34,9 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 import com.invoice.dto.AdminUpdateInvoiceRequest;
+import com.invoice.dto.RedFlushApplyRequest;
+import com.invoice.dto.RedFlushConfirmRequest;
+import com.invoice.dto.RedFlushRejectRequest;
 import com.invoice.dto.UpdateInvoiceProcessedRequest;
 
 import java.nio.charset.StandardCharsets;
@@ -162,6 +165,61 @@ public class InvoiceController {
         InvoiceResponse invoice = invoiceService.updateInvoiceProcessed(
                 id, principal.userId(), isAdminOrClerk, request.getIsProcessed());
         return ApiResponse.success("更新成功", invoice);
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<InvoiceResponse> cancelInvoice(
+            @PathVariable Long id,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-cancel:user:" + principal.userId(),
+                10, Duration.ofMinutes(1), 42905, "取消操作过于频繁，请稍后再试");
+        boolean isAdmin = "ADMIN".equals(principal.role());
+        InvoiceResponse invoice = invoiceService.cancelInvoice(id, principal.userId(), isAdmin);
+        return ApiResponse.success("取消成功", invoice);
+    }
+
+    @PostMapping("/{id}/red-flush/apply")
+    public ApiResponse<InvoiceResponse> applyRedFlush(
+            @PathVariable Long id,
+            @Valid @RequestBody RedFlushApplyRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-red-flush-apply:user:" + principal.userId(),
+                10, Duration.ofMinutes(1), 42905, "红冲申请提交过于频繁，请稍后再试");
+        InvoiceResponse invoice = invoiceService.applyRedFlush(id, principal.userId(), request.getReason());
+        return ApiResponse.success("红冲申请提交成功", invoice);
+    }
+
+    @GetMapping("/admin/red-flush/pending-count")
+    public ApiResponse<Long> getPendingRedFlushCount(
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        return ApiResponse.success(invoiceService.getPendingRedFlushCount());
+    }
+
+    @PostMapping("/admin/{id}/red-flush/confirm")
+    public ApiResponse<InvoiceResponse> confirmRedFlush(
+            @PathVariable Long id,
+            @Valid @RequestBody(required = false) RedFlushConfirmRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-red-flush-confirm:user:" + principal.userId(),
+                30, Duration.ofMinutes(1), 42905, "操作过于频繁，请稍后再试");
+        String remark = request != null ? request.getRemark() : null;
+        InvoiceResponse invoice = invoiceService.confirmRedFlush(id, principal.userId(), remark);
+        return ApiResponse.success("发票红冲标记成功，已退还额度", invoice);
+    }
+
+    @PostMapping("/admin/{id}/red-flush/reject")
+    public ApiResponse<InvoiceResponse> rejectRedFlush(
+            @PathVariable Long id,
+            @Valid @RequestBody RedFlushRejectRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit(
+                "invoice-red-flush-reject:user:" + principal.userId(),
+                30, Duration.ofMinutes(1), 42905, "操作过于频繁，请稍后再试");
+        InvoiceResponse invoice = invoiceService.rejectRedFlush(id, principal.userId(), request.getReason());
+        return ApiResponse.success("已驳回红冲申请", invoice);
     }
 
     @PutMapping("/batch/processed")

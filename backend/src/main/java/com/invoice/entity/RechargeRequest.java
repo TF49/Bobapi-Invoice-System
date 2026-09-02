@@ -19,11 +19,21 @@ public class RechargeRequest {
      * 用户ID
      */
     private Long userId;
+
+    /**
+     * 用户支付的手续费，历史记录可为空
+     */
+    private BigDecimal feeAmount;
     
     /**
-     * 申请充值金额
+     * 根据手续费计算得到的实际申请额度
      */
     private BigDecimal amount;
+
+    /**
+     * 用户创建申请时的幂等键，历史记录可为空
+     */
+    private String idempotencyKey;
     
     /**
      * 充值截图URL

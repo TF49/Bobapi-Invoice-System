@@ -151,10 +151,21 @@ public class UserQuotaService {
             } else if ("DEDUCT".equals(type)) {
                 totalDeducted = totalDeducted.add(amount.abs());
             } else if ("ADJUST".equals(type)) {
-                if (amount.compareTo(BigDecimal.ZERO) > 0) {
-                    totalRecharged = totalRecharged.add(amount);
+                if (tx.getInvoiceId() != null) {
+                    // 关联发票的退款或差额退还：减少累计扣除
+                    if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal newDeducted = totalDeducted.subtract(amount);
+                        totalDeducted = newDeducted.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : newDeducted;
+                    } else {
+                        totalDeducted = totalDeducted.add(amount.abs());
+                    }
                 } else {
-                    totalDeducted = totalDeducted.add(amount.abs());
+                    // 管理员手动调整
+                    if (amount.compareTo(BigDecimal.ZERO) > 0) {
+                        totalRecharged = totalRecharged.add(amount);
+                    } else {
+                        totalDeducted = totalDeducted.add(amount.abs());
+                    }
                 }
             }
         }
@@ -274,6 +285,42 @@ public class UserQuotaService {
         // 记录交易历史
         createTransaction(userId, "DEDUCT", totalAmount.negate(), balanceBefore, balanceAfter,
                          null, "SYSTEM", null, "批量开票扣除(批次#" + batchId + ")", null);
+    }
+
+    /**
+     * 退还额度（取消发票或系统退还时调用）
+     */
+    @Transactional
+    public void refundQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
+        refundQuota(userId, amount, invoiceId, remark, null, "SYSTEM");
+    }
+
+    /**
+     * 退还额度（支持指定操作人审计）
+     */
+    @Transactional
+    public void refundQuota(Long userId, BigDecimal amount, Long invoiceId, String remark,
+                            Long operatorId, String operatorType) {
+        if (amount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "退还金额必须大于0");
+        }
+
+        requireUserRoleForUpdate(userId);
+        UserQuota quota = getUserQuotaWithLock(userId);
+        BigDecimal balanceBefore = quota.getBalance();
+        
+        BigDecimal balanceAfter = balanceBefore.add(amount);
+        
+        // 更新额度
+        quota.setBalance(balanceAfter);
+        BigDecimal newTotalDeducted = quota.getTotalDeducted().subtract(amount);
+        quota.setTotalDeducted(newTotalDeducted.compareTo(BigDecimal.ZERO) < 0 ? BigDecimal.ZERO : newTotalDeducted);
+        quota.setUpdatedAt(LocalDateTime.now());
+        userQuotaMapper.updateById(quota);
+        
+        // 记录交易历史
+        createTransaction(userId, "ADJUST", amount, balanceBefore, balanceAfter,
+                         operatorId, operatorType != null ? operatorType : "SYSTEM", invoiceId, remark, null);
     }
 
     /**

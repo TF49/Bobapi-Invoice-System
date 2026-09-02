@@ -6,7 +6,7 @@
 import * as XLSX from 'xlsx';
 
 export const FIXED_INVOICE_TYPE = '技术服务费';
-export const ALLOWED_INVOICE_TYPES = ['技术服务费', 'AI订阅服务费', '计算服务费'] as const;
+export const ALLOWED_INVOICE_TYPES = ['技术服务费', 'AI订阅服务费', '计算服务费', '研发和技术服务'] as const;
 
 export interface ParsedInvoiceRow {
   rowNumber: number;       // 原始文件行号（从2开始，第1行是表头）
@@ -370,12 +370,20 @@ export function generateTemplate(): string {
     '计算服务费',
     '计算服务费开票申请示例'
   ];
+  const sampleDataRow4 = [
+    '示例公司D',
+    '91500123456789012D',
+    '1200.00',
+    '研发和技术服务',
+    '研发和技术服务开票申请示例'
+  ];
 
   return [
     headers.join(','),
     sampleDataRow1.join(','),
     sampleDataRow2.join(','),
-    sampleDataRow3.join(',')
+    sampleDataRow3.join(','),
+    sampleDataRow4.join(',')
   ].join('\n');
 }
 

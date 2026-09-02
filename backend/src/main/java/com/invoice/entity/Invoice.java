@@ -46,7 +46,7 @@ public class Invoice {
     private String outTradeNo;
     
     /**
-     * 状态：PENDING-待开票，COMPLETED-已开票
+     * 状态：PENDING-待开票，COMPLETED-已开票，CANCELLED-已取消
      */
     private String status;
 
@@ -55,6 +55,36 @@ public class Invoice {
      */
     @TableField("is_processed")
     private Boolean isProcessed;
+
+    /**
+     * 红冲状态：NONE-未申请，PENDING-待红冲，COMPLETED-已红冲，REJECTED-已驳回
+     */
+    private String redFlushStatus;
+
+    /**
+     * 用户申请红冲原因
+     */
+    private String redFlushReason;
+
+    /**
+     * 开票员/管理员处理备注
+     */
+    private String redFlushRemark;
+
+    /**
+     * 红冲申请时间
+     */
+    private LocalDateTime redFlushApplyTime;
+
+    /**
+     * 红冲完成/处理时间
+     */
+    private LocalDateTime redFlushCompleteTime;
+
+    /**
+     * 红冲处理操作人ID
+     */
+    private Long redFlushOperatorId;
     
     /**
      * 发票文件路径

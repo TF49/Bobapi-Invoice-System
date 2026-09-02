@@ -17,6 +17,11 @@ public record OpenInvoiceResponse(
         String invoiceType,
         String remark,
         String status,
+        String redFlushStatus,
+        String redFlushReason,
+        String redFlushRemark,
+        LocalDateTime redFlushApplyTime,
+        LocalDateTime redFlushCompleteTime,
         boolean downloadable,
         String fileName,
         LocalDateTime createdAt,
@@ -34,6 +39,7 @@ public record OpenInvoiceResponse(
             exists = resolved.startsWith(normalizedRoot) && Files.isRegularFile(resolved);
         }
         boolean downloadable = exists && isSupportedImage(invoice.getFileName());
+        String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
         return new OpenInvoiceResponse(
                 invoice.getId(),
                 invoice.getOutTradeNo(),
@@ -43,6 +49,11 @@ public record OpenInvoiceResponse(
                 invoice.getInvoiceType(),
                 invoice.getRemark(),
                 invoice.getStatus(),
+                redFlushStatus,
+                invoice.getRedFlushReason(),
+                invoice.getRedFlushRemark(),
+                invoice.getRedFlushApplyTime(),
+                invoice.getRedFlushCompleteTime(),
                 downloadable,
                 invoice.getFileName(),
                 invoice.getCreatedAt(),

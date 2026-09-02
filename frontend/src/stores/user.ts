@@ -6,7 +6,7 @@ export const useUserStore = defineStore('user', () => {
   const username = ref<string>(localStorage.getItem('username') || '')
   const role = ref<string>(localStorage.getItem('role') || '')
 
-  function setToken(newToken: string, rememberMe: boolean = false) {
+  function setToken(newToken: string, rememberMe: boolean = true) {
     token.value = newToken
     if (rememberMe) {
       // 勾选「7 天内保持登录」：持久化到 localStorage，与后端 7 天 token 有效期一致

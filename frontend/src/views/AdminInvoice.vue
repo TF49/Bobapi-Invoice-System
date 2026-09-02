@@ -47,6 +47,19 @@
             <p class="stat-note">全部申请合计</p>
           </div>
         </SpotlightCard>
+
+        <SpotlightCard class="stat-card stat-card-featured" :class="{ 'stat-card--alert': redFlushPendingCount > 0 }">
+          <div class="stat-card-content">
+            <span class="stat-icon" :class="redFlushPendingCount > 0 ? 'danger' : 'neutral'"><DocumentDelete /></span>
+            <div class="stat-copy">
+              <span class="stat-label">待红冲标记</span>
+              <strong class="stat-value" :class="{ 'warning-stat': redFlushPendingCount > 0 }">
+                <CountUp :value="redFlushPendingCount" />
+              </strong>
+            </div>
+            <p class="stat-note">{{ redFlushPendingCount > 0 ? '需开票员核验冲红' : '暂无红冲申请' }}</p>
+          </div>
+        </SpotlightCard>
       </AnimatedContent>
 
       <AnimatedContent tag="section" class="surface-panel records-panel" :delay="80">
@@ -73,9 +86,12 @@
               <el-select v-model="statusFilter" aria-label="筛选发票状态" class="status-select">
                 <el-option label="全部状态" value="ALL" />
                 <el-option label="待开票" value="PENDING" />
+                <el-option label="待红冲" value="RED_FLUSH_PENDING" />
+                <el-option label="已红冲" value="RED_FLUSH_COMPLETED" />
                 <el-option label="已开票 (全部)" value="COMPLETED" />
                 <el-option label="已开票 (未处理)" value="COMPLETED_UNPROCESSED" />
                 <el-option label="已开票 (已处理)" value="COMPLETED_PROCESSED" />
+                <el-option label="已取消" value="CANCELLED" />
               </el-select>
             </div>
             <div class="filter-control">
@@ -163,11 +179,41 @@
                 <span v-else class="remark-text">-</span>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="110" align="center">
+            <el-table-column prop="status" label="状态" width="124" align="center">
               <template #default="{ row }">
-                <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
+                <el-tooltip
+                  v-if="row.status === 'COMPLETED' && row.redFlushStatus === 'PENDING'"
+                  :content="`用户申请红冲原因：${row.redFlushReason || '未说明'}`"
+                  placement="top"
+                >
+                  <el-tag class="status-tag" :class="getStatusClass(row)">
+                    <i class="status-dot"></i>
+                    {{ getStatusLabel(row) }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tooltip
+                  v-else-if="row.status === 'COMPLETED' && row.redFlushStatus === 'COMPLETED'"
+                  :content="`已红冲作废，额度已退还${row.redFlushRemark ? '（处理备注：' + row.redFlushRemark + '）' : ''}`"
+                  placement="top"
+                >
+                  <el-tag class="status-tag" :class="getStatusClass(row)">
+                    <i class="status-dot"></i>
+                    {{ getStatusLabel(row) }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tooltip
+                  v-else-if="row.status === 'COMPLETED' && row.redFlushStatus === 'REJECTED'"
+                  :content="`已驳回红冲：${row.redFlushRemark || '未说明原因'}`"
+                  placement="top"
+                >
+                  <el-tag class="status-tag" :class="getStatusClass(row)">
+                    <i class="status-dot"></i>
+                    {{ getStatusLabel(row) }}
+                  </el-tag>
+                </el-tooltip>
+                <el-tag v-else class="status-tag" :class="getStatusClass(row)">
                   <i class="status-dot"></i>
-                  {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
+                  {{ getStatusLabel(row) }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -179,11 +225,11 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="290" align="center" fixed="right">
+            <el-table-column label="操作" width="280" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="action-cell-wrapper">
+                  <!-- 1. 待开票状态：快捷粘贴 + 选择文件 + 修改发票 -->
                   <template v-if="row.status === 'PENDING'">
-                    <!-- 剪贴板粘贴区域 -->
                     <el-tooltip content="点击直接粘贴剪贴板中的图片（亦支持 Ctrl+V）" placement="top">
                       <div
                         :id="`paste-zone-${row.id}`"
@@ -201,7 +247,6 @@
                         <span>{{ uploadingId === row.id ? '上传中…' : '粘贴图片' }}</span>
                       </div>
                     </el-tooltip>
-                    <!-- 文件选择（备用入口） -->
                     <el-upload
                       :key="`upload-${row.id}`"
                       :show-file-list="false"
@@ -214,67 +259,161 @@
                         选择
                       </el-button>
                     </el-upload>
-                  </template>
-                  <template v-else-if="row.downloadable && row.fileExists">
-                    <el-button
-                      :key="`preview-${row.id}`"
-                      type="primary"
-                      plain
-                      size="small"
-                      :icon="ZoomIn"
-                      :loading="previewingId === row.id"
-                      class="action-btn"
-                      @click="handlePreview(row)"
-                    >
-                      查看
-                    </el-button>
-                    <el-button
-                      :key="`download-${row.id}`"
-                      type="primary"
-                      plain
-                      size="small"
-                      :icon="Download"
-                      class="action-btn"
-                      @click="handleDownload(row)"
-                    >
-                      下载
-                    </el-button>
-                    <el-button
-                      :key="`copy-${row.id}`"
-                      type="primary"
-                      plain
-                      size="small"
-                      :icon="CopyDocument"
-                      :loading="copyingId === row.id"
-                      class="action-btn"
-                      @click="handleCopyImage(row)"
-                    >
-                      复制
-                    </el-button>
-                    <el-tooltip :content="row.isProcessed ? '已处理（点击取消）' : '未处理（点击标记已处理）'" placement="top">
-                      <button
-                        type="button"
-                        class="processed-row-indicator-btn"
-                        :class="{ 'is-done': row.isProcessed }"
-                        :disabled="togglingRowId === row.id"
-                        @click.stop="handleDirectToggleRow(row)"
-                      >
-                        <el-icon v-if="togglingRowId === row.id" class="is-loading"><Loading /></el-icon>
-                        <template v-else>{{ row.isProcessed ? '✓' : '○' }}</template>
-                      </button>
+                    <el-tooltip content="修改发票信息" placement="top">
+                      <el-button
+                        :key="`edit-${row.id}`"
+                        size="small"
+                        :icon="EditPen"
+                        class="action-btn icon-only-btn"
+                        @click="handleEditInvoice(row)"
+                      />
                     </el-tooltip>
                   </template>
+
+                  <!-- 2. 已上传发票场景 -->
+                  <template v-else-if="row.downloadable && row.fileExists">
+                    <!-- 2.1 待红冲审核场景：重点突出核验与处理 -->
+                    <template v-if="row.redFlushStatus === 'PENDING'">
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :icon="ZoomIn"
+                        :loading="previewingId === row.id"
+                        class="action-btn"
+                        @click="handlePreview(row)"
+                      >
+                        查看
+                      </el-button>
+                      <el-button
+                        type="danger"
+                        size="small"
+                        :icon="Finished"
+                        class="action-btn red-flush-btn"
+                        @click="handleOpenConfirmRedFlush(row)"
+                      >
+                        标记红冲
+                      </el-button>
+                      <el-button
+                        size="small"
+                        plain
+                        :icon="Close"
+                        class="action-btn reject-btn"
+                        @click="handleOpenRejectRedFlush(row)"
+                      >
+                        驳回
+                      </el-button>
+                      <el-dropdown trigger="click" @command="(cmd: string) => handleDropdownCommand(cmd, row)">
+                        <el-button size="small" class="action-btn icon-only-btn more-dropdown-btn" aria-label="更多操作">
+                          <el-icon><MoreFilled /></el-icon>
+                        </el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item command="download" :icon="Download">下载发票</el-dropdown-item>
+                            <el-dropdown-item command="copy" :icon="CopyDocument">复制图片</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                    </template>
+
+                    <!-- 2.2 正常已开票场景：查看 + 下载 + 复制 + 已处理 + 更多(主动冲红/修改) -->
+                    <template v-else-if="row.status === 'COMPLETED' && row.redFlushStatus !== 'COMPLETED'">
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :icon="ZoomIn"
+                        :loading="previewingId === row.id"
+                        class="action-btn"
+                        @click="handlePreview(row)"
+                      >
+                        查看
+                      </el-button>
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :icon="Download"
+                        class="action-btn"
+                        @click="handleDownload(row)"
+                      >
+                        下载
+                      </el-button>
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :icon="CopyDocument"
+                        :loading="copyingId === row.id"
+                        class="action-btn"
+                        @click="handleCopyImage(row)"
+                      >
+                        复制
+                      </el-button>
+                      <el-tooltip :content="row.isProcessed ? '已处理（点击取消）' : '未处理（点击标记已处理）'" placement="top">
+                        <button
+                          type="button"
+                          class="processed-row-indicator-btn"
+                          :class="{ 'is-done': row.isProcessed }"
+                          :disabled="togglingRowId === row.id"
+                          @click.stop="handleDirectToggleRow(row)"
+                        >
+                          <el-icon v-if="togglingRowId === row.id" class="is-loading"><Loading /></el-icon>
+                          <template v-else>{{ row.isProcessed ? '✓' : '○' }}</template>
+                        </button>
+                      </el-tooltip>
+                      <el-dropdown trigger="click" @command="(cmd: string) => handleDropdownCommand(cmd, row)">
+                        <el-button size="small" class="action-btn icon-only-btn more-dropdown-btn" aria-label="更多操作">
+                          <el-icon><MoreFilled /></el-icon>
+                        </el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item command="edit" :icon="EditPen">修改信息</el-dropdown-item>
+                            <el-dropdown-item command="directRedFlush" :icon="DocumentDelete" divided>主动冲红</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                    </template>
+
+                    <!-- 2.3 已红冲作废场景 -->
+                    <template v-else-if="row.status === 'COMPLETED' && row.redFlushStatus === 'COMPLETED'">
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :icon="ZoomIn"
+                        :loading="previewingId === row.id"
+                        class="action-btn"
+                        @click="handlePreview(row)"
+                      >
+                        查看
+                      </el-button>
+                      <el-button
+                        type="primary"
+                        plain
+                        size="small"
+                        :icon="Download"
+                        class="action-btn"
+                        @click="handleDownload(row)"
+                      >
+                        下载
+                      </el-button>
+                      <el-dropdown trigger="click" @command="(cmd: string) => handleDropdownCommand(cmd, row)">
+                        <el-button size="small" class="action-btn icon-only-btn more-dropdown-btn" aria-label="更多操作">
+                          <el-icon><MoreFilled /></el-icon>
+                        </el-button>
+                        <template #dropdown>
+                          <el-dropdown-menu>
+                            <el-dropdown-item command="copy" :icon="CopyDocument">复制图片</el-dropdown-item>
+                          </el-dropdown-menu>
+                        </template>
+                      </el-dropdown>
+                    </template>
+                  </template>
+
+                  <!-- 3. 已取消或其他 -->
+                  <span v-else-if="row.status === 'CANCELLED'" class="empty-action"><i class="empty-dot"></i>已取消</span>
                   <span v-else class="empty-action"><i class="empty-dot"></i>暂不可用</span>
-                  <!-- 修改按钮（所有行都显示） -->
-                  <el-tooltip content="修改发票信息" placement="top">
-                    <el-button
-                      :key="`edit-${row.id}`"
-                      size="small"
-                      :icon="EditPen"
-                      class="action-btn icon-only-btn"
-                      @click="handleEditInvoice(row)"
-                    />
-                  </el-tooltip>
                 </div>
               </template>
             </el-table-column>
@@ -289,9 +428,9 @@
                 <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
                 <strong class="company-name">{{ row.companyName }}</strong>
               </div>
-              <el-tag class="status-tag" :class="row.status === 'COMPLETED' ? 'is-completed' : 'is-pending'">
+              <el-tag class="status-tag" :class="getStatusClass(row)">
                 <i class="status-dot"></i>
-                {{ row.status === 'COMPLETED' ? '已开票' : '待开票' }}
+                {{ getStatusLabel(row) }}
               </el-tag>
               <el-tag
                 v-if="row.isProcessed"
@@ -331,6 +470,14 @@
                   <el-icon class="warning-icon-inline"><Warning /></el-icon>
                   {{ row.remark }}
                 </dd>
+              </div>
+              <div v-if="row.status === 'COMPLETED' && row.redFlushReason">
+                <dt>用户红冲原因</dt>
+                <dd class="remark-warning-text">{{ row.redFlushReason }}</dd>
+              </div>
+              <div v-if="row.status === 'COMPLETED' && row.redFlushRemark">
+                <dt>红冲备注</dt>
+                <dd>{{ row.redFlushRemark }}</dd>
               </div>
               <div>
                 <dt>申请时间</dt>
@@ -373,9 +520,28 @@
                 <el-button type="primary" plain :icon="CopyDocument" :loading="copyingId === row.id" @click="handleCopyImage(row)">
                   复制图片
                 </el-button>
+                <template v-if="row.redFlushStatus === 'PENDING'">
+                  <el-button type="danger" :icon="Finished" @click="handleOpenConfirmRedFlush(row)">
+                    标记红冲
+                  </el-button>
+                  <el-button plain :icon="Close" @click="handleOpenRejectRedFlush(row)">
+                    驳回
+                  </el-button>
+                </template>
+                <template v-else-if="row.status === 'COMPLETED' && row.redFlushStatus !== 'COMPLETED'">
+                  <el-button type="danger" plain :icon="DocumentDelete" @click="handleOpenConfirmRedFlush(row)">
+                    主动冲红
+                  </el-button>
+                </template>
               </template>
               <!-- 移动端修改按钮 -->
-              <el-button :icon="EditPen" @click="handleEditInvoice(row)">修改信息</el-button>
+              <el-button
+                :icon="EditPen"
+                :disabled="row.status === 'CANCELLED' || row.redFlushStatus === 'PENDING' || row.redFlushStatus === 'COMPLETED'"
+                @click="handleEditInvoice(row)"
+              >
+                修改信息
+              </el-button>
             </div>
           </article>
         </div>
@@ -434,6 +600,15 @@
           >
             {{ isCurrentPreviewProcessed ? '✓ 已处理' : '标记已处理' }}
           </el-checkbox>
+          <el-button
+            v-if="previewingRow?.status === 'COMPLETED' && previewingRow?.redFlushStatus !== 'COMPLETED'"
+            type="danger"
+            plain
+            :icon="Finished"
+            @click="handlePreviewRedFlush"
+          >
+            {{ previewingRow?.redFlushStatus === 'PENDING' ? '标记红冲' : '主动冲红' }}
+          </el-button>
           <el-button type="primary" plain :icon="CopyDocument" @click="handleCopyPreviewImage">复制图片</el-button>
         </div>
       </template>
@@ -454,9 +629,9 @@
         <span class="edit-meta-value">{{ editingRow.username || `用户#${editingRow.userId}` }}</span>
         <el-divider direction="vertical" />
         <span class="edit-meta-label">状态：</span>
-        <el-tag class="status-tag" :class="editingRow.status === 'COMPLETED' ? 'is-completed' : 'is-pending'" size="small">
+        <el-tag class="status-tag" :class="getStatusClass(editingRow.status)" size="small">
           <i class="status-dot"></i>
-          {{ editingRow.status === 'COMPLETED' ? '已开票' : '待开票' }}
+          {{ getStatusLabel(editingRow.status) }}
         </el-tag>
         <template v-if="editingRow.status === 'COMPLETED'">
           <el-divider direction="vertical" />
@@ -493,6 +668,7 @@
             <el-option label="技术服务费" value="技术服务费" />
             <el-option label="AI订阅服务费" value="AI订阅服务费" />
             <el-option label="计算服务费" value="计算服务费" />
+            <el-option label="研发和技术服务" value="研发和技术服务" />
           </el-select>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
@@ -520,24 +696,152 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 确认标记红冲弹窗 -->
+    <el-dialog
+      v-model="confirmRedFlushVisible"
+      :title="targetRedFlushRow?.redFlushStatus === 'PENDING' ? '发票红冲标记确认' : '主动标记发票红冲'"
+      width="540px"
+      destroy-on-close
+      class="red-flush-admin-dialog"
+    >
+      <div v-if="targetRedFlushRow" class="admin-red-flush-content">
+        <el-alert
+          type="error"
+          :closable="false"
+          show-icon
+          class="red-flush-alert"
+          :title="targetRedFlushRow.redFlushStatus === 'PENDING' ? '红冲标记确认' : '主动冲红作废确认'"
+          :description="targetRedFlushRow.redFlushStatus === 'PENDING' ? '确认标记红冲后，该张发票将正式作废冲红，系统将自动把该发票金额全额退还至用户的开票额度账户中！' : '该操作将直接作废冲红该张已开票发票，系统将自动把发票金额全额退还至用户的开票额度账户中！'"
+        />
+        <div class="target-invoice-summary">
+          <div class="summary-item">
+            <span class="summary-label">申请用户：</span>
+            <strong>{{ targetRedFlushRow.username || `用户#${targetRedFlushRow.userId}` }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">公司名称：</span>
+            <strong>{{ targetRedFlushRow.companyName }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">企业税号：</span>
+            <span>{{ targetRedFlushRow.taxNumber || '-' }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">发票金额：</span>
+            <span class="money-cell">{{ formatCurrency(targetRedFlushRow.amount) }}</span>
+          </div>
+          <div v-if="targetRedFlushRow.redFlushStatus === 'PENDING'" class="summary-item full-width">
+            <span class="summary-label">用户红冲原因：</span>
+            <span class="user-reason-text">{{ targetRedFlushRow.redFlushReason || '未填写' }}</span>
+          </div>
+          <div v-if="targetRedFlushRow.redFlushStatus === 'PENDING'" class="summary-item full-width">
+            <span class="summary-label">申请时间：</span>
+            <span>{{ formatDate(targetRedFlushRow.redFlushApplyTime || targetRedFlushRow.updatedAt) }}</span>
+          </div>
+        </div>
+
+        <div class="red-flush-form-item">
+          <div class="form-item-label">处理备注（选填）</div>
+          <el-input
+            v-model="confirmRemark"
+            type="textarea"
+            :rows="3"
+            placeholder="可填写红字发票信息、作废冲红单号或处理说明（选填）"
+            maxlength="500"
+            show-word-limit
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="confirmRedFlushVisible = false">取消</el-button>
+          <el-button
+            type="danger"
+            :icon="Finished"
+            :loading="confirmSubmitting"
+            @click="handleConfirmRedFlushSubmit"
+          >
+            确认标记红冲并退还额度
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 驳回红冲申请弹窗 -->
+    <el-dialog
+      v-model="rejectRedFlushVisible"
+      title="驳回发票红冲申请"
+      width="500px"
+      destroy-on-close
+      class="red-flush-admin-dialog"
+    >
+      <div v-if="targetRedFlushRow" class="admin-red-flush-content">
+        <div class="target-invoice-summary">
+          <div class="summary-item">
+            <span class="summary-label">申请用户：</span>
+            <strong>{{ targetRedFlushRow.username || `用户#${targetRedFlushRow.userId}` }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">发票金额：</span>
+            <span class="money-cell">{{ formatCurrency(targetRedFlushRow.amount) }}</span>
+          </div>
+          <div class="summary-item full-width">
+            <span class="summary-label">用户红冲原因：</span>
+            <span>{{ targetRedFlushRow.redFlushReason || '-' }}</span>
+          </div>
+        </div>
+
+        <div class="red-flush-form-item">
+          <div class="form-item-label">驳回原因 <span class="required-star">*</span></div>
+          <el-input
+            v-model="rejectReason"
+            type="textarea"
+            :rows="3"
+            placeholder="请填写驳回该红冲申请的具体原因（如：发票已跨期入账无法冲红、已完成报销等）"
+            maxlength="500"
+            show-word-limit
+          />
+        </div>
+      </div>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="rejectRedFlushVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :icon="Close"
+            :loading="rejectSubmitting"
+            :disabled="!rejectReason.trim()"
+            @click="handleRejectRedFlushSubmit"
+          >
+            确认驳回
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, type FormInstance } from 'element-plus'
 import type { UploadRawFile } from 'element-plus'
 import {
   Check,
   CircleCheck,
   Clock,
+  Close,
   CopyDocument,
+  DocumentDelete,
   Download,
   EditPen,
   Files,
   Filter,
+  Finished,
   List,
   Loading,
+  MoreFilled,
   OfficeBuilding,
   PictureRounded,
   Postcard,
@@ -560,15 +864,41 @@ import { saveBlobResponse } from '@/utils/download'
 import { copyImageToClipboard } from '@/utils/clipboard'
 import { ApiRequestError } from '@/utils/request'
 
+const VALID_STATUSES = ['ALL', 'PENDING', 'COMPLETED', 'COMPLETED_PROCESSED', 'COMPLETED_UNPROCESSED', 'RED_FLUSH_PENDING', 'RED_FLUSH_COMPLETED', 'CANCELLED']
+const route = useRoute()
+
+function getInitialStatusFilter(): string {
+  try {
+    const queryStatus = route?.query?.status
+    if (typeof queryStatus === 'string' && VALID_STATUSES.includes(queryStatus)) {
+      return queryStatus
+    }
+    if (typeof window !== 'undefined' && window.location?.search) {
+      const urlParams = new URLSearchParams(window.location.search)
+      const status = urlParams.get('status')
+      if (status && VALID_STATUSES.includes(status)) return status
+    }
+  } catch {
+    // fallback
+  }
+  return 'ALL'
+}
+
 const userStore = useUserStore()
 const loading = ref(false)
 const uploadingId = ref<number | null>(null)
 const copyingId = ref<number | null>(null)
 const pasteActiveId = ref<number | null>(null)
 const invoices = ref<Invoice[]>([])
-const statusFilter = ref('ALL')
+const statusFilter = ref(getInitialStatusFilter())
 const userFilter = ref('')
 const searchKeyword = ref('')
+
+watch(() => route?.query?.status, (newStatus) => {
+  if (typeof newStatus === 'string' && VALID_STATUSES.includes(newStatus)) {
+    statusFilter.value = newStatus
+  }
+})
 
 // 预览状态
 const previewVisible = ref(false)
@@ -705,10 +1035,16 @@ const filteredInvoices = computed(() => {
     let matchesStatus = false
     if (statusFilter.value === 'ALL') {
       matchesStatus = true
+    } else if (statusFilter.value === 'COMPLETED') {
+      matchesStatus = invoice.status === 'COMPLETED'
     } else if (statusFilter.value === 'COMPLETED_PROCESSED') {
-      matchesStatus = invoice.status === 'COMPLETED' && Boolean(invoice.isProcessed)
+      matchesStatus = invoice.status === 'COMPLETED' && Boolean(invoice.isProcessed) && invoice.redFlushStatus !== 'COMPLETED'
     } else if (statusFilter.value === 'COMPLETED_UNPROCESSED') {
-      matchesStatus = invoice.status === 'COMPLETED' && !invoice.isProcessed
+      matchesStatus = invoice.status === 'COMPLETED' && !invoice.isProcessed && invoice.redFlushStatus !== 'COMPLETED'
+    } else if (statusFilter.value === 'RED_FLUSH_PENDING') {
+      matchesStatus = invoice.status === 'COMPLETED' && invoice.redFlushStatus === 'PENDING'
+    } else if (statusFilter.value === 'RED_FLUSH_COMPLETED') {
+      matchesStatus = invoice.status === 'COMPLETED' && invoice.redFlushStatus === 'COMPLETED'
     } else {
       matchesStatus = invoice.status === statusFilter.value
     }
@@ -759,8 +1095,11 @@ const emptyText = computed(() => {
 })
 
 const pendingCount = computed(() => invoices.value.filter(invoice => invoice.status === 'PENDING').length)
-const completedCount = computed(() => invoices.value.filter(invoice => invoice.status === 'COMPLETED').length)
-const totalAmount = computed(() => invoices.value.reduce((total, invoice) => total + Number(invoice.amount), 0))
+const redFlushPendingCount = computed(() => invoices.value.filter(invoice => invoice.status === 'COMPLETED' && invoice.redFlushStatus === 'PENDING').length)
+const completedCount = computed(() => invoices.value.filter(invoice => invoice.status === 'COMPLETED' && invoice.redFlushStatus !== 'COMPLETED').length)
+const totalAmount = computed(() => invoices.value
+  .filter(invoice => invoice.status !== 'CANCELLED' && invoice.redFlushStatus !== 'COMPLETED')
+  .reduce((total, invoice) => total + Number(invoice.amount), 0))
 
 const formatCurrency = (amount: number) => new Intl.NumberFormat('zh-CN', {
   style: 'currency',
@@ -788,6 +1127,62 @@ const formatDateParts = (value: string) => {
   return {
     date: formatted.slice(0, separatorIndex),
     time: formatted.slice(separatorIndex + 1)
+  }
+}
+
+const getStatusLabel = (item: Invoice | string) => {
+  if (typeof item === 'object' && item !== null) {
+    if (item.status === 'COMPLETED') {
+      if (item.redFlushStatus === 'PENDING') return '待红冲'
+      if (item.redFlushStatus === 'COMPLETED') return '已红冲'
+      if (item.redFlushStatus === 'REJECTED') return '红冲驳回'
+      return '已开票'
+    }
+    if (item.status === 'PENDING') return '待开票'
+    if (item.status === 'CANCELLED') return '已取消'
+    return item.status
+  }
+  switch (item) {
+    case 'COMPLETED':
+      return '已开票'
+    case 'PENDING':
+      return '待开票'
+    case 'CANCELLED':
+      return '已取消'
+    case 'RED_FLUSH_PENDING':
+      return '待红冲'
+    case 'RED_FLUSH_COMPLETED':
+      return '已红冲'
+    default:
+      return item
+  }
+}
+
+const getStatusClass = (item: Invoice | string) => {
+  if (typeof item === 'object' && item !== null) {
+    if (item.status === 'COMPLETED') {
+      if (item.redFlushStatus === 'PENDING') return 'is-red-flush-pending'
+      if (item.redFlushStatus === 'COMPLETED') return 'is-red-flushed'
+      if (item.redFlushStatus === 'REJECTED') return 'is-red-flush-rejected'
+      return 'is-completed'
+    }
+    if (item.status === 'PENDING') return 'is-pending'
+    if (item.status === 'CANCELLED') return 'is-cancelled'
+    return ''
+  }
+  switch (item) {
+    case 'COMPLETED':
+      return 'is-completed'
+    case 'PENDING':
+      return 'is-pending'
+    case 'CANCELLED':
+      return 'is-cancelled'
+    case 'RED_FLUSH_PENDING':
+      return 'is-red-flush-pending'
+    case 'RED_FLUSH_COMPLETED':
+      return 'is-red-flushed'
+    default:
+      return ''
   }
 }
 
@@ -984,8 +1379,6 @@ const handlePaste = async (event: ClipboardEvent, row: Invoice) => {
   await handleUpload(row, imageFile)
 }
 
-onMounted(loadInvoices)
-
 // 修改发票功能
 const editDialogVisible = ref(false)
 const editingRow = ref<Invoice | null>(null)
@@ -1097,6 +1490,146 @@ const handlePreview = async (row: Invoice) => {
   }
 }
 
+// 红冲处理相关状态与方法
+const confirmRedFlushVisible = ref(false)
+const rejectRedFlushVisible = ref(false)
+const targetRedFlushRow = ref<Invoice | null>(null)
+const confirmRemark = ref('')
+const rejectReason = ref('')
+const confirmSubmitting = ref(false)
+const rejectSubmitting = ref(false)
+
+const handleOpenConfirmRedFlush = (row: Invoice) => {
+  targetRedFlushRow.value = row
+  confirmRemark.value = ''
+  confirmRedFlushVisible.value = true
+}
+
+const handleOpenRejectRedFlush = (row: Invoice) => {
+  targetRedFlushRow.value = row
+  rejectReason.value = ''
+  rejectRedFlushVisible.value = true
+}
+
+const handleConfirmRedFlushSubmit = async () => {
+  if (!targetRedFlushRow.value) return
+  confirmSubmitting.value = true
+  const invoiceId = targetRedFlushRow.value.id
+  try {
+    const updated = await invoiceApi.confirmRedFlush(invoiceId, confirmRemark.value.trim() || undefined)
+    confirmRedFlushVisible.value = false
+    ElMessage.success('已完成发票红冲标记，额度已自动退还至用户账户')
+
+    // 更新本地行
+    const idx = invoices.value.findIndex(i => i.id === invoiceId)
+    if (idx !== -1) {
+      invoices.value[idx] = updated
+    }
+
+    // 广播跨标签页通知
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const bc = new BroadcastChannel('bobapi-invoice-events')
+        bc.postMessage({ type: 'invoice-red-flush-processed', invoiceId, status: 'COMPLETED' })
+        bc.close()
+      } catch (_) {}
+    }
+    window.dispatchEvent(new CustomEvent('invoice-red-flush-processed', { detail: { invoiceId, status: 'COMPLETED' } }))
+
+    await loadInvoices()
+  } catch (error: any) {
+    console.error('标记红冲失败', error)
+    if (!(error instanceof ApiRequestError)) {
+      ElMessage.error(error?.message || '标记红冲失败，请重试')
+    }
+  } finally {
+    confirmSubmitting.value = false
+  }
+}
+
+const handleRejectRedFlushSubmit = async () => {
+  if (!targetRedFlushRow.value) return
+  const reason = rejectReason.value.trim()
+  if (!reason) {
+    ElMessage.warning('请填写驳回原因')
+    return
+  }
+
+  rejectSubmitting.value = true
+  const invoiceId = targetRedFlushRow.value.id
+  try {
+    const updated = await invoiceApi.rejectRedFlush(invoiceId, reason)
+    rejectRedFlushVisible.value = false
+    ElMessage.success('已驳回该红冲申请')
+
+    // 更新本地行
+    const idx = invoices.value.findIndex(i => i.id === invoiceId)
+    if (idx !== -1) {
+      invoices.value[idx] = updated
+    }
+
+    // 广播跨标签页通知
+    if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+      try {
+        const bc = new BroadcastChannel('bobapi-invoice-events')
+        bc.postMessage({ type: 'invoice-red-flush-processed', invoiceId, status: 'REJECTED' })
+        bc.close()
+      } catch (_) {}
+    }
+    window.dispatchEvent(new CustomEvent('invoice-red-flush-processed', { detail: { invoiceId, status: 'REJECTED' } }))
+
+    await loadInvoices()
+  } catch (error: any) {
+    console.error('驳回红冲失败', error)
+    if (!(error instanceof ApiRequestError)) {
+      ElMessage.error(error?.message || '驳回操作失败，请重试')
+    }
+  } finally {
+    rejectSubmitting.value = false
+  }
+}
+
+const handlePreviewRedFlush = () => {
+  if (!previewingRow.value) return
+  handleOpenConfirmRedFlush(previewingRow.value)
+}
+
+const handleDropdownCommand = (command: string, row: Invoice) => {
+  if (command === 'download') {
+    handleDownload(row)
+  } else if (command === 'copy') {
+    handleCopyImage(row)
+  } else if (command === 'directRedFlush') {
+    handleOpenConfirmRedFlush(row)
+  } else if (command === 'edit') {
+    handleEditInvoice(row)
+  }
+}
+
+const handleRealtimeRefresh = () => {
+  loadInvoices()
+}
+
+let adminInvoiceBroadcastChannel: BroadcastChannel | null = null
+
+onMounted(() => {
+  loadInvoices()
+
+  if (typeof window !== 'undefined' && 'BroadcastChannel' in window) {
+    try {
+      adminInvoiceBroadcastChannel = new BroadcastChannel('bobapi-invoice-events')
+      adminInvoiceBroadcastChannel.onmessage = (event) => {
+        if (event.data?.type === 'invoice-red-flush-applied' || event.data?.type === 'invoice-red-flush-processed') {
+          handleRealtimeRefresh()
+        }
+      }
+    } catch (_) {}
+  }
+
+  window.addEventListener('invoice-red-flush-applied', handleRealtimeRefresh)
+  window.addEventListener('invoice-red-flush-processed', handleRealtimeRefresh)
+})
+
 const onPreviewClose = () => {
   previewRequestId += 1
   previewController?.abort()
@@ -1112,7 +1645,15 @@ const onPreviewClosed = () => {
   }
 }
 
-onBeforeUnmount(onPreviewClose)
+onBeforeUnmount(() => {
+  onPreviewClose()
+  if (adminInvoiceBroadcastChannel) {
+    adminInvoiceBroadcastChannel.close()
+    adminInvoiceBroadcastChannel = null
+  }
+  window.removeEventListener('invoice-red-flush-applied', handleRealtimeRefresh)
+  window.removeEventListener('invoice-red-flush-processed', handleRealtimeRefresh)
+})
 </script>
 
 <style scoped>
@@ -1308,6 +1849,22 @@ onBeforeUnmount(onPreviewClose)
   justify-content: center;
 }
 
+.action-cell-wrapper :deep(.el-dropdown) {
+  display: inline-flex;
+  vertical-align: middle;
+}
+
+.action-cell-wrapper :deep(.more-dropdown-btn) {
+  color: var(--color-text-secondary);
+  border-color: var(--color-border);
+}
+
+.action-cell-wrapper :deep(.more-dropdown-btn:hover) {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary-light-5);
+  background: var(--color-primary-soft);
+}
+
 .paste-zone {
   display: inline-flex;
   align-items: center;
@@ -1379,76 +1936,129 @@ onBeforeUnmount(onPreviewClose)
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 16px;
+    padding: 14px;
+    background: #f7f9f8;
   }
 
   .admin-record-card {
-    padding: 16px;
+    padding: 14px 16px;
     background: var(--color-surface);
     border: 1px solid var(--color-border);
     border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+    box-shadow: 0 4px 12px rgba(24, 39, 34, 0.04);
   }
 
   .record-card-header {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding-bottom: 12px;
-    margin-bottom: 12px;
+    padding-bottom: 10px;
+    margin-bottom: 10px;
     border-bottom: 1px dashed var(--color-border);
+    gap: 8px;
   }
 
   .record-card-details {
     display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 10px 14px;
-    margin: 0 0 14px 0;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+    margin: 0 0 12px 0;
   }
 
   .record-card-details dt {
     color: var(--color-text-muted);
-    font-size: 12px;
+    font-size: 11px;
+    font-weight: 600;
   }
 
   .record-card-details dd {
     margin: 2px 0 0 0;
     color: var(--color-text);
-    font-size: 13px;
-    font-weight: 500;
+    font-size: 12.5px;
+    font-weight: 550;
+    word-break: break-all;
   }
 
   .mobile-card-actions {
-    display: flex;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .mobile-card-actions .el-button,
   .mobile-card-actions .mobile-upload {
-    flex: 1;
+    width: 100%;
+    margin-left: 0 !important;
   }
 
   .mobile-card-actions .mobile-paste {
-    flex: 1;
-    height: 38px;
+    width: 100%;
+    height: 36px;
+    margin-left: 0 !important;
   }
 }
 
 @media (max-width: 720px) {
+  .records-panel .panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+    padding: 14px 16px;
+  }
+
   .table-tools {
+    display: flex;
+    flex-direction: column;
     width: 100%;
+    gap: 10px;
   }
 
   .search-input {
     width: 100%;
   }
 
-  .filter-control {
-    flex: 1;
+  .table-tools .filter-control {
+    width: 100%;
   }
 
-  .status-select {
-    width: auto;
+  .table-tools .filter-control .status-select,
+  .table-tools .filter-control .user-select {
+    flex: 1;
+    width: 100% !important;
+  }
+
+  .table-tools .result-count {
+    align-self: flex-start;
+  }
+
+  .target-invoice-summary {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 12px 14px;
+  }
+
+  .dialog-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .dialog-footer .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  :global(.invoice-preview-dialog .el-dialog__footer .preview-dialog-footer) {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: stretch;
+  }
+
+  :global(.invoice-preview-dialog .el-dialog__footer .preview-dialog-footer > .el-button) {
+    width: 100%;
+    margin-left: 0 !important;
   }
 }
 
@@ -1612,6 +2222,111 @@ onBeforeUnmount(onPreviewClose)
   align-items: center;
   gap: 3px;
   flex-shrink: 0;
+}
+
+/* 红冲状态与操作样式 */
+.stat-card--alert {
+  border-color: #fca5a5 !important;
+  background: linear-gradient(180deg, #fff 0%, #fff5f5 100%) !important;
+}
+
+.stat-icon.danger {
+  color: #dc2626 !important;
+  background: #fee2e2 !important;
+}
+
+.warning-stat {
+  color: #dc2626 !important;
+}
+
+.status-tag.is-red-flush-pending {
+  color: #b45309 !important;
+  background-color: #fffbeb !important;
+  border-color: #fde68a !important;
+}
+
+.status-tag.is-red-flush-pending .status-dot {
+  background-color: #f59e0b !important;
+}
+
+.status-tag.is-red-flushed {
+  color: #b91c1c !important;
+  background-color: #fef2f2 !important;
+  border-color: #fecaca !important;
+}
+
+.status-tag.is-red-flushed .status-dot {
+  background-color: #ef4444 !important;
+}
+
+.status-tag.is-red-flush-rejected {
+  color: #6b7280 !important;
+  background-color: #f3f4f6 !important;
+  border-color: #e5e7eb !important;
+}
+
+.status-tag.is-red-flush-rejected .status-dot {
+  background-color: #9ca3af !important;
+}
+
+.red-flush-btn {
+  margin-left: 2px;
+}
+
+.reject-btn {
+  margin-left: 2px;
+}
+
+.admin-red-flush-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.target-invoice-summary {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--color-surface-muted, #f9fafb);
+  border: 1px solid var(--color-border, #e5e7eb);
+  border-radius: 8px;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.summary-item.full-width {
+  grid-column: 1 / -1;
+}
+
+.summary-label {
+  color: var(--color-text-muted, #6b7280);
+}
+
+.user-reason-text {
+  color: #d97706;
+  font-weight: 600;
+}
+
+.red-flush-form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-item-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text, #111827);
+}
+
+.required-star {
+  color: #ef4444;
 }
 </style>
 

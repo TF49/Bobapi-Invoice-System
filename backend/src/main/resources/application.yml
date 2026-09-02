@@ -47,8 +47,8 @@ mybatis-plus:
 # JWT 配置
 jwt:
   secret: ${JWT_SECRET:dev-only-secret-key-for-local-development-only}
-  expiration: 86400000  # 24小时（毫秒）
-  remember-me-expiration: 604800000  # 7天（毫秒）
+  expiration: ${JWT_EXPIRATION:86400000}  # 24小时（毫秒）
+  remember-me-expiration: ${JWT_REMEMBER_ME_EXPIRATION:604800000}  # 7天（毫秒）
 
 # 文件存储路径
 file:

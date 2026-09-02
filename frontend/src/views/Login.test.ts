@@ -93,10 +93,10 @@ describe('Login.vue', () => {
     expect(mockedAuthApi.login).toHaveBeenCalledWith({
       username: 'admin',
       password: '123456',
-      rememberMe: false
+      rememberMe: true
     })
     expect(setUserMock).toHaveBeenCalledWith({ username: 'admin', role: 'ADMIN' })
-    expect(setTokenMock).toHaveBeenCalledWith('jwt-admin-token', false)
+    expect(setTokenMock).toHaveBeenCalledWith('jwt-admin-token', true)
     expect(mockPush).toHaveBeenCalledWith('/admin')
   })
 

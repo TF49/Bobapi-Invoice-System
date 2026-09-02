@@ -13,7 +13,9 @@ import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
+import com.invoice.mapper.RechargeRequestMapper;
 import com.invoice.mapper.UserMapper;
+import com.invoice.mapper.UserQuotaMapper;
 import com.invoice.service.UserQuotaService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -39,6 +41,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -66,6 +69,12 @@ class InvoiceServiceTest {
     @Mock
     private UserMapper userMapper;
 
+    @Mock
+    private UserQuotaMapper userQuotaMapper;
+
+    @Mock
+    private RechargeRequestMapper rechargeRequestMapper;
+
     @TempDir
     Path uploadDirectory;
 
@@ -73,7 +82,7 @@ class InvoiceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, userMapper, uploadDirectory.toString());
+        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, userMapper, userQuotaMapper, rechargeRequestMapper, uploadDirectory.toString());
         service.initializeUploadDirectory();
     }
 
@@ -123,7 +132,7 @@ class InvoiceServiceTest {
                 8L, "12345678-1234-1234-1234-123456789012",
                 "示例公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), "咨询服务费", null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("开票类型必须为技术服务费、AI订阅服务费或计算服务费");
+                .hasMessage("开票类型必须为技术服务费、AI订阅服务费、计算服务费或研发和技术服务");
         verify(invoiceMapper, never()).insert(any(Invoice.class));
     }
 
@@ -163,6 +172,25 @@ class InvoiceServiceTest {
         assertThat(response.id()).isEqualTo(100L);
         assertThat(response.invoiceType()).isEqualTo("计算服务费");
         verify(userQuotaService).deductQuota(8L, new BigDecimal("300.00"), 100L);
+    }
+
+    @Test
+    void createsInvoiceWithResearchAndTechnicalServiceType() {
+        when(invoiceMapper.insert(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(101L);
+            return 1;
+        });
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "12345678-1234-1234-1234-123456789101",
+                "示例研发公司", "ABCDEFGHIJKLMNO", new BigDecimal("400.00"),
+                "研发和技术服务", "研发服务"
+        );
+
+        assertThat(response.id()).isEqualTo(101L);
+        assertThat(response.invoiceType()).isEqualTo("研发和技术服务");
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("400.00"), 101L);
     }
 
     @Test
@@ -271,13 +299,31 @@ class InvoiceServiceTest {
     @Test
     void assemblesDashboardStatsFromTheThreeAggregateQueries() {
         when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
-                3L, 1L, 2L, new BigDecimal("2300.75")));
+                3L, 1L, 2L, new BigDecimal("2300.75"), new BigDecimal("500.00")));
         when(invoiceMapper.selectUserInvoiceStats()).thenReturn(List.of(
                 new InvoiceMapper.UserInvoiceStat(
                         8L, "user", 2L, 1L, new BigDecimal("2300.75"))));
         when(invoiceMapper.selectAllTimelineStats()).thenReturn(List.of(
                 new InvoiceMapper.TimelineStatWithUser(
                         8L, LocalDate.of(2026, 8, 19), 2L, new BigDecimal("2300.75"))));
+        when(invoiceMapper.selectInvoiceTypeStats()).thenReturn(List.of(
+                new InvoiceMapper.InvoiceTypeStat("技术服务费", 2L, new BigDecimal("2000.00"))));
+        when(invoiceMapper.selectTopCompanyStats()).thenReturn(List.of(
+                new InvoiceMapper.CompanyStat("示例科技公司", 2L, new BigDecimal("2000.00"))));
+        when(invoiceMapper.selectHourDistributionStats()).thenReturn(List.of(
+                new InvoiceMapper.HourStat(10, 3L)));
+        when(invoiceMapper.selectDailyTrendStats()).thenReturn(List.of(
+                new InvoiceMapper.DailyTrendStat(LocalDate.of(2026, 8, 19), 2L, new BigDecimal("2300.75"), 3L, 1L, 0L)));
+        when(invoiceMapper.selectAmountRangeSummary()).thenReturn(
+                new InvoiceMapper.AmountRangeSummary(
+                        1L, new BigDecimal("300.00"),
+                        2L, new BigDecimal("2000.75"),
+                        0L, BigDecimal.ZERO,
+                        0L, BigDecimal.ZERO,
+                        0L, BigDecimal.ZERO));
+        when(userQuotaMapper.selectQuotaPoolSummary()).thenReturn(
+                new UserQuotaMapper.QuotaPoolSummary(new BigDecimal("10000.00"), new BigDecimal("15000.00"), new BigDecimal("5000.00")));
+        when(rechargeRequestMapper.countPendingRequests()).thenReturn(1L);
 
         DashboardStats stats = service.getDashboardStats();
 
@@ -285,6 +331,7 @@ class InvoiceServiceTest {
         assertThat(stats.pendingInvoices()).isEqualTo(1L);
         assertThat(stats.completedInvoices()).isEqualTo(2L);
         assertThat(stats.totalAmount()).isEqualByComparingTo("2300.75");
+        assertThat(stats.pendingAmount()).isEqualByComparingTo("500.00");
         assertThat(stats.userStats()).singleElement().satisfies(user -> {
             assertThat(user.username()).isEqualTo("user");
             assertThat(user.timeline()).singleElement().satisfies(point -> {
@@ -292,6 +339,21 @@ class InvoiceServiceTest {
                 assertThat(point.count()).isEqualTo(2L);
             });
         });
+        assertThat(stats.typeStats()).singleElement().satisfies(t -> {
+            assertThat(t.invoiceType()).isEqualTo("技术服务费");
+            assertThat(t.count()).isEqualTo(2L);
+        });
+        assertThat(stats.companyTopStats()).singleElement().satisfies(c -> {
+            assertThat(c.companyName()).isEqualTo("示例科技公司");
+        });
+        assertThat(stats.hourDistribution()).hasSize(24);
+        assertThat(stats.amountRangeStats()).hasSize(5);
+        assertThat(stats.amountRangeStats().get(0).count()).isEqualTo(1L);
+        assertThat(stats.amountRangeStats().get(0).amount()).isEqualByComparingTo("300.00");
+        assertThat(stats.amountRangeStats().get(1).count()).isEqualTo(2L);
+        assertThat(stats.amountRangeStats().get(1).amount()).isEqualByComparingTo("2000.75");
+        assertThat(stats.quotaPoolStats().pendingRechargeCount()).isEqualTo(1L);
+        assertThat(stats.quotaPoolStats().totalBalance()).isEqualByComparingTo("10000.00");
     }
 
     @Test
@@ -509,6 +571,227 @@ class InvoiceServiceTest {
         ))
                 .isInstanceOf(BusinessException.class)
                 .hasMessage("税号不能超过 100 个字符");
+    }
+
+    @Test
+    void cancelInvoice_byOwner_success() {
+        Long invoiceId = 100L;
+        Long userId = 8L;
+        Invoice pendingInvoice = invoice(invoiceId, userId, "PENDING");
+        pendingInvoice.setAmount(new BigDecimal("420.00"));
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenAnswer(invocation -> {
+            pendingInvoice.setStatus("CANCELLED");
+            return 1;
+        });
+
+        InvoiceResponse response = service.cancelInvoice(invoiceId, userId, false);
+
+        assertThat(response).isNotNull();
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        verify(userQuotaService).refundQuota(userId, new BigDecimal("420.00"), invoiceId, "取消发票申请");
+    }
+
+    @Test
+    void cancelInvoice_byAdmin_success() {
+        Long invoiceId = 101L;
+        Long ownerId = 8L;
+        Long adminId = 1L;
+        Invoice pendingInvoice = invoice(invoiceId, ownerId, "PENDING");
+        pendingInvoice.setAmount(new BigDecimal("500.00"));
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenAnswer(invocation -> {
+            pendingInvoice.setStatus("CANCELLED");
+            return 1;
+        });
+
+        InvoiceResponse response = service.cancelInvoice(invoiceId, adminId, true);
+
+        assertThat(response).isNotNull();
+        assertThat(response.status()).isEqualTo("CANCELLED");
+        verify(userQuotaService).refundQuota(ownerId, new BigDecimal("500.00"), invoiceId, "取消发票申请");
+    }
+
+    @Test
+    void cancelInvoice_byOtherUser_forbidden() {
+        Long invoiceId = 102L;
+        Long ownerId = 8L;
+        Long otherUserId = 9L;
+        Invoice pendingInvoice = invoice(invoiceId, ownerId, "PENDING");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
+
+        assertThatThrownBy(() -> service.cancelInvoice(invoiceId, otherUserId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("无权取消其他用户的发票");
+        verify(userQuotaService, never()).refundQuota(any(), any(), any(), any());
+    }
+
+    @Test
+    void cancelInvoice_completedInvoice_throwsException() {
+        Long invoiceId = 103L;
+        Long userId = 8L;
+        Invoice completedInvoice = invoice(invoiceId, userId, "COMPLETED");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
+
+        assertThatThrownBy(() -> service.cancelInvoice(invoiceId, userId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("只能取消待开票的发票申请");
+        verify(userQuotaService, never()).refundQuota(any(), any(), any(), any());
+    }
+
+    @Test
+    void cancelInvoice_alreadyCancelled_throwsException() {
+        Long invoiceId = 104L;
+        Long userId = 8L;
+        Invoice cancelledInvoice = invoice(invoiceId, userId, "CANCELLED");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(cancelledInvoice);
+
+        assertThatThrownBy(() -> service.cancelInvoice(invoiceId, userId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("只能取消待开票的发票申请");
+        verify(userQuotaService, never()).refundQuota(any(), any(), any(), any());
+    }
+
+    @Test
+    void cancelInvoice_optimisticLockConflict_throwsException() {
+        Long invoiceId = 105L;
+        Long userId = 8L;
+        Invoice pendingInvoice = invoice(invoiceId, userId, "PENDING");
+        pendingInvoice.setAmount(new BigDecimal("100.00"));
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(0);
+
+        assertThatThrownBy(() -> service.cancelInvoice(invoiceId, userId, false))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("该发票已被处理，无法取消");
+        verify(userQuotaService, never()).refundQuota(any(), any(), any(), any());
+    }
+
+    @Test
+    void applyRedFlush_success() {
+        Long invoiceId = 201L;
+        Long userId = 8L;
+        Invoice completedInvoice = invoice(invoiceId, userId, "COMPLETED");
+        completedInvoice.setRedFlushStatus("NONE");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        InvoiceResponse response = service.applyRedFlush(invoiceId, userId, "税号填错了");
+        assertThat(response).isNotNull();
+        verify(invoiceMapper).update(isNull(), any(Wrapper.class));
+    }
+
+    @Test
+    void applyRedFlush_forbiddenForDifferentUser() {
+        Long invoiceId = 202L;
+        Invoice completedInvoice = invoice(invoiceId, 8L, "COMPLETED");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
+
+        assertThatThrownBy(() -> service.applyRedFlush(invoiceId, 999L, "税号填错了"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("无权申请其他用户的发票红冲");
+    }
+
+    @Test
+    void applyRedFlush_rejectsWhenNotCompleted() {
+        Long invoiceId = 203L;
+        Long userId = 8L;
+        Invoice pendingInvoice = invoice(invoiceId, userId, "PENDING");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
+
+        assertThatThrownBy(() -> service.applyRedFlush(invoiceId, userId, "申请红冲"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("只有已开票的发票可以申请红冲");
+    }
+
+    @Test
+    void applyRedFlush_rejectsDuplicatePending() {
+        Long invoiceId = 204L;
+        Long userId = 8L;
+        Invoice pendingInvoice = invoice(invoiceId, userId, "COMPLETED");
+        pendingInvoice.setRedFlushStatus("PENDING");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
+
+        assertThatThrownBy(() -> service.applyRedFlush(invoiceId, userId, "重复申请"))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("该发票已有待处理的红冲申请，请勿重复提交");
+    }
+
+    @Test
+    void confirmRedFlush_successAndRefundsQuota() {
+        Long invoiceId = 205L;
+        Long operatorId = 1L;
+        Invoice completedInvoice = invoice(invoiceId, 8L, "COMPLETED");
+        completedInvoice.setRedFlushStatus("PENDING");
+        completedInvoice.setAmount(new BigDecimal("150.00"));
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        InvoiceResponse response = service.confirmRedFlush(invoiceId, operatorId, "已作废处理");
+        assertThat(response).isNotNull();
+        verify(userQuotaService).refundQuota(eq(8L), eq(new BigDecimal("150.00")), eq(invoiceId), org.mockito.ArgumentMatchers.contains("发票红冲退还额度"), eq(operatorId), eq("ADMIN"));
+    }
+
+    @Test
+    void directRedFlush_successWithoutUserApply() {
+        Long invoiceId = 208L;
+        Long operatorId = 1L;
+        Invoice completedInvoice = invoice(invoiceId, 8L, "COMPLETED");
+        completedInvoice.setRedFlushStatus("NONE");
+        completedInvoice.setAmount(new BigDecimal("200.00"));
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        InvoiceResponse response = service.confirmRedFlush(invoiceId, operatorId, "开票员直接作废重开");
+        assertThat(response).isNotNull();
+        verify(userQuotaService).refundQuota(eq(8L), eq(new BigDecimal("200.00")), eq(invoiceId), org.mockito.ArgumentMatchers.contains("发票红冲退还额度"), eq(operatorId), eq("ADMIN"));
+    }
+
+    @Test
+    void adminUpdateInvoice_rejectsPendingOrCompletedRedFlush() {
+        Invoice pendingFlush = invoice(301L, 8L, "COMPLETED");
+        pendingFlush.setRedFlushStatus("PENDING");
+        when(invoiceMapper.selectById(301L)).thenReturn(pendingFlush);
+
+        assertThatThrownBy(() -> service.adminUpdateInvoice(
+                301L, "新示例公司", "ABCDE12345678901",
+                new BigDecimal("100.00"), InvoiceService.FIXED_INVOICE_TYPE, "新备注", 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(42201);
+
+        Invoice completedFlush = invoice(302L, 8L, "COMPLETED");
+        completedFlush.setRedFlushStatus("COMPLETED");
+        when(invoiceMapper.selectById(302L)).thenReturn(completedFlush);
+
+        assertThatThrownBy(() -> service.adminUpdateInvoice(
+                302L, "新示例公司", "ABCDE12345678901",
+                new BigDecimal("100.00"), InvoiceService.FIXED_INVOICE_TYPE, "新备注", 1L))
+                .isInstanceOf(BusinessException.class)
+                .extracting("code")
+                .isEqualTo(42201);
+    }
+
+    @Test
+    void rejectRedFlush_successAndRecordsReason() {
+        Long invoiceId = 206L;
+        Long operatorId = 1L;
+        Invoice completedInvoice = invoice(invoiceId, 8L, "COMPLETED");
+        completedInvoice.setRedFlushStatus("PENDING");
+        when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
+        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+
+        InvoiceResponse response = service.rejectRedFlush(invoiceId, operatorId, "发票已入账不可红冲");
+        assertThat(response).isNotNull();
+        verify(userQuotaService, never()).refundQuota(any(), any(), any(), any());
+        verify(userQuotaService, never()).refundQuota(any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void getPendingRedFlushCount_returnsCorrectCount() {
+        when(invoiceMapper.selectCount(any(Wrapper.class))).thenReturn(3L);
+        long count = service.getPendingRedFlushCount();
+        assertThat(count).isEqualTo(3L);
     }
 
     private byte[] imageBytes(String format, int width, int height) throws Exception {

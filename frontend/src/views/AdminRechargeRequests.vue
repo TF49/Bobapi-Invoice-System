@@ -34,7 +34,7 @@
           <strong>暂无充值申请</strong>
         </div>
 
-        <div v-else class="table-scroll">
+        <div v-else class="table-scroll desktop-records">
           <el-table :data="paginatedRequests" v-loading="loading" class="requests-table">
             <el-table-column prop="id" label="申请编号" width="112">
               <template #default="{ row }">
@@ -46,7 +46,13 @@
                 <span class="username-cell">{{ row.username || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="amount" label="申请金额" width="140" align="right">
+            <el-table-column prop="feeAmount" label="手续费" width="130" align="right">
+              <template #default="{ row }">
+                <span v-if="row.feeAmount != null" class="money-cell">{{ formatCurrency(row.feeAmount) }}</span>
+                <span v-else class="text-muted">历史记录</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="amount" label="申请额度" width="140" align="right">
               <template #default="{ row }">
                 <span class="money-cell amount-positive">{{ formatCurrency(row.amount) }}</span>
               </template>
@@ -107,6 +113,73 @@
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <!-- 移动端充值审核卡片列表 -->
+        <div v-if="requests.length > 0" v-loading="loading" class="mobile-records">
+          <article v-for="row in paginatedRequests" :key="row.id" class="recharge-record-card">
+            <div class="record-card-header">
+              <div class="record-user-info">
+                <span class="user-avatar-tag">{{ (row.username || 'U').slice(0, 1).toUpperCase() }}</span>
+                <div class="record-user-copy">
+                  <strong class="record-username">{{ row.username || '-' }}</strong>
+                  <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
+                </div>
+              </div>
+              <el-tag class="status-tag" :class="getStatusClass(row.status)">
+                <i class="status-dot" />
+                {{ getStatusLabel(row.status) }}
+              </el-tag>
+            </div>
+            <div class="record-card-body">
+              <div class="record-detail-row">
+                <span class="detail-label">手续费</span>
+                <strong v-if="row.feeAmount != null" class="money-cell">{{ formatCurrency(row.feeAmount) }}</strong>
+                <span v-else class="text-muted">历史记录</span>
+              </div>
+              <div class="record-detail-row">
+                <span class="detail-label">申请额度</span>
+                <strong class="money-cell amount-positive">{{ formatCurrency(row.amount) }}</strong>
+              </div>
+              <div v-if="row.screenshotUrl" class="record-detail-row">
+                <span class="detail-label">充值凭证</span>
+                <el-image
+                  :src="getImageUrl(row.screenshotUrl)"
+                  :preview-src-list="[getImageUrl(row.screenshotUrl)]"
+                  preview-teleported
+                  fit="cover"
+                  class="mobile-screenshot-thumb"
+                />
+              </div>
+              <div v-if="row.remark" class="record-detail-row full-width">
+                <span class="detail-label">用户备注</span>
+                <span class="remark-cell">{{ row.remark }}</span>
+              </div>
+              <div class="record-detail-row full-width">
+                <span class="detail-label">申请时间</span>
+                <span class="time-text">{{ formatDateTime(row.createdAt) }}</span>
+              </div>
+            </div>
+            <div class="record-card-actions">
+              <el-button
+                v-if="row.status === 'PENDING'"
+                type="primary"
+                size="small"
+                @click="handleReview(row)"
+              >
+                审核申请
+              </el-button>
+              <el-button
+                v-else
+                type="info"
+                size="small"
+                plain
+                @click="handleViewDetail(row)"
+              >
+                查看详情
+              </el-button>
+            </div>
+          </article>
         </div>
 
         <div v-if="requests.length > 0" class="pagination-bar">
@@ -174,8 +247,13 @@
               <strong class="info-value user-highlight">{{ currentRequest.username || '-' }}</strong>
             </div>
             <div class="info-row">
-              <span class="info-label">充值金额</span>
-              <strong class="info-value amount-badge">+{{ formatCurrency(currentRequest.amount) }}</strong>
+              <span class="info-label">手续费</span>
+              <strong v-if="currentRequest.feeAmount != null" class="info-value">{{ formatCurrency(currentRequest.feeAmount) }}</strong>
+              <span v-else class="info-value text-muted">历史记录</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">申请额度</span>
+              <strong class="info-value amount-badge">{{ formatCurrency(currentRequest.amount) }}</strong>
             </div>
             <div class="info-row">
               <span class="info-label">申请时间</span>
@@ -273,8 +351,13 @@
               <strong class="info-value">{{ currentRequest.username || '-' }}</strong>
             </div>
             <div class="info-row">
-              <span class="info-label">申请金额</span>
-              <strong class="info-value amount-badge">+{{ formatCurrency(currentRequest.amount) }}</strong>
+              <span class="info-label">手续费</span>
+              <strong v-if="currentRequest.feeAmount != null" class="info-value">{{ formatCurrency(currentRequest.feeAmount) }}</strong>
+              <span v-else class="info-value text-muted">历史记录</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">申请额度</span>
+              <strong class="info-value amount-badge">{{ formatCurrency(currentRequest.amount) }}</strong>
             </div>
             <div class="info-row">
               <span class="info-label">审核状态</span>
@@ -579,6 +662,10 @@ onMounted(() => {
   background: #f5faf8 !important;
 }
 
+.mobile-records {
+  display: none;
+}
+
 .table-screenshot-thumb {
   width: 52px;
   height: 52px;
@@ -717,5 +804,147 @@ onMounted(() => {
 
 .danger-text {
   color: #c9463d;
+}
+
+@media (max-width: 768px) {
+  .desktop-records {
+    display: none;
+  }
+
+  .mobile-records {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #f7f9f8;
+  }
+
+  .recharge-record-card {
+    padding: 14px 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(24, 39, 34, 0.04);
+  }
+
+  .record-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .record-user-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .user-avatar-tag {
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--color-primary-soft, #e9f4f0);
+    color: var(--color-primary, #12715b);
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .record-user-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+
+  .record-username {
+    font-size: 13px;
+    color: var(--color-text);
+  }
+
+  .record-card-body {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px 12px;
+    margin: 10px 0;
+  }
+
+  .record-detail-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .record-detail-row.full-width {
+    grid-column: 1 / -1;
+  }
+
+  .detail-label {
+    color: var(--color-text-muted);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  .time-text {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  .mobile-screenshot-thumb {
+    width: 54px;
+    height: 54px;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    cursor: pointer;
+  }
+
+  .record-card-actions {
+    display: flex;
+    padding-top: 10px;
+    border-top: 1px dashed var(--color-border);
+  }
+
+  .record-card-actions .el-button {
+    width: 100%;
+    height: 36px;
+  }
+
+  /* 审核弹窗移动端转单栏 */
+  .review-dialog-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .proof-card {
+    height: 220px;
+  }
+
+  .dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    width: 100%;
+  }
+
+  .dialog-actions .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
+
+  .review-status-group {
+    display: flex;
+    width: 100%;
+  }
+
+  .review-status-group :deep(.el-radio-button) {
+    flex: 1;
+  }
+
+  .review-status-group :deep(.el-radio-button__inner) {
+    width: 100%;
+    padding: 8px 12px;
+    font-size: 13px;
+  }
 }
 </style>

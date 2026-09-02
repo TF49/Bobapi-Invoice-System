@@ -30,7 +30,7 @@ public class AiParseResponse {
     private BigDecimal amount;
 
     /**
-     * 识别到的开票类型（技术服务费 / AI订阅服务费 / 计算服务费），未识别或不在白名单内则为 null
+     * 识别到的开票类型（技术服务费 / AI订阅服务费 / 计算服务费 / 研发和技术服务），未识别或不在白名单内则为 null
      */
     private String invoiceType;
 

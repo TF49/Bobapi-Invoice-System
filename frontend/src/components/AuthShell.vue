@@ -200,7 +200,7 @@ defineProps<{
 
   .auth-brand-content {
     min-height: auto;
-    padding: 28px 24px 36px;
+    padding: max(28px, env(safe-area-inset-top, 28px)) max(24px, env(safe-area-inset-right, 24px)) 36px max(24px, env(safe-area-inset-left, 24px));
   }
 
   .auth-brand-copy {
@@ -217,7 +217,7 @@ defineProps<{
 
   .auth-main {
     min-height: auto;
-    padding: 48px 24px 56px;
+    padding: 40px max(24px, env(safe-area-inset-right, 24px)) max(56px, env(safe-area-inset-bottom, 56px)) max(24px, env(safe-area-inset-left, 24px));
   }
 }
 

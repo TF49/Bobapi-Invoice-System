@@ -123,7 +123,7 @@ onUnmounted(() => {
 const form = reactive({
   username: '',
   password: '',
-  rememberMe: false
+  rememberMe: true
 })
 
 const rules = {

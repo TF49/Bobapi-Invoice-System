@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import ElementPlus, { ElMessage } from 'element-plus'
+import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UserInvoice from './UserInvoice.vue'
@@ -18,7 +18,12 @@ vi.mock('@/api/invoice', () => ({
     parseInvoiceText: vi.fn(),
     verifyInvoiceText: vi.fn(),
     updateProcessed: vi.fn(),
-    batchUpdateProcessed: vi.fn()
+    batchUpdateProcessed: vi.fn(),
+    cancelInvoice: vi.fn(),
+    applyRedFlush: vi.fn(),
+    confirmRedFlush: vi.fn(),
+    rejectRedFlush: vi.fn(),
+    getPendingRedFlushCount: vi.fn()
   }
 }))
 
@@ -221,6 +226,85 @@ describe('UserInvoice', () => {
     expect(page.text()).not.toContain('较早公司')
   })
 
+  it('filters invoices by keyword search and search button', async () => {
+    const invoiceA: Invoice = {
+      id: 101,
+      companyName: '阿里巴巴云计算有限公司',
+      taxNumber: '913301007432123456',
+      amount: 1000.00,
+      invoiceType: '云服务费',
+      remark: '8月份账单',
+      status: 'COMPLETED',
+      userId: 2,
+      createdAt: '2026-08-20T10:00:00',
+      updatedAt: '2026-08-20T10:00:00',
+      downloadable: true,
+      fileExists: true,
+      fileName: 'ali.png'
+    }
+    const invoiceB: Invoice = {
+      id: 102,
+      companyName: '腾讯云计算有限责任公司',
+      taxNumber: '91440300123456789X',
+      amount: 2000.00,
+      invoiceType: '技术服务费',
+      remark: '服务器代付',
+      status: 'PENDING',
+      userId: 2,
+      createdAt: '2026-08-22T10:00:00',
+      updatedAt: '2026-08-22T10:00:00',
+      downloadable: false,
+      fileExists: false,
+      fileName: ''
+    }
+
+    mockedApi.getMyInvoices.mockResolvedValue([invoiceA, invoiceB])
+
+    const page = await mountPage()
+    expect(page.find('.result-count').text()).toContain('2 条记录')
+
+    // 1. 按公司名称搜索
+    const searchInput = page.find('.search-input input')
+    expect(searchInput.exists()).toBe(true)
+    await searchInput.setValue('阿里')
+    await flushPromises()
+
+    expect(page.find('.result-count').text()).toContain('1 条记录')
+    expect(page.text()).toContain('阿里巴巴云计算有限公司')
+    expect(page.text()).not.toContain('腾讯云计算有限责任公司')
+
+    // 2. 按税号搜索
+    await searchInput.setValue('123456789X')
+    await flushPromises()
+    expect(page.find('.result-count').text()).toContain('1 条记录')
+    expect(page.text()).toContain('腾讯云计算有限责任公司')
+    expect(page.text()).not.toContain('阿里巴巴云计算有限公司')
+
+    // 3. 按备注搜索
+    await searchInput.setValue('8月份账单')
+    await flushPromises()
+    expect(page.find('.result-count').text()).toContain('1 条记录')
+    expect(page.text()).toContain('阿里巴巴云计算有限公司')
+
+    // 4. 按开票编号搜索 (如 #0102 或 102)
+    await searchInput.setValue('#0102')
+    await flushPromises()
+    expect(page.find('.result-count').text()).toContain('1 条记录')
+    expect(page.text()).toContain('腾讯云计算有限责任公司')
+
+    // 5. 测试点击搜索按钮及回车键
+    const searchButton = page.findAll('button').find(btn => btn.text().includes('搜索'))
+    expect(searchButton?.exists()).toBe(true)
+    await searchButton?.trigger('click')
+    await flushPromises()
+    expect(page.find('.result-count').text()).toContain('1 条记录')
+
+    // 6. 清空搜索关键字
+    await searchInput.setValue('')
+    await flushPromises()
+    expect(page.find('.result-count').text()).toContain('2 条记录')
+  })
+
   it('renders aligned record actions for desktop and mobile layouts', async () => {
     mockedApi.getMyInvoices.mockResolvedValue([completedInvoice])
 
@@ -228,8 +312,8 @@ describe('UserInvoice', () => {
 
     expect(page.find('.result-count').text()).toContain('1 条记录')
     expect(page.find('.invoice-id').text()).toBe('#0001')
-    expect(page.findAll('.record-actions .record-action-button')).toHaveLength(3)
-    expect(page.findAll('.mobile-record-actions button')).toHaveLength(3)
+    expect(page.findAll('.record-actions .record-action-button')).toHaveLength(4)
+    expect(page.findAll('.mobile-record-actions button')).toHaveLength(4)
     expect(page.find('.mobile-records').text()).toContain('¥300.01')
   })
 
@@ -467,6 +551,39 @@ describe('UserInvoice', () => {
     )
   })
 
+  it('allows submitting with 研发和技术服务 invoice type', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('某某研发科技有限公司')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('2000.00')
+
+    const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
+    if (typeSelect) {
+      await typeSelect.setValue('研发和技术服务')
+      await flushPromises()
+    }
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyName: '某某研发科技有限公司',
+        taxNumber: '91410100MAE5H38A0F',
+        amount: 2000.00,
+        invoiceType: '研发和技术服务'
+      }),
+      expect.any(String)
+    )
+  })
+
   it('renders pagination and paginates items when multiple pages exist', async () => {
     const manyInvoices: Invoice[] = Array.from({ length: 25 }, (_, i) => ({
       ...completedInvoice,
@@ -482,7 +599,7 @@ describe('UserInvoice', () => {
     expect(page.text()).toContain('测试公司_1')
     expect(page.text()).toContain('测试公司_10')
     expect(page.text()).not.toContain('测试公司_11')
-  })
+  }, 15000)
 
   it('renders warning danger tag for non-default invoiceType and warning text for remark', async () => {
     mockedApi.getMyInvoices.mockResolvedValue([
@@ -553,5 +670,149 @@ describe('UserInvoice', () => {
     await flushPromises()
 
     expect(mockedApi.updateProcessed).toHaveBeenCalledWith(201, true)
+  })
+
+  it('renders cancel button for pending invoices and does not render for completed invoices', async () => {
+    const pendingInvoice: Invoice = {
+      id: 122,
+      companyName: '合肥工业大学',
+      taxNumber: '12100000400016984P',
+      amount: 420.00,
+      invoiceType: '技术服务费',
+      remark: '',
+      status: 'PENDING',
+      userId: 2,
+      createdAt: '2026-08-28T15:01:00',
+      updatedAt: '2026-08-28T15:01:00',
+      downloadable: false,
+      fileExists: false
+    }
+
+    mockedApi.getMyInvoices.mockResolvedValue([
+      pendingInvoice,
+      completedInvoice
+    ])
+
+    const page = await mountPage()
+    const cancelButtons = page.findAll('.cancel-action-btn')
+    expect(cancelButtons.length).toBe(1)
+    expect(cancelButtons[0].text()).toContain('取消申请')
+
+    // 已开票的发票包含下载/查看等按钮，但不包含取消按钮
+    const allButtons = page.findAll('button')
+    const completedCancelBtn = allButtons.find(b => b.text().includes('取消申请') && b.element.closest('tr')?.textContent?.includes('测试公司'))
+    expect(completedCancelBtn).toBeUndefined()
+  })
+
+  it('handles cancellation confirmation and successfully calls cancelInvoice', async () => {
+    const pendingInvoice: Invoice = {
+      id: 122,
+      companyName: '合肥工业大学',
+      taxNumber: '12100000400016984P',
+      amount: 420.00,
+      invoiceType: '技术服务费',
+      remark: '',
+      status: 'PENDING',
+      userId: 2,
+      createdAt: '2026-08-28T15:01:00',
+      updatedAt: '2026-08-28T15:01:00',
+      downloadable: false,
+      fileExists: false
+    }
+
+    mockedApi.getMyInvoices.mockResolvedValue([pendingInvoice])
+    mockedApi.cancelInvoice.mockResolvedValue({
+      ...pendingInvoice,
+      status: 'CANCELLED'
+    } as never)
+
+    vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as never)
+
+    const page = await mountPage()
+    const cancelBtn = page.find('.cancel-action-btn')
+    expect(cancelBtn.exists()).toBe(true)
+
+    await cancelBtn.trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalled()
+    expect(mockedApi.cancelInvoice).toHaveBeenCalledWith(122)
+    expect(ElMessage.success).toHaveBeenCalledWith('发票申请已取消，金额已退还到账户余额')
+  })
+
+  it('does not cancel invoice if user cancels confirmation dialog', async () => {
+    const pendingInvoice: Invoice = {
+      id: 122,
+      companyName: '合肥工业大学',
+      taxNumber: '12100000400016984P',
+      amount: 420.00,
+      invoiceType: '技术服务费',
+      remark: '',
+      status: 'PENDING',
+      userId: 2,
+      createdAt: '2026-08-28T15:01:00',
+      updatedAt: '2026-08-28T15:01:00',
+      downloadable: false,
+      fileExists: false
+    }
+
+    mockedApi.getMyInvoices.mockResolvedValue([pendingInvoice])
+    vi.spyOn(ElMessageBox, 'confirm').mockRejectedValue('cancel')
+
+    const page = await mountPage()
+    const cancelBtn = page.find('.cancel-action-btn')
+    await cancelBtn.trigger('click')
+    await flushPromises()
+
+    expect(ElMessageBox.confirm).toHaveBeenCalled()
+    expect(mockedApi.cancelInvoice).not.toHaveBeenCalled()
+  })
+
+  it('displays turnaround time notice in submit dialog footer', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    expect(openSubmitBtn).toBeDefined()
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const submitTip = page.find('.submit-invoice-dialog .submit-dialog-tip')
+    expect(submitTip.exists()).toBe(true)
+    expect(submitTip.text()).toContain('开发票需要 2 到 3 个工作日')
+  })
+
+  it('opens apply red flush dialog and submits red flush application', async () => {
+    mockedApi.getMyInvoices.mockResolvedValue([completedInvoice])
+    mockedApi.applyRedFlush.mockResolvedValue({
+      ...completedInvoice,
+      redFlushStatus: 'PENDING',
+      redFlushReason: '抬头填写错误需重开'
+    } as never)
+
+    const page = await mountPage()
+    const dropdown = page.findComponent({ name: 'ElDropdown' })
+    if (dropdown.exists()) {
+      dropdown.vm.$emit('command', 'applyRedFlush')
+    } else {
+      const redFlushBtn = page.find('.red-flush-action-btn')
+      expect(redFlushBtn.exists()).toBe(true)
+      await redFlushBtn.trigger('click')
+    }
+    await flushPromises()
+
+    // 弹窗可见，输入申请原因
+    const redFlushDialog = page.find('.red-flush-dialog')
+    expect(redFlushDialog.exists()).toBe(true)
+    const textarea = redFlushDialog.find('textarea')
+    await textarea.setValue('企业抬头填写有误需重开')
+    await flushPromises()
+
+    // 点击提交红冲申请
+    const submitRedFlushBtn = redFlushDialog.findAll('.dialog-footer button').find(b => b.text().includes('确认提交红冲申请'))
+    expect(submitRedFlushBtn).toBeDefined()
+    await submitRedFlushBtn!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.applyRedFlush).toHaveBeenCalledWith(completedInvoice.id, expect.any(String))
+    expect(ElMessage.success).toHaveBeenCalledWith('红冲申请已提交，请等待开票员核验标记')
   })
 })

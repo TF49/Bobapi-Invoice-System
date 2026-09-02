@@ -3,6 +3,7 @@
     v-model="visible"
     title="批量导入发票申请"
     width="900px"
+    class="batch-import-dialog"
     :close-on-click-modal="false"
     :before-close="handleBeforeClose"
     @closed="resetDialogState"
@@ -164,16 +165,24 @@
     </div>
 
     <template #footer>
-      <el-button @click="handleClose">{{ submitResult ? '关闭' : '取消' }}</el-button>
-      <el-button
-        v-if="parsedData.length > 0 && !submitResult"
-        type="primary"
-        :loading="submitting"
-        :disabled="hasErrors"
-        @click="handleSubmit"
-      >
-        确认导入
-      </el-button>
+      <div class="batch-dialog-footer">
+        <div class="batch-dialog-actions">
+          <el-button @click="handleClose">{{ submitResult ? '关闭' : '取消' }}</el-button>
+          <el-button
+            v-if="parsedData.length > 0 && !submitResult"
+            type="primary"
+            :loading="submitting"
+            :disabled="hasErrors"
+            @click="handleSubmit"
+          >
+            确认导入
+          </el-button>
+        </div>
+        <div v-if="parsedData.length > 0 && !submitResult" class="submit-dialog-tip">
+          <el-icon class="submit-tip-icon"><InfoFilled /></el-icon>
+          <span>提示：开发票需要 2 到 3 个工作日</span>
+        </div>
+      </div>
     </template>
   </el-dialog>
 </template>
@@ -181,7 +190,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { ElMessage, type UploadFile, type UploadInstance } from 'element-plus';
-import { Download, Upload, Warning } from '@element-plus/icons-vue';
+import { Download, InfoFilled, Upload, Warning } from '@element-plus/icons-vue';
 import {
   parseInvoiceFile,
   validateAllRows,
@@ -392,13 +401,22 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
   margin-bottom: 20px;
 }
 
+.file-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
 .upload-area {
   display: inline-block;
 }
 
 .file-name {
   color: #606266;
-  font-size: 14px;
+  font-size: 13px;
+  word-break: break-all;
 }
 
 .preview-section {
@@ -408,9 +426,11 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
 .preview-header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
   font-weight: 500;
+  flex-wrap: wrap;
 }
 
 .preview-table {
@@ -424,6 +444,7 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
   gap: 12px;
   margin-top: 12px;
   padding-top: 10px;
+  flex-wrap: wrap;
 }
 
 .dialog-pagination-bar > span {
@@ -471,5 +492,60 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.batch-dialog-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.batch-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  width: 100%;
+}
+
+.submit-dialog-tip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
+  user-select: none;
+}
+
+.submit-dialog-tip .submit-tip-icon {
+  font-size: 13px;
+  color: #e6a23c;
+}
+
+@media (max-width: 600px) {
+  .file-section {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .file-section .el-button,
+  .upload-area,
+  .upload-area :deep(.el-upload),
+  .upload-area :deep(.el-upload .el-button) {
+    width: 100%;
+  }
+
+  .batch-dialog-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .batch-dialog-actions .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
 }
 </style>

@@ -17,6 +17,12 @@ export interface Invoice {
   fileExists: boolean
   fileName?: string
   isProcessed?: boolean
+  redFlushStatus?: 'NONE' | 'PENDING' | 'COMPLETED' | 'REJECTED'
+  redFlushReason?: string
+  redFlushRemark?: string
+  redFlushApplyTime?: string
+  redFlushCompleteTime?: string
+  redFlushOperatorId?: number
 }
 
 export interface InvoiceRequest {
@@ -145,6 +151,31 @@ export const invoiceApi = {
   // 批量更新发票已处理标记（用于历史本地数据自动云端同步）
   batchUpdateProcessed(invoiceIds: number[], isProcessed: boolean) {
     return request.put<any, number>('/invoices/batch/processed', { invoiceIds, isProcessed })
+  },
+
+  // 取消未开票的发票申请
+  cancelInvoice(id: number) {
+    return request.post<any, Invoice>(`/invoices/${id}/cancel`)
+  },
+
+  // 用户申请发票红冲
+  applyRedFlush(id: number, reason: string) {
+    return request.post<any, Invoice>(`/invoices/${id}/red-flush/apply`, { reason })
+  },
+
+  // 获取待处理红冲数量（管理员/开票员）
+  getPendingRedFlushCount() {
+    return request.get<any, number>('/invoices/admin/red-flush/pending-count')
+  },
+
+  // 管理员/开票员确认红冲标记
+  confirmRedFlush(id: number, remark?: string) {
+    return request.post<any, Invoice>(`/invoices/admin/${id}/red-flush/confirm`, { remark })
+  },
+
+  // 管理员/开票员驳回红冲申请
+  rejectRedFlush(id: number, reason: string) {
+    return request.post<any, Invoice>(`/invoices/admin/${id}/red-flush/reject`, { reason })
   }
 }
 

@@ -47,7 +47,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
               "companyName": "企业/公司完整名称（字符串，若未找到则为 null）",
               "taxNumber": "纳税人识别号/统一社会信用代码（字符串，若为个人、无税号或未找到则为 null）",
               "amount": 1234.56（开票金额数字，单位元，若未找到则为 null）,
-              "invoiceType": "开票类型（仅限：技术服务费、AI订阅服务费、计算服务费三者之一；若文本中未明确提及任何一种则输出 null）"
+              "invoiceType": "开票类型（仅限：技术服务费、AI订阅服务费、计算服务费、研发和技术服务之一；若文本中未明确提及任何一种则输出 null）"
             }
             """;
 
@@ -60,7 +60,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
               "companyName": "经核查确认或修正后的企业/公司完整名称（字符串，若文本中未找到则为 null）",
               "taxNumber": "经核查确认或修正后的纳税人识别号（字符串，若个人/无税号或文本中未找到则为 null）",
               "amount": 1234.56（经核查确认或修正后的开票金额，单位元，若文本中未找到则为 null）,
-              "invoiceType": "经核查确认或修正后的开票类型（仅限：技术服务费、AI订阅服务费、计算服务费三者之一；若文本中未明确提及任何一种则输出 null）"
+              "invoiceType": "经核查确认或修正后的开票类型（仅限：技术服务费、AI订阅服务费、计算服务费、研发和技术服务之一；若文本中未明确提及任何一种则输出 null）"
             }
             """;
 

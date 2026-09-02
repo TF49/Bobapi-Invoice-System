@@ -86,7 +86,8 @@ describe('invoice batch import validation', () => {
     expect(validateRow(row({ invoiceType: '技术服务费' }))).toBeNull()
     expect(validateRow(row({ invoiceType: 'AI订阅服务费' }))).toBeNull()
     expect(validateRow(row({ invoiceType: '计算服务费' }))).toBeNull()
-    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型必须为技术服务费、AI订阅服务费或计算服务费')
+    expect(validateRow(row({ invoiceType: '研发和技术服务' }))).toBeNull()
+    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型必须为技术服务费、AI订阅服务费、计算服务费或研发和技术服务')
   })
 
   it('compares duplicate rows after normalization', () => {

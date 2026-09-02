@@ -5,6 +5,7 @@ import ElementPlus from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import UserQuota from './UserQuota.vue'
 import { quotaApi, type QuotaTransaction } from '@/api/quota'
+import { userApi } from '@/api/user'
 
 vi.mock('@/api/quota', () => ({
   quotaApi: {
@@ -13,7 +14,14 @@ vi.mock('@/api/quota', () => ({
   }
 }))
 
+vi.mock('@/api/user', () => ({
+  userApi: {
+    getMyApiKey: vi.fn()
+  }
+}))
+
 const mockedQuotaApi = vi.mocked(quotaApi)
+const mockedUserApi = vi.mocked(userApi)
 let wrapper: VueWrapper | null = null
 
 const sampleTransaction: QuotaTransaction = {
@@ -53,6 +61,10 @@ describe('UserQuota', () => {
       totalDeducted: 0
     })
     mockedQuotaApi.getMyTransactions.mockResolvedValue([sampleTransaction])
+    mockedUserApi.getMyApiKey.mockResolvedValue({
+      apiKey: 'bk_live_test_1234567890',
+      apiKeyEnabled: true
+    })
   })
 
   afterEach(() => {
@@ -69,5 +81,18 @@ describe('UserQuota', () => {
     expect(page.find('.record-id').text()).toBe('#0001')
     expect(page.find('.records-table').text()).toContain('充值')
     expect(page.find('.records-table').text()).toContain('+¥100.00')
+  })
+
+  it('renders OpenAPI cancellation endpoint example when switching to API tab', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    expect(apiTabBtn).toBeDefined()
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    const text = page.text()
+    expect(text).toContain('取消待开票申请 (自动退还额度)')
+    expect(text).toContain('/open/v1/invoices/by-out-trade-no/{outTradeNo}/cancel')
+    expect(text).toContain('/open/v1/invoices/{id}/cancel')
   })
 })

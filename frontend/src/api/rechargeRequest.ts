@@ -4,6 +4,7 @@ export interface RechargeRequest {
   id: number
   userId: number
   username?: string
+  feeAmount?: number | null
   amount: number
   screenshotUrl?: string
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
@@ -17,8 +18,8 @@ export interface RechargeRequest {
 }
 
 export interface CreateRechargeRequest {
-  amount: number
-  screenshotUrl?: string
+  feeAmount: number
+  screenshotUrl: string
   remark?: string
 }
 
@@ -29,8 +30,10 @@ export interface ReviewRechargeRequest {
 
 export const rechargeRequestApi = {
   // 用户端：创建充值申请
-  createRequest(data: CreateRechargeRequest) {
-    return request.post<any, RechargeRequest>('/recharge-requests', data)
+  createRequest(data: CreateRechargeRequest, idempotencyKey: string) {
+    return request.post<any, RechargeRequest>('/recharge-requests', data, {
+      headers: { 'Idempotency-Key': idempotencyKey }
+    })
   },
 
   // 用户端：获取自己的充值申请列表

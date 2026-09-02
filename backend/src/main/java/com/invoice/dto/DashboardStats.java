@@ -24,14 +24,49 @@ public record DashboardStats(
         Long completedInvoices,
 
         /**
-         * 总开票金额
+         * 总开票金额（已开票）
          */
         BigDecimal totalAmount,
 
         /**
+         * 待开票总金额
+         */
+        BigDecimal pendingAmount,
+
+        /**
          * 各用户统计列表
          */
-        List<UserInvoiceStats> userStats
+        List<UserInvoiceStats> userStats,
+
+        /**
+         * 开票类目统计列表
+         */
+        List<InvoiceTypeStat> typeStats,
+
+        /**
+         * 企业抬头开票排行
+         */
+        List<CompanyStat> companyTopStats,
+
+        /**
+         * 金额区间分布统计
+         */
+        List<AmountRangeStat> amountRangeStats,
+
+        /**
+         * 24小时申请热度分布
+         */
+        List<HourStat> hourDistribution,
+
+        /**
+         * 每日综合开票走势（过去90天）
+         */
+        List<DailyTrendStat> dailyTrend,
+
+        /**
+         * 额度与资金池统计
+         */
+        QuotaPoolStat quotaPoolStats
 ) {
 
     /**
@@ -87,5 +122,64 @@ public record DashboardStats(
              * 当日开票金额
              */
             BigDecimal amount
+    ) {}
+
+    /**
+     * 开票类目统计
+     */
+    public record InvoiceTypeStat(
+            String invoiceType,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    /**
+     * 企业抬头统计
+     */
+    public record CompanyStat(
+            String companyName,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    /**
+     * 金额区间统计
+     */
+    public record AmountRangeStat(
+            String rangeLabel,
+            Long minAmount,
+            Long maxAmount,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    /**
+     * 小时时段统计
+     */
+    public record HourStat(
+            Integer hour,
+            Long count
+    ) {}
+
+    /**
+     * 每日综合趋势统计
+     */
+    public record DailyTrendStat(
+            LocalDate date,
+            Long completedCount,
+            BigDecimal completedAmount,
+            Long createdCount,
+            Long pendingCount,
+            Long cancelledCount
+    ) {}
+
+    /**
+     * 额度与资金池统计
+     */
+    public record QuotaPoolStat(
+            BigDecimal totalBalance,
+            BigDecimal totalRecharged,
+            BigDecimal totalDeducted,
+            Long pendingRechargeCount
     ) {}
 }

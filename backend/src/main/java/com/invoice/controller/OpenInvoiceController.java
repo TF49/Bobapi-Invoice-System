@@ -149,6 +149,30 @@ public class OpenInvoiceController {
         return downloadInvoiceById(invoice.id(), principal, request);
     }
 
+    /**
+     * 按内部发票 ID 取消未开票的发票申请（OpenAPI）
+     */
+    @PostMapping("/{id}/cancel")
+    public ApiResponse<OpenInvoiceResponse> cancelInvoiceById(
+            @PathVariable Long id,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("open-invoice-cancel:user:" + principal.userId(),
+                30, Duration.ofMinutes(1), 42905, "取消操作过于频繁，请稍后再试");
+        return ApiResponse.success("取消成功", invoiceService.cancelOpenInvoice(principal.userId(), id));
+    }
+
+    /**
+     * 按外部商户订单号取消未开票的发票申请（OpenAPI）
+     */
+    @PostMapping("/by-out-trade-no/{outTradeNo}/cancel")
+    public ApiResponse<OpenInvoiceResponse> cancelInvoiceByOutTradeNo(
+            @PathVariable String outTradeNo,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("open-invoice-cancel:user:" + principal.userId(),
+                30, Duration.ofMinutes(1), 42905, "取消操作过于频繁，请稍后再试");
+        return ApiResponse.success("取消成功", invoiceService.cancelOpenInvoiceByOutTradeNo(principal.userId(), outTradeNo));
+    }
+
     private void enforceRateLimit(String key, int limit, Duration window, int code, String message) {
         RateLimitService.RateLimitResult result = rateLimitService.tryAcquire(key, limit, window);
         if (!result.allowed()) {

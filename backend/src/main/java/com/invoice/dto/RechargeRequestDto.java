@@ -16,13 +16,13 @@ import java.math.BigDecimal;
 public class RechargeRequestDto {
     
     /**
-     * 申请充值金额
+     * 用户支付的手续费，最终申请额度由服务端按固定比例计算
      */
-    @NotNull(message = "充值金额不能为空")
-    @DecimalMin(value = "0.01", message = "充值金额不能小于 0.01 元")
-    @DecimalMax(value = "999999.99", message = "充值金额不能超过 999999.99 元")
-    @Digits(integer = 6, fraction = 2, message = "充值金额最多保留 2 位小数")
-    private BigDecimal amount;
+    @NotNull(message = "手续费不能为空")
+    @DecimalMin(value = "0.01", message = "手续费不能小于 0.01 元")
+    @DecimalMax(value = "29999.99", message = "手续费不能超过 29999.99 元")
+    @Digits(integer = 5, fraction = 2, message = "手续费最多保留 2 位小数")
+    private BigDecimal feeAmount;
     
     /**
      * 充值截图URL

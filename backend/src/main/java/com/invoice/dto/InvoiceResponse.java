@@ -17,6 +17,12 @@ public record InvoiceResponse(
         String remark,
         String status,
         boolean isProcessed,
+        String redFlushStatus,
+        String redFlushReason,
+        String redFlushRemark,
+        LocalDateTime redFlushApplyTime,
+        LocalDateTime redFlushCompleteTime,
+        Long redFlushOperatorId,
         Long userId,
         String username,
         LocalDateTime createdAt,
@@ -42,6 +48,7 @@ public record InvoiceResponse(
         }
         boolean downloadable = exists && isSupportedImage(invoice.getFileName());
         boolean isProcessed = invoice.getIsProcessed() != null && invoice.getIsProcessed();
+        String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getCompanyName(),
@@ -51,6 +58,12 @@ public record InvoiceResponse(
                 invoice.getRemark(),
                 invoice.getStatus(),
                 isProcessed,
+                redFlushStatus,
+                invoice.getRedFlushReason(),
+                invoice.getRedFlushRemark(),
+                invoice.getRedFlushApplyTime(),
+                invoice.getRedFlushCompleteTime(),
+                invoice.getRedFlushOperatorId(),
                 invoice.getUserId(),
                 username,
                 invoice.getCreatedAt(),

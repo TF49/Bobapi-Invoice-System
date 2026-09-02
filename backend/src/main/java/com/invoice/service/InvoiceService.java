@@ -14,7 +14,9 @@ import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
+import com.invoice.mapper.RechargeRequestMapper;
 import com.invoice.mapper.UserMapper;
+import com.invoice.mapper.UserQuotaMapper;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -65,12 +67,14 @@ public class InvoiceService {
     private static final Pattern DECIMAL_AMOUNT_PATTERN = Pattern.compile("^\\d+(?:\\.\\d{1,2})?$");
     private static final BigDecimal MIN_INVOICE_AMOUNT = new BigDecimal("0.01");
     public static final String FIXED_INVOICE_TYPE = "技术服务费";
-    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费");
+    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费", "研发和技术服务");
 
     private final InvoiceMapper invoiceMapper;
     private final InvoiceBatchMapper invoiceBatchMapper;
     private final UserQuotaService userQuotaService;
     private final UserMapper userMapper;
+    private final UserQuotaMapper userQuotaMapper;
+    private final RechargeRequestMapper rechargeRequestMapper;
     private final Path uploadRoot;
 
     @Value("${file.image.max-width:8000}")
@@ -87,11 +91,14 @@ public class InvoiceService {
 
     public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper,
                           UserQuotaService userQuotaService, UserMapper userMapper,
+                          UserQuotaMapper userQuotaMapper, RechargeRequestMapper rechargeRequestMapper,
                           @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
         this.invoiceBatchMapper = invoiceBatchMapper;
         this.userQuotaService = userQuotaService;
         this.userMapper = userMapper;
+        this.userQuotaMapper = userQuotaMapper;
+        this.rechargeRequestMapper = rechargeRequestMapper;
         this.uploadRoot = Path.of(uploadDirectory).toAbsolutePath().normalize();
     }
 
@@ -228,6 +235,25 @@ public class InvoiceService {
             throw new BusinessException(HttpStatus.NOT_FOUND, 40401, "发票申请不存在");
         }
         return com.invoice.dto.OpenInvoiceResponse.from(invoice, uploadRoot);
+    }
+
+    @Transactional
+    public com.invoice.dto.OpenInvoiceResponse cancelOpenInvoice(Long userId, Long invoiceId) {
+        cancelInvoice(invoiceId, userId, false);
+        Invoice cancelled = requireInvoice(invoiceId);
+        return com.invoice.dto.OpenInvoiceResponse.from(cancelled, uploadRoot);
+    }
+
+    @Transactional
+    public com.invoice.dto.OpenInvoiceResponse cancelOpenInvoiceByOutTradeNo(Long userId, String outTradeNo) {
+        if (outTradeNo == null || outTradeNo.isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "外部订单号不能为空");
+        }
+        Invoice invoice = findByOutTradeNo(userId, outTradeNo.trim());
+        if (invoice == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, 40401, "发票申请不存在");
+        }
+        return cancelOpenInvoice(userId, invoice.getId());
     }
 
     public Invoice findByOutTradeNo(Long userId, String outTradeNo) {
@@ -454,7 +480,7 @@ public class InvoiceService {
             return "开票类型不能为空";
         }
         if (!ALLOWED_INVOICE_TYPES.contains(invoiceType)) {
-            return "开票类型必须为技术服务费、AI订阅服务费或计算服务费";
+            return "开票类型必须为技术服务费、AI订阅服务费、计算服务费或研发和技术服务";
         }
         if (invoiceType.length() > 100) {
             return "开票类型不能超过 100 个字符";
@@ -627,6 +653,19 @@ public class InvoiceService {
 
         Invoice invoice = requireInvoice(invoiceId);
 
+        // 已取消的发票不允许修改
+        if ("CANCELLED".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
+                    "已取消的发票不能修改");
+        }
+
+        // 待红冲或已红冲的发票不允许修改
+        String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
+        if ("PENDING".equals(redFlushStatus) || "COMPLETED".equals(redFlushStatus)) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
+                    "待红冲或已红冲的发票不能修改发票信息");
+        }
+
         // 已开票的发票不允许修改金额，防止与已上传的发票文件金额不一致
         if ("COMPLETED".equals(invoice.getStatus())
                 && invoice.getAmount().compareTo(normalizedAmount) != 0) {
@@ -716,20 +755,246 @@ public class InvoiceService {
         return invoiceMapper.update(null, update);
     }
 
+    /**
+     * 用户或管理员取消未开票的发票申请（仅允许取消状态为 PENDING 的发票）
+     * 取消后会退还相应的额度给发票所属用户
+     */
+    @Transactional
+    public InvoiceResponse cancelInvoice(Long invoiceId, Long userId, boolean isAdmin) {
+        Invoice invoice = requireInvoice(invoiceId);
+        
+        // 验证权限：非管理员只能取消自己的发票
+        if (!isAdmin && !Objects.equals(invoice.getUserId(), userId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "无权取消其他用户的发票");
+        }
+        
+        // 验证状态：只能取消待开票的发票
+        if (!"PENDING".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "只能取消待开票的发票申请");
+        }
+        
+        // 使用乐观锁更新状态，防止并发问题
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.eq(Invoice::getId, invoiceId)
+                .eq(Invoice::getStatus, "PENDING")
+                .set(Invoice::getStatus, "CANCELLED")
+                .set(Invoice::getUpdatedAt, now);
+        
+        int updated = invoiceMapper.update(null, update);
+        if (updated != 1) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, "该发票已被处理，无法取消");
+        }
+        
+        // 退还额度给发票所属用户
+        userQuotaService.refundQuota(invoice.getUserId(), invoice.getAmount(), invoiceId, "取消发票申请");
+        
+        log.info("[Invoice] Invoice #{} cancelled by user {} (owner={}, amount={})",
+                invoiceId, userId, invoice.getUserId(), invoice.getAmount());
+        
+        Invoice cancelled = requireInvoice(invoiceId);
+        User user = userMapper.selectById(cancelled.getUserId());
+        String username = user != null ? user.getUsername() : null;
+        return InvoiceResponse.from(cancelled, uploadRoot, username);
+    }
+
+    @Transactional
+    public InvoiceResponse cancelInvoice(Long invoiceId, Long userId) {
+        return cancelInvoice(invoiceId, userId, false);
+    }
+
+    /**
+     * 用户申请发票红冲
+     */
+    @Transactional
+    public InvoiceResponse applyRedFlush(Long invoiceId, Long userId, String reason) {
+        if (!StringUtils.hasText(reason)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "红冲申请原因不能为空");
+        }
+        String trimmedReason = reason.trim();
+        if (trimmedReason.length() > 500) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "红冲原因最多500个字符");
+        }
+
+        Invoice invoice = requireInvoice(invoiceId);
+        if (!Objects.equals(invoice.getUserId(), userId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "无权申请其他用户的发票红冲");
+        }
+
+        if (!"COMPLETED".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "只有已开票的发票可以申请红冲");
+        }
+
+        String currentRedFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
+        if ("PENDING".equals(currentRedFlushStatus)) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, "该发票已有待处理的红冲申请，请勿重复提交");
+        }
+        if ("COMPLETED".equals(currentRedFlushStatus)) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "该发票已经完成红冲，无法再次申请");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.eq(Invoice::getId, invoiceId)
+                .eq(Invoice::getStatus, "COMPLETED")
+                .and(w -> {
+                    if ("NONE".equals(currentRedFlushStatus)) {
+                        w.eq(Invoice::getRedFlushStatus, "NONE").or().isNull(Invoice::getRedFlushStatus);
+                    } else {
+                        w.eq(Invoice::getRedFlushStatus, currentRedFlushStatus);
+                    }
+                })
+                .set(Invoice::getRedFlushStatus, "PENDING")
+                .set(Invoice::getRedFlushReason, trimmedReason)
+                .set(Invoice::getRedFlushRemark, null)
+                .set(Invoice::getRedFlushApplyTime, now)
+                .set(Invoice::getUpdatedAt, now);
+
+        int updated = invoiceMapper.update(null, update);
+        if (updated != 1) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, "发票状态已变更，请刷新后重试");
+        }
+
+        log.info("[Invoice] Invoice #{} applied red flush by user {} (reason: {})", invoiceId, userId, trimmedReason);
+
+        Invoice updatedInvoice = requireInvoice(invoiceId);
+        User user = userMapper.selectById(updatedInvoice.getUserId());
+        String username = user != null ? user.getUsername() : null;
+        return InvoiceResponse.from(updatedInvoice, uploadRoot, username);
+    }
+
+    /**
+     * 管理员或开票员确认红冲标记（支持处理用户申请或主动冲红），并退还用户额度
+     */
+    @Transactional
+    public InvoiceResponse confirmRedFlush(Long invoiceId, Long operatorId, String remark) {
+        Invoice invoice = requireInvoice(invoiceId);
+
+        if (!"COMPLETED".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "只有已开票的发票可以进行红冲标记");
+        }
+        String currentRedFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
+        if ("COMPLETED".equals(currentRedFlushStatus)) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "该发票已经完成红冲，请勿重复操作");
+        }
+
+        String trimmedRemark = remark != null ? remark.trim() : null;
+        if (trimmedRemark != null && trimmedRemark.length() > 500) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "红冲备注最多500个字符");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.eq(Invoice::getId, invoiceId)
+                .eq(Invoice::getStatus, "COMPLETED")
+                .and(w -> {
+                    if ("NONE".equals(currentRedFlushStatus)) {
+                        w.eq(Invoice::getRedFlushStatus, "NONE").or().isNull(Invoice::getRedFlushStatus);
+                    } else {
+                        w.eq(Invoice::getRedFlushStatus, currentRedFlushStatus);
+                    }
+                })
+                .set(Invoice::getRedFlushStatus, "COMPLETED")
+                .set(Invoice::getRedFlushRemark, trimmedRemark)
+                .set(Invoice::getRedFlushCompleteTime, now)
+                .set(Invoice::getRedFlushOperatorId, operatorId)
+                .set(Invoice::getUpdatedAt, now);
+
+        // 若之前未由用户发起申请（即主动冲红），自动补充申请原因与申请时间
+        if (!StringUtils.hasText(invoice.getRedFlushReason())) {
+            String defaultReason = StringUtils.hasText(trimmedRemark) ? trimmedRemark : "开票员/管理员主动作废冲红";
+            update.set(Invoice::getRedFlushReason, defaultReason)
+                    .set(Invoice::getRedFlushApplyTime, now);
+        }
+
+        int updated = invoiceMapper.update(null, update);
+        if (updated != 1) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, "发票状态已变更，请刷新后重试");
+        }
+
+        // 退还额度给发票所属用户（带操作人审计信息）
+        String refundRemark = "发票红冲退还额度" + (StringUtils.hasText(trimmedRemark) ? " (" + trimmedRemark + ")" : "");
+        userQuotaService.refundQuota(invoice.getUserId(), invoice.getAmount(), invoiceId, refundRemark, operatorId, "ADMIN");
+
+        log.info("[Invoice] Invoice #{} red flush confirmed by operator {} (owner={}, amount={})",
+                invoiceId, operatorId, invoice.getUserId(), invoice.getAmount());
+
+        Invoice updatedInvoice = requireInvoice(invoiceId);
+        User user = userMapper.selectById(updatedInvoice.getUserId());
+        String username = user != null ? user.getUsername() : null;
+        return InvoiceResponse.from(updatedInvoice, uploadRoot, username);
+    }
+
+    /**
+     * 管理员或开票员驳回红冲申请
+     */
+    @Transactional
+    public InvoiceResponse rejectRedFlush(Long invoiceId, Long operatorId, String reason) {
+        if (!StringUtils.hasText(reason)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "驳回原因不能为空");
+        }
+        String trimmedReason = reason.trim();
+        if (trimmedReason.length() > 500) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "驳回原因最多500个字符");
+        }
+
+        Invoice invoice = requireInvoice(invoiceId);
+        if (!"COMPLETED".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "只有已开票的发票可以进行驳回操作");
+        }
+        if (!"PENDING".equals(invoice.getRedFlushStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "该发票无待处理的红冲申请");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
+        update.eq(Invoice::getId, invoiceId)
+                .eq(Invoice::getStatus, "COMPLETED")
+                .eq(Invoice::getRedFlushStatus, "PENDING")
+                .set(Invoice::getRedFlushStatus, "REJECTED")
+                .set(Invoice::getRedFlushRemark, trimmedReason)
+                .set(Invoice::getRedFlushCompleteTime, now)
+                .set(Invoice::getRedFlushOperatorId, operatorId)
+                .set(Invoice::getUpdatedAt, now);
+
+        int updated = invoiceMapper.update(null, update);
+        if (updated != 1) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902, "发票状态已变更，请刷新后重试");
+        }
+
+        log.info("[Invoice] Invoice #{} red flush rejected by operator {} (reason: {})",
+                invoiceId, operatorId, trimmedReason);
+
+        Invoice updatedInvoice = requireInvoice(invoiceId);
+        User user = userMapper.selectById(updatedInvoice.getUserId());
+        String username = user != null ? user.getUsername() : null;
+        return InvoiceResponse.from(updatedInvoice, uploadRoot, username);
+    }
+
+    /**
+     * 获取待处理的红冲申请总数
+     */
+    public long getPendingRedFlushCount() {
+        return invoiceMapper.selectCount(
+                new LambdaQueryWrapper<Invoice>()
+                        .eq(Invoice::getStatus, "COMPLETED")
+                        .eq(Invoice::getRedFlushStatus, "PENDING")
+        );
+    }
+
     public com.invoice.dto.DashboardStats getDashboardStats() {
-        // 1. 使用一条 SQL 一次性查询总体统计指标（总数、待开数、已开数、已完成总金额），保证并发一致性并减少 RTT 开销。
-        // 注意：totalAmount 仅统计 COMPLETED 状态发票金额。AdminInvoice 页面展示的「申请总金额」包含所有状态，两者口径不同。
+        // 1. 全局统计指标（总数、待开数、已开数、已完成总金额、待开总金额）
         InvoiceMapper.OverallStat overallStat = invoiceMapper.selectOverallStat();
 
         // 2. 查询各用户统计
         List<InvoiceMapper.UserInvoiceStat> userStats = invoiceMapper.selectUserInvoiceStats();
 
-        // 3. 批量一次性查询所有用户的时间线数据（已限制最近 90 天，仅 COMPLETED 状态），消除 N+1 问题。
+        // 3. 批量一次性查询所有用户的时间线数据（已限制最近 90 天，仅 COMPLETED 状态）
         Map<Long, List<InvoiceMapper.TimelineStatWithUser>> timelineByUser =
                 invoiceMapper.selectAllTimelineStats().stream()
                         .collect(Collectors.groupingBy(InvoiceMapper.TimelineStatWithUser::userId));
 
-        List<com.invoice.dto.DashboardStats.UserInvoiceStats> userInvoiceStats = userStats.stream()
+        List<com.invoice.dto.DashboardStats.UserInvoiceStats> userInvoiceStats = (userStats == null ? List.<InvoiceMapper.UserInvoiceStat>of() : userStats).stream()
                 .map(stat -> {
                     List<com.invoice.dto.DashboardStats.TimelineData> timeline =
                             timelineByUser.getOrDefault(stat.userId(), List.of()).stream()
@@ -750,12 +1015,97 @@ public class InvoiceService {
                 })
                 .toList();
 
+        // 4. 开票类目统计
+        List<InvoiceMapper.InvoiceTypeStat> dbTypeStats = invoiceMapper.selectInvoiceTypeStats();
+        List<com.invoice.dto.DashboardStats.InvoiceTypeStat> typeStats = (dbTypeStats == null ? List.<InvoiceMapper.InvoiceTypeStat>of() : dbTypeStats).stream()
+                .map(t -> new com.invoice.dto.DashboardStats.InvoiceTypeStat(
+                        t.invoiceType(),
+                        t.count(),
+                        t.amount()
+                ))
+                .toList();
+
+        // 5. 企业抬头开票排行 TOP 10
+        List<InvoiceMapper.CompanyStat> dbCompanyStats = invoiceMapper.selectTopCompanyStats();
+        List<com.invoice.dto.DashboardStats.CompanyStat> companyTopStats = (dbCompanyStats == null ? List.<InvoiceMapper.CompanyStat>of() : dbCompanyStats).stream()
+                .map(c -> new com.invoice.dto.DashboardStats.CompanyStat(
+                        c.companyName(),
+                        c.count(),
+                        c.amount()
+                ))
+                .toList();
+
+        // 6. 24小时时段分布
+        List<InvoiceMapper.HourStat> dbHourStats = invoiceMapper.selectHourDistributionStats();
+        Map<Integer, Long> hourMap = (dbHourStats == null ? List.<InvoiceMapper.HourStat>of() : dbHourStats).stream()
+                .filter(h -> h.hour() != null)
+                .collect(Collectors.toMap(InvoiceMapper.HourStat::hour, InvoiceMapper.HourStat::count, (a, b) -> a));
+        List<com.invoice.dto.DashboardStats.HourStat> hourDistribution = new ArrayList<>();
+        for (int h = 0; h < 24; h++) {
+            hourDistribution.add(new com.invoice.dto.DashboardStats.HourStat(h, hourMap.getOrDefault(h, 0L)));
+        }
+
+        // 7. 每日综合走势（近90天）
+        List<InvoiceMapper.DailyTrendStat> dbDailyTrend = invoiceMapper.selectDailyTrendStats();
+        List<com.invoice.dto.DashboardStats.DailyTrendStat> dailyTrend = (dbDailyTrend == null ? List.<InvoiceMapper.DailyTrendStat>of() : dbDailyTrend).stream()
+                .map(d -> new com.invoice.dto.DashboardStats.DailyTrendStat(
+                        d.date(),
+                        d.completedCount(),
+                        d.completedAmount(),
+                        d.createdCount(),
+                        d.pendingCount(),
+                        d.cancelledCount()
+                ))
+                .toList();
+
+        // 8. 金额区间分布统计（使用数据库单条 SQL 聚合，消除全量实体拉取至 JVM 内存的开销）
+        InvoiceMapper.AmountRangeSummary rangeSummary = invoiceMapper.selectAmountRangeSummary();
+        List<com.invoice.dto.DashboardStats.AmountRangeStat> amountRangeStats = buildAmountRangeStats(rangeSummary);
+
+        // 9. 额度与资金池统计
+        UserQuotaMapper.QuotaPoolSummary quotaSummary = userQuotaMapper != null ? userQuotaMapper.selectQuotaPoolSummary() : null;
+        Long pendingRechargeCount = rechargeRequestMapper != null ? rechargeRequestMapper.countPendingRequests() : 0L;
+        com.invoice.dto.DashboardStats.QuotaPoolStat quotaPoolStats = new com.invoice.dto.DashboardStats.QuotaPoolStat(
+                quotaSummary != null && quotaSummary.totalBalance() != null ? quotaSummary.totalBalance() : BigDecimal.ZERO,
+                quotaSummary != null && quotaSummary.totalRecharged() != null ? quotaSummary.totalRecharged() : BigDecimal.ZERO,
+                quotaSummary != null && quotaSummary.totalDeducted() != null ? quotaSummary.totalDeducted() : BigDecimal.ZERO,
+                pendingRechargeCount != null ? pendingRechargeCount : 0L
+        );
+
         return new com.invoice.dto.DashboardStats(
-                overallStat.totalInvoices(),
-                overallStat.pendingInvoices(),
-                overallStat.completedInvoices(),
-                overallStat.totalAmount(),
-                userInvoiceStats
+                overallStat != null && overallStat.totalInvoices() != null ? overallStat.totalInvoices() : 0L,
+                overallStat != null && overallStat.pendingInvoices() != null ? overallStat.pendingInvoices() : 0L,
+                overallStat != null && overallStat.completedInvoices() != null ? overallStat.completedInvoices() : 0L,
+                overallStat != null && overallStat.totalAmount() != null ? overallStat.totalAmount() : BigDecimal.ZERO,
+                overallStat != null && overallStat.pendingAmount() != null ? overallStat.pendingAmount() : BigDecimal.ZERO,
+                userInvoiceStats,
+                typeStats,
+                companyTopStats,
+                amountRangeStats,
+                hourDistribution,
+                dailyTrend,
+                quotaPoolStats
+        );
+    }
+
+    private List<com.invoice.dto.DashboardStats.AmountRangeStat> buildAmountRangeStats(InvoiceMapper.AmountRangeSummary summary) {
+        long c1 = summary != null && summary.c1() != null ? summary.c1() : 0L;
+        BigDecimal a1 = summary != null && summary.a1() != null ? summary.a1() : BigDecimal.ZERO;
+        long c2 = summary != null && summary.c2() != null ? summary.c2() : 0L;
+        BigDecimal a2 = summary != null && summary.a2() != null ? summary.a2() : BigDecimal.ZERO;
+        long c3 = summary != null && summary.c3() != null ? summary.c3() : 0L;
+        BigDecimal a3 = summary != null && summary.a3() != null ? summary.a3() : BigDecimal.ZERO;
+        long c4 = summary != null && summary.c4() != null ? summary.c4() : 0L;
+        BigDecimal a4 = summary != null && summary.a4() != null ? summary.a4() : BigDecimal.ZERO;
+        long c5 = summary != null && summary.c5() != null ? summary.c5() : 0L;
+        BigDecimal a5 = summary != null && summary.a5() != null ? summary.a5() : BigDecimal.ZERO;
+
+        return List.of(
+                new com.invoice.dto.DashboardStats.AmountRangeStat("< 500元", 0L, 500L, c1, a1),
+                new com.invoice.dto.DashboardStats.AmountRangeStat("500 - 2,000元", 500L, 2000L, c2, a2),
+                new com.invoice.dto.DashboardStats.AmountRangeStat("2,000 - 5,000元", 2000L, 5000L, c3, a3),
+                new com.invoice.dto.DashboardStats.AmountRangeStat("5,000 - 10,000元", 5000L, 10000L, c4, a4),
+                new com.invoice.dto.DashboardStats.AmountRangeStat("≥ 10,000元", 10000L, null, c5, a5)
         );
     }
 

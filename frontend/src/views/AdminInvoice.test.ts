@@ -7,6 +7,15 @@ import AdminInvoice from './AdminInvoice.vue'
 import { invoiceApi, type Invoice } from '@/api/invoice'
 import { useUserStore } from '@/stores/user'
 
+vi.mock('vue-router', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('vue-router')>()
+  return {
+    ...actual,
+    useRoute: vi.fn(() => ({ query: {} })),
+    useRouter: vi.fn(() => ({ push: vi.fn() }))
+  }
+})
+
 vi.mock('@/api/invoice', () => ({
   invoiceApi: {
     getAllInvoices: vi.fn(),
@@ -14,7 +23,11 @@ vi.mock('@/api/invoice', () => ({
     downloadInvoice: vi.fn(),
     previewInvoice: vi.fn(),
     updateProcessed: vi.fn(),
-    batchUpdateProcessed: vi.fn()
+    batchUpdateProcessed: vi.fn(),
+    cancelInvoice: vi.fn(),
+    confirmRedFlush: vi.fn(),
+    rejectRedFlush: vi.fn(),
+    getPendingRedFlushCount: vi.fn()
   }
 }))
 
@@ -178,5 +191,90 @@ describe('AdminInvoice', () => {
     const remarkWarning = page.find('.remark-warning-text')
     expect(remarkWarning.exists()).toBe(true)
     expect(remarkWarning.text()).toContain('需要电子发票')
+  })
+
+  it('initializes statusFilter from route.query.status and matches whitelist', async () => {
+    const { useRoute } = await import('vue-router')
+    vi.mocked(useRoute).mockReturnValue({ query: { status: 'PENDING' } } as any)
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([
+      pendingInvoice,
+      { ...pendingInvoice, id: 102, status: 'COMPLETED', isProcessed: true }
+    ])
+
+    const page = await mountPage()
+    expect(page.find('.result-count').text()).toContain('共 1 条')
+    expect(page.text()).toContain('开票测试企业')
+  })
+
+  it('opens confirm red flush dialog and submits confirmation', async () => {
+    const redFlushPendingInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 301,
+      status: 'COMPLETED',
+      downloadable: true,
+      fileExists: true,
+      redFlushStatus: 'PENDING',
+      redFlushReason: '金额填写错误'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([redFlushPendingInvoice])
+    mockedInvoiceApi.confirmRedFlush.mockResolvedValue({
+      ...redFlushPendingInvoice,
+      redFlushStatus: 'COMPLETED'
+    } as never)
+
+    const page = await mountPage()
+    const redFlushBtn = page.find('.red-flush-btn')
+    expect(redFlushBtn.exists()).toBe(true)
+
+    await redFlushBtn.trigger('click')
+    await flushPromises()
+
+    const submitBtn = page.findAll('.dialog-footer button').find(b => b.text().includes('确认标记红冲'))
+    expect(submitBtn).toBeDefined()
+    await submitBtn!.trigger('click')
+    await flushPromises()
+
+    expect(mockedInvoiceApi.confirmRedFlush).toHaveBeenCalledWith(301, undefined)
+    expect(ElMessage.success).toHaveBeenCalledWith('已完成发票红冲标记，额度已自动退还至用户账户')
+  })
+
+  it('opens reject red flush dialog and submits rejection', async () => {
+    const redFlushPendingInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 302,
+      status: 'COMPLETED',
+      downloadable: true,
+      fileExists: true,
+      redFlushStatus: 'PENDING',
+      redFlushReason: '抬头写错'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([redFlushPendingInvoice])
+    mockedInvoiceApi.rejectRedFlush.mockResolvedValue({
+      ...redFlushPendingInvoice,
+      redFlushStatus: 'REJECTED',
+      redFlushRemark: '发票已跨期入账'
+    } as never)
+
+    const page = await mountPage()
+    const rejectBtn = page.find('.reject-btn')
+    expect(rejectBtn.exists()).toBe(true)
+
+    await rejectBtn.trigger('click')
+    await flushPromises()
+
+    // 填写驳回理由
+    const rejectDialog = page.find('.red-flush-admin-dialog')
+    expect(rejectDialog.exists()).toBe(true)
+    const textarea = rejectDialog.find('textarea')
+    await textarea.setValue('发票已跨期入账，无法冲红')
+    await flushPromises()
+
+    const submitBtn = page.findAll('.dialog-footer button').find(b => b.text().includes('确认驳回'))
+    expect(submitBtn).toBeDefined()
+    await submitBtn!.trigger('click')
+    await flushPromises()
+
+    expect(mockedInvoiceApi.rejectRedFlush).toHaveBeenCalledWith(302, '发票已跨期入账，无法冲红')
+    expect(ElMessage.success).toHaveBeenCalledWith('已驳回该红冲申请')
   })
 })

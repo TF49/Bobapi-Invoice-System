@@ -121,7 +121,7 @@
           <span><User /></span>
           <strong>当前条件下暂无用户</strong>
         </div>
-        <div v-else class="table-scroll user-table-scroll">
+        <div v-else class="table-scroll user-table-scroll desktop-records">
           <el-table :data="users" v-loading="loading" row-key="id">
             <el-table-column prop="username" label="用户名" min-width="220">
               <template #default="{ row }">
@@ -286,6 +286,80 @@
               </template>
             </el-table-column>
           </el-table>
+        </div>
+
+        <!-- 移动端用户卡片列表 -->
+        <div v-if="users.length > 0" v-loading="loading" class="mobile-records">
+          <article v-for="row in users" :key="row.id" class="user-record-card">
+            <div class="record-card-header">
+              <div class="user-card-title-wrap">
+                <span class="row-avatar">{{ row.username.slice(0, 1).toUpperCase() }}</span>
+                <div class="user-card-name-group">
+                  <div class="username-title">
+                    <strong>{{ row.username }}</strong>
+                    <small v-if="row.self">当前账号</small>
+                  </div>
+                  <span v-if="row.remark" class="mobile-user-remark">{{ row.remark }}</span>
+                </div>
+              </div>
+              <el-switch
+                :model-value="row.enabled"
+                :disabled="row.self || statusLoadingId === row.id"
+                :loading="statusLoadingId === row.id"
+                inline-prompt
+                active-text="启用"
+                inactive-text="禁用"
+                @change="(enabled: string | number | boolean) => confirmStatusChange(row, Boolean(enabled))"
+              />
+            </div>
+
+            <div class="user-card-details">
+              <div class="user-detail-row">
+                <span class="detail-label">角色权限</span>
+                <el-select
+                  class="role-select-mobile"
+                  size="small"
+                  :model-value="row.role"
+                  :disabled="row.self || roleLoadingId === row.id"
+                  :loading="roleLoadingId === row.id"
+                  @change="(role: UserRole) => confirmRoleChange(row, role)"
+                >
+                  <el-option label="普通用户" value="USER" />
+                  <el-option label="开票员" value="INVOICE_CLERK" />
+                  <el-option label="管理员" value="ADMIN" />
+                </el-select>
+              </div>
+              <div v-if="row.role === 'USER'" class="user-detail-row">
+                <span class="detail-label">当前余额</span>
+                <div class="mobile-quota-info">
+                  <strong class="quota-val">¥{{ row.quota ? Number(row.quota.balance).toFixed(2) : '0.00' }}</strong>
+                  <el-button size="small" type="primary" link @click="openQuotaDialog(row)">额度管理</el-button>
+                </div>
+              </div>
+              <div class="user-detail-row">
+                <span class="detail-label">创建时间</span>
+                <span class="time-text">{{ formatDate(row.createdAt) }}</span>
+              </div>
+            </div>
+
+            <div class="user-card-actions">
+              <el-button
+                v-if="row.role === 'USER'"
+                size="small"
+                :icon="Connection"
+                @click="openApiKeyDialog(row)"
+              >
+                API Key
+              </el-button>
+              <el-button
+                size="small"
+                :icon="Key"
+                @click="openPasswordDialog(row)"
+              >
+                重置密码
+              </el-button>
+            </div>
+          </article>
         </div>
 
         <div v-if="total > 0" class="pagination-bar">
@@ -456,18 +530,19 @@
           </template>
         </el-alert>
 
-        <div style="background: var(--color-surface-subtle); padding: 16px; border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--color-border);">
-          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span style="font-size: 13px; font-weight: 500;">当前 API Key</span>
+        <div class="dialog-api-key-box">
+          <div class="dialog-api-key-header">
+            <span class="dialog-api-key-label">当前 API Key</span>
             <el-tag :type="selectedUserForApiKey.apiKeyEnabled !== false ? 'success' : 'danger'" size="small">
               {{ selectedUserForApiKey.apiKeyEnabled !== false ? '已启用' : '已禁用' }}
             </el-tag>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div class="dialog-api-key-row">
             <el-input
               :model-value="selectedUserForApiKey.apiKey || '暂未生成 API Key'"
               readonly
               :type="showApiKeyText ? 'text' : 'password'"
+              class="dialog-api-key-input"
             />
             <el-button
               v-if="selectedUserForApiKey.apiKey"
@@ -479,9 +554,9 @@
           </div>
         </div>
 
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <span style="font-size: 13px;">密钥状态开关：</span>
+        <div class="dialog-api-key-actions-row">
+          <div class="dialog-api-key-switch">
+            <span>密钥状态开关：</span>
             <el-switch
               v-if="selectedUserForApiKey.apiKey"
               :model-value="selectedUserForApiKey.apiKeyEnabled !== false"
@@ -491,7 +566,7 @@
               inactive-text="禁用"
               @change="(val: string | number | boolean) => handleToggleApiKeyStatus(Boolean(val))"
             />
-            <span v-else style="font-size: 12px; color: var(--color-text-muted);">需先生成密钥</span>
+            <span v-else class="dialog-api-key-hint">需先生成密钥</span>
           </div>
 
           <el-button
@@ -1395,10 +1470,15 @@ onMounted(loadUsers)
   flex-shrink: 0;
 }
 
+.mobile-records {
+  display: none;
+}
+
 @media (max-width: 820px) {
   .user-filter-bar {
     align-items: stretch;
     flex-wrap: wrap;
+    gap: 10px;
   }
 
   .keyword-input {
@@ -1417,9 +1497,166 @@ onMounted(loadUsers)
   }
 }
 
+@media (max-width: 768px) {
+  .desktop-records {
+    display: none;
+  }
+
+  .mobile-records {
+    display: grid;
+    gap: 12px;
+    padding: 14px;
+    background: #f7f9f8;
+  }
+
+  .user-record-card {
+    padding: 14px 16px;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(24, 39, 34, 0.04);
+  }
+
+  .record-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .user-card-title-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+  }
+
+  .user-card-name-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+
+  .mobile-user-remark {
+    font-size: 11px;
+    color: var(--color-text-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 160px;
+  }
+
+  .user-card-details {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+    margin: 10px 0;
+  }
+
+  .user-detail-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+  }
+
+  .role-select-mobile {
+    width: 120px;
+  }
+
+  .mobile-quota-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .quota-val {
+    color: var(--color-primary);
+    font-size: 14px;
+    font-weight: 700;
+  }
+
+  .time-text {
+    font-size: 12px;
+    color: var(--color-text-secondary);
+  }
+
+  .user-card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--color-border);
+  }
+
+  .user-card-actions .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+    height: 34px;
+    font-size: 12.5px;
+  }
+
+  .quota-summary {
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.dialog-api-key-box {
+  background: var(--color-surface-subtle);
+  padding: 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  border: 1px solid var(--color-border);
+}
+
+.dialog-api-key-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.dialog-api-key-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dialog-api-key-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dialog-api-key-input {
+  flex: 1;
+}
+
+.dialog-api-key-actions-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.dialog-api-key-switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.dialog-api-key-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
 @media (max-width: 480px) {
   .user-filter-bar {
-    padding: 14px;
+    padding: 12px;
   }
 
   .user-filter-bar > .el-button:not(.refresh-button) {
@@ -1428,6 +1665,15 @@ onMounted(loadUsers)
 
   .pagination-bar {
     padding: 12px 14px;
+  }
+
+  .dialog-api-key-actions-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .dialog-api-key-actions-row .el-button {
+    width: 100%;
   }
 }
 </style>

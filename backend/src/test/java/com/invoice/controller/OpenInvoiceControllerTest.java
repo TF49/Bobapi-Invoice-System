@@ -78,6 +78,7 @@ class OpenInvoiceControllerTest {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
                 new BigDecimal("500.00"), "技术服务费", "自动化推单", "PENDING",
+                "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );
 
@@ -136,6 +137,7 @@ class OpenInvoiceControllerTest {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
                 new BigDecimal("500.00"), "技术服务费", null, "COMPLETED",
+                "NONE", null, null, null, null,
                 true, "invoice_20260828.png", LocalDateTime.now(), LocalDateTime.now()
         );
 
@@ -223,6 +225,42 @@ class OpenInvoiceControllerTest {
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40002))
                 .andExpect(jsonPath("$.message").value("额度不足，当前余额：100，需要：800"));
+    }
+
+    @Test
+    void cancelsInvoiceByIdViaOpenApi() throws Exception {
+        OpenInvoiceResponse response = new OpenInvoiceResponse(
+                1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
+                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED",
+                "NONE", null, null, null, null,
+                false, null, LocalDateTime.now(), null
+        );
+
+        when(invoiceService.cancelOpenInvoice(10L, 1001L)).thenReturn(response);
+
+        mockMvc.perform(post("/open/v1/invoices/1001/cancel")
+                        .with(authentication(authUser())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
+    }
+
+    @Test
+    void cancelsInvoiceByOutTradeNoViaOpenApi() throws Exception {
+        OpenInvoiceResponse response = new OpenInvoiceResponse(
+                1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
+                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED",
+                "NONE", null, null, null, null,
+                false, null, LocalDateTime.now(), null
+        );
+
+        when(invoiceService.cancelOpenInvoiceByOutTradeNo(10L, "OUT_20260828001")).thenReturn(response);
+
+        mockMvc.perform(post("/open/v1/invoices/by-out-trade-no/OUT_20260828001/cancel")
+                        .with(authentication(authUser())))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.status").value("CANCELLED"));
     }
 
     @TestConfiguration
