@@ -277,4 +277,22 @@ describe('AdminInvoice', () => {
     expect(mockedInvoiceApi.rejectRedFlush).toHaveBeenCalledWith(302, '发票已跨期入账，无法冲红')
     expect(ElMessage.success).toHaveBeenCalledWith('已驳回该红冲申请')
   })
+
+  it('renders submissionType tag and filters by submissionType', async () => {
+    const apiInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 201,
+      submissionType: 'API'
+    }
+    const manualInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 202,
+      submissionType: 'MANUAL'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([apiInvoice, manualInvoice])
+
+    const page = await mountPage()
+    expect(page.text()).toContain('API')
+    expect(page.text()).toContain('手动')
+  })
 })

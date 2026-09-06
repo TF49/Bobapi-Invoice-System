@@ -815,4 +815,22 @@ describe('UserInvoice', () => {
     expect(mockedApi.applyRedFlush).toHaveBeenCalledWith(completedInvoice.id, expect.any(String))
     expect(ElMessage.success).toHaveBeenCalledWith('红冲申请已提交，请等待开票员核验标记')
   })
+
+  it('renders submissionType tag properly for user invoices', async () => {
+    const apiInvoice: Invoice = {
+      ...completedInvoice,
+      id: 88,
+      submissionType: 'API'
+    }
+    const manualInvoice: Invoice = {
+      ...completedInvoice,
+      id: 89,
+      submissionType: 'MANUAL'
+    }
+    mockedApi.getMyInvoices.mockResolvedValue([apiInvoice, manualInvoice])
+
+    const page = await mountPage()
+    expect(page.text()).toContain('API')
+    expect(page.text()).toContain('手动')
+  })
 })

@@ -23,7 +23,10 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
+    # 版本 18 由既有部署中的充值申请迁移使用，当前源码不再重复携带该脚本。
+    # 仅忽略已执行但源码缺失的历史迁移，保留其余迁移的校验。
     validate-on-migrate: true
+    ignore-migration-patterns: "*:missing"
   
   # 文件上传配置
   servlet:

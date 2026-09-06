@@ -51,6 +51,7 @@ CREATE TABLE `invoice` (
     `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT '单条创建请求幂等键；批量申请明细为空',
     `batch_id` BIGINT DEFAULT NULL COMMENT '批次ID（批量申请时关联）',
     `batch_row_number` INT DEFAULT NULL COMMENT '批次内原始行号（用于审计）',
+    `submission_type` VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN' COMMENT '提交方式：API-API提交，MANUAL-网页手动提交，UNKNOWN-历史无法确认',
     `user_id` BIGINT NOT NULL COMMENT '用户ID',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',

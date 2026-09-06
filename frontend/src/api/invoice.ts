@@ -17,6 +17,7 @@ export interface Invoice {
   fileExists: boolean
   fileName?: string
   isProcessed?: boolean
+  submissionType?: 'API' | 'MANUAL' | 'UNKNOWN'
   redFlushStatus?: 'NONE' | 'PENDING' | 'COMPLETED' | 'REJECTED'
   redFlushReason?: string
   redFlushRemark?: string
@@ -178,4 +179,3 @@ export const invoiceApi = {
     return request.post<any, Invoice>(`/invoices/admin/${id}/red-flush/reject`, { reason })
   }
 }
-

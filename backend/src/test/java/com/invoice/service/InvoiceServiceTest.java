@@ -7,6 +7,7 @@ import com.invoice.dto.DashboardStats;
 import com.invoice.dto.BatchInvoiceItemRequest;
 import com.invoice.dto.BatchInvoiceResponse;
 import com.invoice.dto.InvoiceResponse;
+import com.invoice.dto.OpenInvoiceResponse;
 import com.invoice.entity.Invoice;
 import com.invoice.entity.InvoiceBatch;
 import com.invoice.exception.BatchValidationException;
@@ -152,7 +153,27 @@ class InvoiceServiceTest {
 
         assertThat(response.id()).isEqualTo(99L);
         assertThat(response.invoiceType()).isEqualTo("AI订阅服务费");
+        assertThat(response.submissionType()).isEqualTo("MANUAL");
         verify(userQuotaService).deductQuota(8L, new BigDecimal("200.00"), 99L);
+    }
+
+    @Test
+    void marksOpenApiInvoiceAsApi() {
+        when(invoiceMapper.insert(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(150L);
+            return 1;
+        });
+
+        OpenInvoiceResponse response = service.createOpenInvoice(
+                8L, "OUT-150", null, "API公司", "ABCDEFGHIJKLMNO",
+                new BigDecimal("150.00"), InvoiceService.FIXED_INVOICE_TYPE, "API申请");
+
+        assertThat(response.submissionType()).isEqualTo("API");
+        org.mockito.ArgumentCaptor<Invoice> captor = org.mockito.ArgumentCaptor.forClass(Invoice.class);
+        verify(invoiceMapper).insert(captor.capture());
+        assertThat(captor.getValue().getSubmissionType()).isEqualTo("API");
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("150.00"), 150L);
     }
 
     @Test
@@ -269,8 +290,33 @@ class InvoiceServiceTest {
             assertThat(invoice.getTaxNumber()).isEqualTo("ABCDE12345678901");
             assertThat(invoice.getAmount()).isEqualByComparingTo("100.00");
             assertThat(invoice.getStatus()).isEqualTo("PENDING");
+            assertThat(invoice.getSubmissionType()).isEqualTo("MANUAL");
             assertThat(invoice.getIdempotencyKey()).isNull();
         });
+    }
+
+    @Test
+    void marksOpenApiBatchInvoicesAsApi() {
+        doAnswer(invocation -> {
+            InvoiceBatch batch = invocation.getArgument(0);
+            batch.setId(51L);
+            return 1;
+        }).when(invoiceBatchMapper).insert(any(InvoiceBatch.class));
+        when(invoiceMapper.insertBatch(anyList())).thenReturn(1);
+        Invoice apiInvoice = batchInvoice(103L, 51L, 2, "API公司", "ABCDE12345678903", "50.00");
+        when(invoiceMapper.selectByBatchId(51L)).thenReturn(List.of(apiInvoice));
+
+        service.createInvoicesBatch(
+                8L,
+                "open_batch_1234567890123456",
+                List.of(batchItem(2, "API公司", "ABCDE12345678903", "50.00")),
+                "API");
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Invoice>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(invoiceMapper).insertBatch(captor.capture());
+        assertThat(captor.getValue()).singleElement().satisfies(invoice ->
+                assertThat(invoice.getSubmissionType()).isEqualTo("API"));
     }
 
     @Test

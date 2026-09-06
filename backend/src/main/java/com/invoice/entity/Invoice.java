@@ -112,6 +112,11 @@ public class Invoice {
     private Integer batchRowNumber;
 
     /**
+     * 提交方式：API-API提交，MANUAL-手动提交
+     */
+    private String submissionType;
+
+    /**
      * 用户ID
      */
     private Long userId;

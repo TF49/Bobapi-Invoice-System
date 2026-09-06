@@ -61,7 +61,7 @@ class InvoiceControllerTest {
                 .extracting("code")
                 .isEqualTo(42902);
         verify(invoiceService, times(3)).createInvoicesBatch(
-                1L, "batch-1234567890123456", batch.getItems());
+                1L, "batch-1234567890123456", batch.getItems(), "MANUAL");
     }
 
     @Test
@@ -90,7 +90,8 @@ class InvoiceControllerTest {
         verify(invoiceService, times(20)).createInvoicesBatch(
                 org.mockito.ArgumentMatchers.anyLong(),
                 org.mockito.ArgumentMatchers.anyString(),
-                org.mockito.ArgumentMatchers.anyList());
+                org.mockito.ArgumentMatchers.anyList(),
+                org.mockito.ArgumentMatchers.eq("MANUAL"));
     }
 
     @Test
@@ -99,13 +100,14 @@ class InvoiceControllerTest {
         mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
         InvoiceResponse response = new InvoiceResponse(
                 1L, "测试公司", "91410100MAE5H38A0F", new java.math.BigDecimal("100.00"),
-                "技术服务费", "", "COMPLETED", true, "NONE", null, null, null, null, null, 2L, "user",
+                "技术服务费", "", "COMPLETED", true, "NONE", null, null, null, null, null, "MANUAL", 2L, "user",
                 java.time.LocalDateTime.now(), java.time.LocalDateTime.now(),
                 true, true, "invoice.png"
         );
         String json = mapper.writeValueAsString(response);
         System.out.println("SERIALIZED JSON: " + json);
         org.assertj.core.api.Assertions.assertThat(json).contains("\"isProcessed\":true");
+        org.assertj.core.api.Assertions.assertThat(json).contains("\"submissionType\":\"MANUAL\"");
 
         com.baomidou.mybatisplus.core.metadata.TableInfoHelper.initTableInfo(
                 new org.apache.ibatis.builder.MapperBuilderAssistant(new com.baomidou.mybatisplus.core.MybatisConfiguration(), "test"), Invoice.class);

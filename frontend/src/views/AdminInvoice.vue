@@ -95,6 +95,15 @@
               </el-select>
             </div>
             <div class="filter-control">
+              <span class="filter-label"><Connection />方式</span>
+              <el-select v-model="submissionTypeFilter" aria-label="筛选提交方式" class="submission-type-select">
+                <el-option label="全部方式" value="ALL" />
+                <el-option label="API 提交" value="API" />
+                <el-option label="手动提交" value="MANUAL" />
+                <el-option label="来源未知" value="UNKNOWN" />
+              </el-select>
+            </div>
+            <div class="filter-control">
               <span class="filter-label"><User />用户</span>
               <el-select
                 v-model="userFilter"
@@ -135,6 +144,13 @@
             <el-table-column prop="username" label="申请用户" min-width="120">
               <template #default="{ row }">
                 <span class="applicant-user-cell">{{ row.username || `用户#${row.userId}` }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column prop="submissionType" label="提交方式" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.submissionType === 'API' ? 'warning' : row.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
+                  {{ row.submissionType === 'API' ? 'API' : row.submissionType === 'MANUAL' ? '手动' : '未知' }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="taxNumber" label="税号" min-width="180">
@@ -450,6 +466,14 @@
                 <dd>{{ row.username || `用户#${row.userId}` }}</dd>
               </div>
               <div>
+                <dt>提交方式</dt>
+                <dd>
+                  <el-tag :type="row.submissionType === 'API' ? 'warning' : row.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
+                    {{ row.submissionType === 'API' ? 'API提交' : row.submissionType === 'MANUAL' ? '手动提交' : '来源未知' }}
+                  </el-tag>
+                </dd>
+              </div>
+              <div>
                 <dt>税号</dt>
                 <dd class="tax-number-cell">{{ row.taxNumber || '-' }}</dd>
               </div>
@@ -628,6 +652,11 @@
         <span class="edit-meta-label">申请用户：</span>
         <span class="edit-meta-value">{{ editingRow.username || `用户#${editingRow.userId}` }}</span>
         <el-divider direction="vertical" />
+        <span class="edit-meta-label">提交方式：</span>
+        <el-tag :type="editingRow.submissionType === 'API' ? 'warning' : editingRow.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
+          {{ editingRow.submissionType === 'API' ? 'API提交' : editingRow.submissionType === 'MANUAL' ? '手动提交' : '来源未知' }}
+        </el-tag>
+        <el-divider direction="vertical" />
         <span class="edit-meta-label">状态：</span>
         <el-tag class="status-tag" :class="getStatusClass(editingRow.status)" size="small">
           <i class="status-dot"></i>
@@ -718,6 +747,12 @@
           <div class="summary-item">
             <span class="summary-label">申请用户：</span>
             <strong>{{ targetRedFlushRow.username || `用户#${targetRedFlushRow.userId}` }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">提交方式：</span>
+            <el-tag :type="targetRedFlushRow.submissionType === 'API' ? 'warning' : targetRedFlushRow.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
+              {{ targetRedFlushRow.submissionType === 'API' ? 'API提交' : targetRedFlushRow.submissionType === 'MANUAL' ? '手动提交' : '来源未知' }}
+            </el-tag>
           </div>
           <div class="summary-item">
             <span class="summary-label">公司名称：</span>
@@ -832,6 +867,7 @@ import {
   CircleCheck,
   Clock,
   Close,
+  Connection,
   CopyDocument,
   DocumentDelete,
   Download,
@@ -892,6 +928,7 @@ const pasteActiveId = ref<number | null>(null)
 const invoices = ref<Invoice[]>([])
 const statusFilter = ref(getInitialStatusFilter())
 const userFilter = ref('')
+const submissionTypeFilter = ref<'ALL' | 'API' | 'MANUAL' | 'UNKNOWN'>('ALL')
 const searchKeyword = ref('')
 
 watch(() => route?.query?.status, (newStatus) => {
@@ -1050,12 +1087,16 @@ const filteredInvoices = computed(() => {
     }
     const invoiceUser = invoice.username || `用户#${invoice.userId}`
     const matchesUser = !userFilter.value || invoiceUser === userFilter.value
+    const matchesSubmissionType = submissionTypeFilter.value === 'ALL' ||
+      (invoice.submissionType || 'UNKNOWN') === submissionTypeFilter.value
     const kw = searchKeyword.value.trim().toLowerCase()
     const matchesKeyword = !kw ||
       (invoice.companyName && invoice.companyName.toLowerCase().includes(kw)) ||
       (invoice.taxNumber && invoice.taxNumber.toLowerCase().includes(kw)) ||
-      (invoice.username && invoice.username.toLowerCase().includes(kw))
-    return matchesStatus && matchesUser && matchesKeyword
+      (invoice.username && invoice.username.toLowerCase().includes(kw)) ||
+      (kw === 'api' && invoice.submissionType === 'API') ||
+      (kw.includes('手动') && invoice.submissionType === 'MANUAL')
+    return matchesStatus && matchesUser && matchesSubmissionType && matchesKeyword
   })
 })
 
@@ -1067,7 +1108,7 @@ const paginatedInvoices = computed(() => {
   return filteredInvoices.value.slice(start, start + pageSize.value)
 })
 
-watch([searchKeyword, statusFilter, userFilter], () => {
+watch([searchKeyword, statusFilter, userFilter, submissionTypeFilter], () => {
   page.value = 1
 })
 
@@ -1091,6 +1132,7 @@ const emptyText = computed(() => {
   if (searchKeyword.value.trim()) return '未找到匹配的发票申请记录'
   if (userFilter.value) return `用户「${userFilter.value}」暂无发票申请`
   if (statusFilter.value !== 'ALL') return '当前状态下暂无发票申请'
+  if (submissionTypeFilter.value !== 'ALL') return '当前提交方式下暂无发票申请'
   return '暂无发票申请'
 })
 
@@ -1698,6 +1740,10 @@ onBeforeUnmount(() => {
   width: 130px;
 }
 
+.submission-type-select {
+  width: 130px;
+}
+
 .user-select {
   width: 150px;
 }
@@ -2022,6 +2068,7 @@ onBeforeUnmount(() => {
   }
 
   .table-tools .filter-control .status-select,
+  .table-tools .filter-control .submission-type-select,
   .table-tools .filter-control .user-select {
     flex: 1;
     width: 100% !important;

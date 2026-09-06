@@ -23,6 +23,7 @@ public record InvoiceResponse(
         LocalDateTime redFlushApplyTime,
         LocalDateTime redFlushCompleteTime,
         Long redFlushOperatorId,
+        String submissionType,
         Long userId,
         String username,
         LocalDateTime createdAt,
@@ -49,6 +50,7 @@ public record InvoiceResponse(
         boolean downloadable = exists && isSupportedImage(invoice.getFileName());
         boolean isProcessed = invoice.getIsProcessed() != null && invoice.getIsProcessed();
         String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
+        String submissionType = invoice.getSubmissionType() != null ? invoice.getSubmissionType() : "UNKNOWN";
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getCompanyName(),
@@ -64,6 +66,7 @@ public record InvoiceResponse(
                 invoice.getRedFlushApplyTime(),
                 invoice.getRedFlushCompleteTime(),
                 invoice.getRedFlushOperatorId(),
+                submissionType,
                 invoice.getUserId(),
                 username,
                 invoice.getCreatedAt(),

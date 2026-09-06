@@ -114,7 +114,7 @@ public class InvoiceController {
         }
 
         BatchInvoiceResponse response = invoiceService.createInvoicesBatch(
-                principal.userId(), idempotencyKey, request.getItems());
+                principal.userId(), idempotencyKey, request.getItems(), "MANUAL");
         return ApiResponse.success("批量申请成功", response);
     }
 

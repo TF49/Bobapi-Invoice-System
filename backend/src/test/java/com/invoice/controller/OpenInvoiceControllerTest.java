@@ -77,7 +77,7 @@ class OpenInvoiceControllerTest {
     void allowsUserToCreateInvoiceViaOpenApi() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", "自动化推单", "PENDING",
+                new BigDecimal("500.00"), "技术服务费", "自动化推单", "PENDING", "API",
                 "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );
@@ -107,7 +107,8 @@ class OpenInvoiceControllerTest {
                 .andExpect(jsonPath("$.code").value(200))
                 .andExpect(jsonPath("$.data.id").value(1001))
                 .andExpect(jsonPath("$.data.outTradeNo").value("OUT_20260828001"))
-                .andExpect(jsonPath("$.data.status").value("PENDING"));
+                .andExpect(jsonPath("$.data.status").value("PENDING"))
+                .andExpect(jsonPath("$.data.submissionType").value("API"));
     }
 
     @Test
@@ -136,7 +137,7 @@ class OpenInvoiceControllerTest {
     void queriesInvoiceByOutTradeNo() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", null, "COMPLETED",
+                new BigDecimal("500.00"), "技术服务费", null, "COMPLETED", "API",
                 "NONE", null, null, null, null,
                 true, "invoice_20260828.png", LocalDateTime.now(), LocalDateTime.now()
         );
@@ -166,7 +167,7 @@ class OpenInvoiceControllerTest {
                 new com.invoice.dto.BatchInvoiceItemResult(3, 202L, "SUCCESS", "创建成功")
         ));
 
-        when(invoiceService.createInvoicesBatch(eq(10L), any(), any()))
+        when(invoiceService.createInvoicesBatch(eq(10L), any(), any(), eq("API")))
                 .thenReturn(batchResponse);
 
         String json = """
@@ -203,7 +204,7 @@ class OpenInvoiceControllerTest {
 
     @Test
     void rejectsBatchCreateWhenQuotaInsufficient() throws Exception {
-        when(invoiceService.createInvoicesBatch(any(), any(), any()))
+        when(invoiceService.createInvoicesBatch(any(), any(), any(), eq("API")))
                 .thenThrow(new BusinessException(HttpStatus.BAD_REQUEST, 40002, "额度不足，当前余额：100，需要：800"));
 
         String json = """
@@ -231,7 +232,7 @@ class OpenInvoiceControllerTest {
     void cancelsInvoiceByIdViaOpenApi() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED",
+                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED", "API",
                 "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );
@@ -249,7 +250,7 @@ class OpenInvoiceControllerTest {
     void cancelsInvoiceByOutTradeNoViaOpenApi() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED",
+                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED", "API",
                 "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );

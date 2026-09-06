@@ -112,6 +112,18 @@
                 <el-option label="已取消" value="CANCELLED" />
               </el-select>
             </div>
+            <div class="filter-control">
+              <span class="filter-label"><Connection />方式</span>
+              <el-select
+                v-model="submissionTypeFilter"
+                aria-label="筛选提交方式"
+                class="submission-type-select"
+              >
+                <el-option label="全部方式" value="ALL" />
+                <el-option label="API 提交" value="API" />
+                <el-option label="手动提交" value="MANUAL" />
+              </el-select>
+            </div>
             <el-button :icon="Search" class="search-button" @click="handleSearch">搜索</el-button>
             <div class="action-buttons-wrap">
               <span class="result-count"><i></i>{{ filteredInvoices.length }} 条记录</span>
@@ -152,6 +164,13 @@
                   <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
                   <strong class="company-name">{{ row.companyName }}</strong>
                 </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="submissionType" label="提交方式" width="100" align="center">
+              <template #default="{ row }">
+                <el-tag :type="row.submissionType === 'API' ? 'warning' : row.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
+                  {{ row.submissionType === 'API' ? 'API' : row.submissionType === 'MANUAL' ? '手动' : '未知' }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column prop="taxNumber" label="税号" min-width="190">
@@ -460,6 +479,14 @@
               <div>
                 <dt>税号</dt>
                 <dd class="tax-number-cell">{{ row.taxNumber || '-' }}</dd>
+              </div>
+              <div>
+                <dt>提交方式</dt>
+                <dd>
+                  <el-tag :type="row.submissionType === 'API' ? 'warning' : row.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
+                    {{ row.submissionType === 'API' ? 'API提交' : row.submissionType === 'MANUAL' ? '手动提交' : '来源未知' }}
+                  </el-tag>
+                </dd>
               </div>
               <div>
                 <dt>开票金额</dt>
@@ -938,6 +965,7 @@ import {
   CircleClose,
   Clock,
   Coin,
+  Connection,
   CopyDocument,
   DocumentDelete,
   Download,
@@ -985,6 +1013,7 @@ const cancellingId = ref<number | null>(null)
 // 筛选相关状态
 const searchKeyword = ref('')
 const statusFilter = ref<'ALL' | 'PENDING' | 'COMPLETED' | 'COMPLETED_UNPROCESSED' | 'COMPLETED_PROCESSED' | 'RED_FLUSH_PENDING' | 'RED_FLUSH_COMPLETED' | 'CANCELLED'>('ALL')
+const submissionTypeFilter = ref<'ALL' | 'API' | 'MANUAL'>('ALL')
 const dateRange = ref<[string, string] | null>(null)
 const dateShortcuts = [
   {
@@ -1031,8 +1060,16 @@ const filteredInvoices = computed(() => {
         formattedId.includes(kw) ||
         rawId.includes(kw) ||
         String(invoice.amount).includes(kw) ||
-        (typeof invoice.amount === 'number' && invoice.amount.toFixed(2).includes(kw))
+        (typeof invoice.amount === 'number' && invoice.amount.toFixed(2).includes(kw)) ||
+        (kw === 'api' && invoice.submissionType === 'API') ||
+        (kw.includes('手动') && invoice.submissionType === 'MANUAL')
       if (!matchesKeyword) return false
+    }
+
+    // 提交方式筛选
+    if (submissionTypeFilter.value !== 'ALL') {
+      const type = invoice.submissionType || 'UNKNOWN'
+      if (type !== submissionTypeFilter.value) return false
     }
 
     // 状态筛选
@@ -1075,11 +1112,11 @@ const handleSearch = () => {
 const emptyText = computed(() => {
   if (invoices.value.length === 0) return '暂无发票记录'
   if (searchKeyword.value.trim()) return '未找到匹配的发票记录'
-  if (statusFilter.value !== 'ALL' || dateRange.value) return '未找到符合筛选条件的发票记录'
+  if (statusFilter.value !== 'ALL' || dateRange.value || submissionTypeFilter.value !== 'ALL') return '未找到符合筛选条件的发票记录'
   return '暂无发票记录'
 })
 
-watch([searchKeyword, statusFilter, dateRange], () => {
+watch([searchKeyword, statusFilter, dateRange, submissionTypeFilter], () => {
   page.value = 1
 })
 
@@ -1863,6 +1900,11 @@ onBeforeUnmount(() => {
   flex-shrink: 0 !important;
 }
 
+.submission-type-select {
+  width: 125px !important;
+  flex-shrink: 0 !important;
+}
+
 .action-buttons-wrap {
   display: flex;
   align-items: center;
@@ -2557,7 +2599,8 @@ onBeforeUnmount(() => {
   }
 
   .records-panel .date-picker,
-  .records-panel .status-select {
+  .records-panel .status-select,
+  .records-panel .submission-type-select {
     flex: 1;
     width: 100% !important;
   }

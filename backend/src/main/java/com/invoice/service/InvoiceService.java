@@ -135,6 +135,7 @@ public class InvoiceService {
         invoice.setRemark(remark == null ? null : remark.trim());
         invoice.setStatus("PENDING");
         invoice.setIsProcessed(false);
+        invoice.setSubmissionType("MANUAL");  // 标记为手动提交
         invoice.setUserId(userId);
         invoice.setIdempotencyKey(idempotencyKey);
 
@@ -195,6 +196,7 @@ public class InvoiceService {
         invoice.setOutTradeNo(normalizedOutTradeNo);
         invoice.setStatus("PENDING");
         invoice.setIsProcessed(false);
+        invoice.setSubmissionType("API");  // 标记为API提交
         invoice.setUserId(userId);
         invoice.setIdempotencyKey(finalIdempotencyKey);
 
@@ -291,6 +293,14 @@ public class InvoiceService {
         return invoiceType == null ? "" : invoiceType.trim();
     }
 
+    private String normalizeSubmissionType(String submissionType) {
+        return switch (submissionType == null ? "" : submissionType.trim().toUpperCase(Locale.ROOT)) {
+            case "API" -> "API";
+            case "MANUAL" -> "MANUAL";
+            default -> throw new IllegalArgumentException("不支持的发票提交方式");
+        };
+    }
+
     /**
      * 标准化金额：设置为两位小数
      */
@@ -318,6 +328,14 @@ public class InvoiceService {
     @Transactional
     public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
                                                      List<BatchInvoiceItemRequest> items) {
+        return createInvoicesBatch(userId, idempotencyKey, items, "MANUAL");
+    }
+
+    @Transactional
+    public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
+                                                     List<BatchInvoiceItemRequest> items,
+                                                     String submissionType) {
+        String normalizedSubmissionType = normalizeSubmissionType(submissionType);
         List<NormalizedBatchItem> normalizedItems = validateAndNormalizeBatch(items);
         String requestHash = computeRequestHash(normalizedItems);
 
@@ -358,6 +376,7 @@ public class InvoiceService {
             invoice.setRemark(item.remark());
             invoice.setStatus("PENDING");
             invoice.setIsProcessed(false);
+            invoice.setSubmissionType(normalizedSubmissionType);
             invoice.setUserId(userId);
             invoice.setBatchId(batch.getId());
             invoice.setBatchRowNumber(item.rowNumber());
