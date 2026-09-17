@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # MySQL 数据库
+  mysql:
+    image: mysql:8.0
+    container_name: invoice-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD:-root123}
+      MYSQL_DATABASE: ${DB_NAME:-invoice_system}
+      MYSQL_USER: ${DB_USERNAME:-invoice_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-root123}
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - invoice-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD:-root123}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 后端服务（直接使用离线导入的镜像）
+  backend:
+    image: invoice-backend:latest
+    container_name: invoice-backend
+    restart: unless-stopped
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${DB_NAME:-invoice_system}
+      DB_USERNAME: ${DB_USERNAME:-invoice_user}
+      DB_PASSWORD: ${DB_PASSWORD:-root123}
+      SPRING_FLYWAY_ENABLED: true
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-key-for-local-development-only}
+      JWT_EXPIRATION: 86400000
+      JWT_REMEMBER_ME_EXPIRATION: 604800000
+      FILE_UPLOAD_PATH: /app/uploads
+      CORS_ALLOWED_ORIGINS: http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173
+      AI_ENABLED: true
+      AI_PROVIDER: deepseek
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: deepseek-v4-flash
+      AI_TIMEOUT_SECONDS: 20
+    ports:
+      - "9090:9090"
+    volumes:
+      - backend-uploads:/app/uploads
+    networks:
+      - invoice-network
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9090/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+
+  # 前端服务（直接使用离线导入的镜像）
+  frontend:
+    image: invoice-frontend:latest
+    container_name: invoice-frontend
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    networks:
+      - invoice-network
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  mysql-data:
+    driver: local
+  backend-uploads:
+    driver: local
+
+networks:
+  invoice-network:
+    driver: bridge

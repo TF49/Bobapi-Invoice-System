@@ -104,6 +104,14 @@
               </el-select>
             </div>
             <div class="filter-control">
+              <span class="filter-label"><Tickets />票种</span>
+              <el-select v-model="categoryFilter" aria-label="筛选发票票种" class="category-select" style="width: 110px">
+                <el-option label="全部票种" value="ALL" />
+                <el-option label="普票" value="NORMAL" />
+                <el-option label="专票" value="VAT_SPECIAL" />
+              </el-select>
+            </div>
+            <div class="filter-control">
               <span class="filter-label"><User />用户</span>
               <el-select
                 v-model="userFilter"
@@ -163,8 +171,16 @@
                 <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="invoiceType" label="开票类型" width="135">
+            <el-table-column prop="invoiceType" label="开票类型" width="180">
               <template #default="{ row }">
+                <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
+                  <el-icon class="vat-special-ico"><Tickets /></el-icon>
+                  <span>专票</span>
+                </span>
+                <span v-else class="normal-badge" title="增值税普通发票（普票）">
+                  <el-icon class="normal-ico"><Document /></el-icon>
+                  <span>普票</span>
+                </span>
                 <el-tag
                   v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
                   size="small"
@@ -484,6 +500,14 @@
               <div>
                 <dt>开票类型</dt>
                 <dd :class="{ 'warning-invoice-type-text': (row.invoiceType?.trim() || '技术服务费') !== '技术服务费' }">
+                  <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
+                    <el-icon class="vat-special-ico"><Tickets /></el-icon>
+                    <span>专票</span>
+                  </span>
+                  <span v-else class="normal-badge" title="增值税普通发票（普票）">
+                    <el-icon class="normal-ico"><Document /></el-icon>
+                    <span>普票</span>
+                  </span>
                   <el-icon v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'" class="warning-icon-inline"><Warning /></el-icon>
                   {{ row.invoiceType || '技术服务费' }}
                 </dd>
@@ -700,6 +724,16 @@
             <el-option label="研发和技术服务" value="研发和技术服务" />
           </el-select>
         </el-form-item>
+        <el-form-item label="发票票种" prop="invoiceCategory">
+          <el-radio-group v-model="editForm.invoiceCategory" class="invoice-category-group">
+            <el-radio value="NORMAL">
+              <span class="normal-badge" style="margin-right:4px"><el-icon class="normal-ico"><Document /></el-icon><span>普票</span></span>
+            </el-radio>
+            <el-radio value="VAT_SPECIAL">
+              <span class="vat-special-badge" style="margin-right:4px"><el-icon class="vat-special-ico"><Tickets /></el-icon><span>专票</span></span>（额度按 3 倍扣除）
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input
             v-model="editForm.remark"
@@ -741,12 +775,25 @@
           show-icon
           class="red-flush-alert"
           :title="targetRedFlushRow.redFlushStatus === 'PENDING' ? '红冲标记确认' : '主动冲红作废确认'"
-          :description="targetRedFlushRow.redFlushStatus === 'PENDING' ? '确认标记红冲后，该张发票将正式作废冲红，系统将自动把该发票金额全额退还至用户的开票额度账户中！' : '该操作将直接作废冲红该张已开票发票，系统将自动把发票金额全额退还至用户的开票额度账户中！'"
+          :description="targetRedFlushRow.invoiceCategory === 'VAT_SPECIAL'
+            ? '该发票为【专票】，确认标记红冲后将正式作废，系统将自动按 3 倍额度退还 ¥' + (Number(targetRedFlushRow.amount) * 3).toFixed(2) + ' 至用户额度账户！'
+            : (targetRedFlushRow.redFlushStatus === 'PENDING' ? '确认标记红冲后，该张发票将正式作废冲红，系统将自动把该发票金额全额退还至用户的开票额度账户中！' : '该操作将直接作废冲红该张已开票发票，系统将自动把发票金额全额退还至用户的开票额度账户中！')"
         />
         <div class="target-invoice-summary">
           <div class="summary-item">
             <span class="summary-label">申请用户：</span>
             <strong>{{ targetRedFlushRow.username || `用户#${targetRedFlushRow.userId}` }}</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">发票票种：</span>
+            <span v-if="targetRedFlushRow.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票）">
+              <el-icon class="vat-special-ico"><Tickets /></el-icon>
+              <span>专票 (3倍退额: ¥{{ (Number(targetRedFlushRow.amount) * 3).toFixed(2) }})</span>
+            </span>
+            <span v-else class="normal-badge" title="增值税普通发票（普票）">
+              <el-icon class="normal-ico"><Document /></el-icon>
+              <span>普票</span>
+            </span>
           </div>
           <div class="summary-item">
             <span class="summary-label">提交方式：</span>
@@ -869,6 +916,7 @@ import {
   Close,
   Connection,
   CopyDocument,
+  Document,
   DocumentDelete,
   Download,
   EditPen,
@@ -929,6 +977,7 @@ const invoices = ref<Invoice[]>([])
 const statusFilter = ref(getInitialStatusFilter())
 const userFilter = ref('')
 const submissionTypeFilter = ref<'ALL' | 'API' | 'MANUAL' | 'UNKNOWN'>('ALL')
+const categoryFilter = ref<'ALL' | 'NORMAL' | 'VAT_SPECIAL'>('ALL')
 const searchKeyword = ref('')
 
 watch(() => route?.query?.status, (newStatus) => {
@@ -1089,14 +1138,18 @@ const filteredInvoices = computed(() => {
     const matchesUser = !userFilter.value || invoiceUser === userFilter.value
     const matchesSubmissionType = submissionTypeFilter.value === 'ALL' ||
       (invoice.submissionType || 'UNKNOWN') === submissionTypeFilter.value
+    const matchesCategory = categoryFilter.value === 'ALL' ||
+      (invoice.invoiceCategory || 'NORMAL') === categoryFilter.value
     const kw = searchKeyword.value.trim().toLowerCase()
     const matchesKeyword = !kw ||
       (invoice.companyName && invoice.companyName.toLowerCase().includes(kw)) ||
       (invoice.taxNumber && invoice.taxNumber.toLowerCase().includes(kw)) ||
       (invoice.username && invoice.username.toLowerCase().includes(kw)) ||
       (kw === 'api' && invoice.submissionType === 'API') ||
-      (kw.includes('手动') && invoice.submissionType === 'MANUAL')
-    return matchesStatus && matchesUser && matchesSubmissionType && matchesKeyword
+      (kw.includes('手动') && invoice.submissionType === 'MANUAL') ||
+      (kw.includes('专票') && invoice.invoiceCategory === 'VAT_SPECIAL') ||
+      (kw.includes('普票') && (invoice.invoiceCategory || 'NORMAL') === 'NORMAL')
+    return matchesStatus && matchesUser && matchesSubmissionType && matchesCategory && matchesKeyword
   })
 })
 
@@ -1108,7 +1161,7 @@ const paginatedInvoices = computed(() => {
   return filteredInvoices.value.slice(start, start + pageSize.value)
 })
 
-watch([searchKeyword, statusFilter, userFilter, submissionTypeFilter], () => {
+watch([searchKeyword, statusFilter, userFilter, submissionTypeFilter, categoryFilter], () => {
   page.value = 1
 })
 
@@ -1133,6 +1186,7 @@ const emptyText = computed(() => {
   if (userFilter.value) return `用户「${userFilter.value}」暂无发票申请`
   if (statusFilter.value !== 'ALL') return '当前状态下暂无发票申请'
   if (submissionTypeFilter.value !== 'ALL') return '当前提交方式下暂无发票申请'
+  if (categoryFilter.value !== 'ALL') return '当前发票票种下暂无发票申请'
   return '暂无发票申请'
 })
 
@@ -1432,6 +1486,7 @@ const editForm = reactive<InvoiceRequest>({
   taxNumber: '',
   amount: 0.01,
   invoiceType: '技术服务费',
+  invoiceCategory: 'NORMAL',
   remark: ''
 })
 
@@ -1457,6 +1512,7 @@ const handleEditInvoice = (row: Invoice) => {
   editForm.taxNumber = row.taxNumber || ''
   editForm.amount = Number(row.amount)
   editForm.invoiceType = row.invoiceType || '技术服务费'
+  editForm.invoiceCategory = row.invoiceCategory || 'NORMAL'
   editForm.remark = row.remark || ''
   editDialogVisible.value = true
 }
@@ -1476,6 +1532,7 @@ const handleEditSubmit = async () => {
       taxNumber: editForm.taxNumber?.trim() || undefined,
       amount: editForm.amount,
       invoiceType: editForm.invoiceType,
+      invoiceCategory: editForm.invoiceCategory || 'NORMAL',
       remark: editForm.remark?.trim() || undefined
     })
     ElMessage.success('修改成功')
@@ -1505,7 +1562,7 @@ const handlePreview = async (row: Invoice) => {
   previewController = new AbortController()
   previewingId.value = row.id
   previewingRow.value = row
-  previewTitle.value = `发票预览 — ${row.companyName}`
+  previewTitle.value = `发票预览 — ${row.companyName}` + (row.invoiceCategory === 'VAT_SPECIAL' ? ' 【专票】' : '')
   previewError.value = false
   previewSrc.value = null
   previewVisible.value = true
@@ -2374,6 +2431,50 @@ onBeforeUnmount(() => {
 
 .required-star {
   color: #ef4444;
+}
+
+.vat-special-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: linear-gradient(135deg, #f5a623 0%, #d48806 100%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(212, 136, 6, 0.35);
+  border: 1px solid #d48806;
+  letter-spacing: 0.5px;
+}
+
+.vat-special-badge .vat-special-ico {
+  font-size: 12px;
+}
+
+.normal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  border: 1px solid #bfdbfe;
+  letter-spacing: 0.5px;
+}
+
+.normal-badge .normal-ico {
+  font-size: 12px;
+  color: #2563eb;
 }
 </style>
 

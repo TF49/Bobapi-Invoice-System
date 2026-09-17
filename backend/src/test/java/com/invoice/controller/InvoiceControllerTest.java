@@ -100,7 +100,7 @@ class InvoiceControllerTest {
         mapper.registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule());
         InvoiceResponse response = new InvoiceResponse(
                 1L, "测试公司", "91410100MAE5H38A0F", new java.math.BigDecimal("100.00"),
-                "技术服务费", "", "COMPLETED", true, "NONE", null, null, null, null, null, "MANUAL", 2L, "user",
+                "技术服务费", "NORMAL", "", "COMPLETED", true, "NONE", null, null, null, null, null, "MANUAL", 2L, "user",
                 java.time.LocalDateTime.now(), java.time.LocalDateTime.now(),
                 true, true, "invoice.png"
         );

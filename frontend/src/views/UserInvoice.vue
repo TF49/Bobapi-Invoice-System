@@ -183,8 +183,16 @@
                 <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="invoiceType" label="开票类型" width="135">
+            <el-table-column prop="invoiceType" label="开票类型" width="180">
               <template #default="{ row }">
+                <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
+                  <el-icon class="vat-special-ico"><Tickets /></el-icon>
+                  <span>专票</span>
+                </span>
+                <span v-else class="normal-badge" title="增值税普通发票（普票）">
+                  <el-icon class="normal-ico"><Document /></el-icon>
+                  <span>普票</span>
+                </span>
                 <el-tag
                   v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
                   size="small"
@@ -495,6 +503,14 @@
               <div>
                 <dt>开票类型</dt>
                 <dd :class="{ 'warning-invoice-type-text': (row.invoiceType?.trim() || '技术服务费') !== '技术服务费' }">
+                  <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
+                    <el-icon class="vat-special-ico"><Tickets /></el-icon>
+                    <span>专票</span>
+                  </span>
+                  <span v-else class="normal-badge" title="增值税普通发票（普票）">
+                    <el-icon class="normal-ico"><Document /></el-icon>
+                    <span>普票</span>
+                  </span>
                   <el-icon v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'" class="warning-icon-inline"><Warning /></el-icon>
                   {{ row.invoiceType || '技术服务费' }}
                 </dd>
@@ -713,6 +729,26 @@
             <el-option label="计算服务费" value="计算服务费" />
             <el-option label="研发和技术服务" value="研发和技术服务" />
           </el-select>
+        </el-form-item>
+        <el-form-item label="发票票种" prop="invoiceCategory">
+          <el-radio-group v-model="form.invoiceCategory" class="invoice-category-group">
+            <el-radio value="NORMAL">
+              <span class="category-label normal-label">
+                <span class="normal-badge-inline">普</span>普票
+              </span>
+              <span class="category-desc">增值税普通发票（按开票金额扣除额度）</span>
+            </el-radio>
+            <el-radio value="VAT_SPECIAL">
+              <span class="category-label vat-special-label">
+                <span class="vat-special-badge-inline">专</span>专票
+              </span>
+              <span class="category-desc category-desc--warning">增值税专用发票（按开票金额 <strong>3 倍</strong>扣除额度）</span>
+            </el-radio>
+          </el-radio-group>
+          <div v-if="form.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-hint">
+            <el-icon class="hint-icon"><InfoFilled /></el-icon>
+            <span>专票实际扣除额度：<strong>¥{{ (form.amount * 3).toFixed(2) }}</strong>（开票金额 ¥{{ form.amount.toFixed(2) }} × 3）</span>
+          </div>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input
@@ -967,6 +1003,7 @@ import {
   Coin,
   Connection,
   CopyDocument,
+  Document,
   DocumentDelete,
   Download,
   EditPen,
@@ -1262,6 +1299,7 @@ const form = reactive<InvoiceRequest>({
   taxNumber: '',
   amount: 0.01,
   invoiceType: '技术服务费',
+  invoiceCategory: 'NORMAL',
   remark: ''
 })
 
@@ -1564,9 +1602,14 @@ const handleSubmit = async () => {
       return
     }
 
-    // 检查额度是否充足
-    if (form.amount > quotaBalance.value) {
-      ElMessage.error(`额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，需要 ¥${form.amount.toFixed(2)}`)
+    // 检查额度是否充足（专票按 3 倍扣除）
+    const requiredQuota = form.invoiceCategory === 'VAT_SPECIAL' ? form.amount * 3 : form.amount
+    if (requiredQuota > quotaBalance.value) {
+      ElMessage.error(
+        form.invoiceCategory === 'VAT_SPECIAL'
+          ? `额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，专票按 3 倍扣除需 ¥${requiredQuota.toFixed(2)}`
+          : `额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，需要 ¥${form.amount.toFixed(2)}`
+      )
       return
     }
 
@@ -1577,6 +1620,7 @@ const handleSubmit = async () => {
       taxNumber: form.taxNumber?.trim() || undefined,
       amount: form.amount,
       invoiceType: form.invoiceType,
+      invoiceCategory: form.invoiceCategory || 'NORMAL',
       remark: form.remark?.trim() || undefined
     }, idempotencyKey)
     ElMessage.success('提交成功')
@@ -1602,7 +1646,7 @@ const handlePreview = async (row: Invoice) => {
   previewController = new AbortController()
   previewingId.value = row.id
   previewingRow.value = row
-  previewTitle.value = `发票预览 — ${row.companyName}`
+  previewTitle.value = `发票预览 — ${row.companyName}` + (row.invoiceCategory === 'VAT_SPECIAL' ? ' 【专票】' : '')
   previewError.value = false
   previewSrc.value = null
   previewVisible.value = true
@@ -2922,5 +2966,161 @@ onBeforeUnmount(() => {
 
 .required-star {
   color: #ef4444;
+}
+
+.invoice-category-group {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  gap: 10px;
+  width: 100%;
+}
+
+.invoice-category-group :deep(.el-radio),
+.invoice-category-group .el-radio {
+  display: inline-flex;
+  align-items: center;
+  height: auto;
+  line-height: 1.5;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+  padding-left: 0 !important;
+}
+
+.invoice-category-group :deep(.el-radio__input) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin: 0 !important;
+}
+
+.invoice-category-group :deep(.el-radio__label) {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-left: 8px;
+}
+
+.category-label {
+  font-weight: 600;
+  min-width: 68px;
+  display: inline-flex;
+  align-items: center;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.vat-special-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.normal-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.category-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+  margin-left: 4px;
+}
+
+.category-desc--warning {
+  color: #e6821e;
+}
+
+.normal-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: #3b82f6;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.vat-special-badge-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: #f5a623;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 3px;
+  vertical-align: middle;
+}
+
+.vat-special-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 8px 12px;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #875e00;
+}
+
+.vat-special-hint .hint-icon {
+  color: #f5a623;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.vat-special-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: linear-gradient(135deg, #f5a623 0%, #d48806 100%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(212, 136, 6, 0.35);
+  border: 1px solid #d48806;
+  letter-spacing: 0.5px;
+}
+
+.vat-special-badge .vat-special-ico {
+  font-size: 12px;
+}
+
+.normal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 4px;
+  margin-right: 6px;
+  vertical-align: middle;
+  flex-shrink: 0;
+  border: 1px solid #bfdbfe;
+  letter-spacing: 0.5px;
+}
+
+.normal-badge .normal-ico {
+  font-size: 12px;
+  color: #2563eb;
 }
 </style>

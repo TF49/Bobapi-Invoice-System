@@ -7,6 +7,7 @@ export interface Invoice {
   taxNumber: string | null
   amount: number
   invoiceType: string
+  invoiceCategory?: 'NORMAL' | 'VAT_SPECIAL'
   remark?: string
   status: string
   userId: number
@@ -31,6 +32,7 @@ export interface InvoiceRequest {
   taxNumber?: string
   amount: number
   invoiceType: string
+  invoiceCategory?: string
   remark?: string
 }
 
@@ -40,6 +42,7 @@ export interface BatchInvoiceItemRequest {
   taxNumber?: string
   amount: string
   invoiceType: string
+  invoiceCategory?: string
   remark?: string
 }
 

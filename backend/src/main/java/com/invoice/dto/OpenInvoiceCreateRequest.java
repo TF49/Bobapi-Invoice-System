@@ -36,6 +36,12 @@ public class OpenInvoiceCreateRequest {
     @Size(max = 100, message = "开票类型不能超过 100 个字符")
     private String invoiceType = "技术服务费";
 
+    /**
+     * 发票票种：NORMAL-普票（默认），VAT_SPECIAL-专票
+     */
+    @Size(max = 20, message = "发票票种不能超过 20 个字符")
+    private String invoiceCategory = "NORMAL";
+
     @Size(max = 500, message = "备注不能超过 500 个字符")
     private String remark;
 }

@@ -61,6 +61,7 @@ public class OpenInvoiceController {
                 request.getTaxNumber(),
                 request.getAmount(),
                 request.getInvoiceType(),
+                request.getInvoiceCategory(),
                 request.getRemark()
         );
         return ApiResponse.success("申请成功", response);

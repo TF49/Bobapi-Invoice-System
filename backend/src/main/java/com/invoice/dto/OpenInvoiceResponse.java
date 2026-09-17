@@ -15,6 +15,7 @@ public record OpenInvoiceResponse(
         String taxNumber,
         BigDecimal amount,
         String invoiceType,
+        String invoiceCategory,
         String remark,
         String status,
         String submissionType,
@@ -42,6 +43,7 @@ public record OpenInvoiceResponse(
         boolean downloadable = exists && isSupportedImage(invoice.getFileName());
         String submissionType = invoice.getSubmissionType() != null ? invoice.getSubmissionType() : "UNKNOWN";
         String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
+        String invoiceCategory = invoice.getInvoiceCategory() != null ? invoice.getInvoiceCategory() : "NORMAL";
         return new OpenInvoiceResponse(
                 invoice.getId(),
                 invoice.getOutTradeNo(),
@@ -49,6 +51,7 @@ public record OpenInvoiceResponse(
                 invoice.getTaxNumber(),
                 invoice.getAmount(),
                 invoice.getInvoiceType(),
+                invoiceCategory,
                 invoice.getRemark(),
                 invoice.getStatus(),
                 submissionType,

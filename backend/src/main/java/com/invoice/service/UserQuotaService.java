@@ -232,6 +232,14 @@ public class UserQuotaService {
      */
     @Transactional
     public void deductQuota(Long userId, BigDecimal amount, Long invoiceId) {
+        deductQuota(userId, amount, invoiceId, "开票扣除");
+    }
+
+    /**
+     * 扣除额度（支持自定义流水说明）
+     */
+    @Transactional
+    public void deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
         }
@@ -254,7 +262,7 @@ public class UserQuotaService {
         
         // 记录交易历史
         createTransaction(userId, "DEDUCT", amount.negate(), balanceBefore, balanceAfter,
-                         null, "SYSTEM", invoiceId, "开票扣除", null);
+                         null, "SYSTEM", invoiceId, remark != null ? remark : "开票扣除", null);
     }
 
     /**
@@ -341,11 +349,11 @@ public class UserQuotaService {
         BigDecimal balanceBefore = quota.getBalance();
 
         if (amountDiff.compareTo(BigDecimal.ZERO) > 0) {
-            // 发票金额调高，需要额外扣除用户额度
+            // 发票调高或改为专票，需要额外扣除用户额度
             if (balanceBefore.compareTo(amountDiff) < 0) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, 40002,
-                        "修改开票金额失败：用户剩余额度不足（当前剩余额度：" + balanceBefore.stripTrailingZeros().toPlainString()
-                                + "元，增加金额需扣除：" + amountDiff.stripTrailingZeros().toPlainString() + "元）");
+                        "修改发票失败：用户剩余额度不足（当前剩余额度：" + balanceBefore.stripTrailingZeros().toPlainString()
+                                + "元，调整需额外扣除：" + amountDiff.stripTrailingZeros().toPlainString() + "元）");
             }
             BigDecimal balanceAfter = balanceBefore.subtract(amountDiff);
             quota.setBalance(balanceAfter);
@@ -354,9 +362,9 @@ public class UserQuotaService {
             userQuotaMapper.updateById(quota);
 
             createTransaction(userId, "DEDUCT", amountDiff.negate(), balanceBefore, balanceAfter,
-                    operatorId, "ADMIN", invoiceId, "管理员修改发票金额补扣额度", null);
+                    operatorId, "ADMIN", invoiceId, "管理员调整发票补扣额度", null);
         } else {
-            // 发票金额调低，退还差额额度
+            // 发票调低或改为普票，退还差额额度
             BigDecimal refundAmount = amountDiff.abs();
             BigDecimal balanceAfter = balanceBefore.add(refundAmount);
             quota.setBalance(balanceAfter);
@@ -366,7 +374,7 @@ public class UserQuotaService {
             userQuotaMapper.updateById(quota);
 
             createTransaction(userId, "ADJUST", refundAmount, balanceBefore, balanceAfter,
-                    operatorId, "ADMIN", invoiceId, "管理员修改发票金额退还额度", null);
+                    operatorId, "ADMIN", invoiceId, "管理员调整发票退还额度", null);
         }
     }
 

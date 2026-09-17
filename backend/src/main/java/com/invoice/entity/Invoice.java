@@ -36,6 +36,11 @@ public class Invoice {
     private String invoiceType;
 
     /**
+     * 发票票种：NORMAL-普通发票（普票），VAT_SPECIAL-增值税专用发票（专票）
+     */
+    private String invoiceCategory;
+
+    /**
      * 备注
      */
     private String remark;

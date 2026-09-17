@@ -77,7 +77,7 @@ class OpenInvoiceControllerTest {
     void allowsUserToCreateInvoiceViaOpenApi() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", "自动化推单", "PENDING", "API",
+                new BigDecimal("500.00"), "技术服务费", "NORMAL", "自动化推单", "PENDING", "API",
                 "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );
@@ -85,7 +85,7 @@ class OpenInvoiceControllerTest {
         when(invoiceService.createOpenInvoice(
                 eq(10L), eq("OUT_20260828001"), any(), eq("测试客户科技公司"),
                 eq("91110000MA00000000"), eq(new BigDecimal("500.00")),
-                eq("技术服务费"), eq("自动化推单")
+                eq("技术服务费"), eq("NORMAL"), eq("自动化推单")
         )).thenReturn(response);
 
         String json = """
@@ -113,7 +113,7 @@ class OpenInvoiceControllerTest {
 
     @Test
     void rejectsWhenQuotaInsufficient() throws Exception {
-        when(invoiceService.createOpenInvoice(any(), any(), any(), any(), any(), any(), any(), any()))
+        when(invoiceService.createOpenInvoice(any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new BusinessException(HttpStatus.BAD_REQUEST, 40002, "额度不足，当前余额：100，需要：500"));
 
         String json = """
@@ -137,7 +137,7 @@ class OpenInvoiceControllerTest {
     void queriesInvoiceByOutTradeNo() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", null, "COMPLETED", "API",
+                new BigDecimal("500.00"), "技术服务费", "NORMAL", null, "COMPLETED", "API",
                 "NONE", null, null, null, null,
                 true, "invoice_20260828.png", LocalDateTime.now(), LocalDateTime.now()
         );
@@ -232,7 +232,7 @@ class OpenInvoiceControllerTest {
     void cancelsInvoiceByIdViaOpenApi() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED", "API",
+                new BigDecimal("500.00"), "技术服务费", "NORMAL", null, "CANCELLED", "API",
                 "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );
@@ -250,7 +250,7 @@ class OpenInvoiceControllerTest {
     void cancelsInvoiceByOutTradeNoViaOpenApi() throws Exception {
         OpenInvoiceResponse response = new OpenInvoiceResponse(
                 1001L, "OUT_20260828001", "测试客户科技公司", "91110000MA00000000",
-                new BigDecimal("500.00"), "技术服务费", null, "CANCELLED", "API",
+                new BigDecimal("500.00"), "技术服务费", "NORMAL", null, "CANCELLED", "API",
                 "NONE", null, null, null, null,
                 false, null, LocalDateTime.now(), null
         );

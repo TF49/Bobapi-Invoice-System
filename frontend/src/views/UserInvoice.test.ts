@@ -134,6 +134,7 @@ describe('UserInvoice', () => {
         taxNumber: '91410100MAE5H38A0F',
         amount: 300.01,
         invoiceType: '技术服务费',
+        invoiceCategory: 'NORMAL',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
@@ -168,6 +169,7 @@ describe('UserInvoice', () => {
         taxNumber: undefined,
         amount: 100,
         invoiceType: '技术服务费',
+        invoiceCategory: 'NORMAL',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
@@ -832,5 +834,70 @@ describe('UserInvoice', () => {
     const page = await mountPage()
     expect(page.text()).toContain('API')
     expect(page.text()).toContain('手动')
+  })
+
+  it('renders golden badge with icon for VAT_SPECIAL invoice in user table', async () => {
+    const vatSpecialInvoice: Invoice = {
+      ...completedInvoice,
+      id: 99,
+      invoiceCategory: 'VAT_SPECIAL'
+    }
+    mockedApi.getMyInvoices.mockResolvedValue([vatSpecialInvoice])
+
+    const page = await mountPage()
+    const badge = page.find('.vat-special-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('专票')
+    expect(badge.find('.vat-special-ico').exists()).toBe(true)
+  })
+
+  it('renders normal badge with icon for NORMAL invoice in user table', async () => {
+    const normalInvoice: Invoice = {
+      ...completedInvoice,
+      id: 100,
+      invoiceCategory: 'NORMAL'
+    }
+    mockedApi.getMyInvoices.mockResolvedValue([normalInvoice])
+
+    const page = await mountPage()
+    const badge = page.find('.normal-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('普票')
+    expect(badge.find('.normal-ico').exists()).toBe(true)
+  })
+
+  it('validates 3x quota requirement when submitting VAT_SPECIAL invoice', async () => {
+    mockedQuotaApi.getMyQuota.mockResolvedValue({
+      userId: 1,
+      balance: 200,
+      totalRecharged: 200,
+      totalDeducted: 0
+    })
+    const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    expect(openSubmitBtn).toBeDefined()
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('测试企业')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('100.00')
+
+    const radios = page.findAll('.submit-invoice-dialog .el-radio')
+    const vatSpecialRadio = radios.find(r => r.text().includes('专票'))
+    expect(vatSpecialRadio).toBeDefined()
+    await vatSpecialRadio!.trigger('click')
+    await flushPromises()
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('专票按 3 倍扣除需 ¥300.00'))
   })
 })

@@ -85,7 +85,7 @@ public class InvoiceController {
         InvoiceResponse invoice = invoiceService.createInvoice(
                 principal.userId(), idempotencyKey, request.getCompanyName(),
                 request.getTaxNumber(), request.getAmount(),
-                request.getInvoiceType(), request.getRemark());
+                request.getInvoiceType(), request.getInvoiceCategory(), request.getRemark());
         return ApiResponse.success("申请成功", invoice);
     }
 
@@ -148,6 +148,7 @@ public class InvoiceController {
                 request.getTaxNumber(),
                 request.getAmount(),
                 request.getInvoiceType(),
+                request.getInvoiceCategory(),
                 request.getRemark(),
                 principal.userId());
         return ApiResponse.success("修改成功", invoice);

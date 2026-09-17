@@ -68,6 +68,9 @@ public class InvoiceService {
     private static final BigDecimal MIN_INVOICE_AMOUNT = new BigDecimal("0.01");
     public static final String FIXED_INVOICE_TYPE = "技术服务费";
     public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费", "研发和技术服务");
+    public static final Set<String> ALLOWED_INVOICE_CATEGORIES = Set.of("NORMAL", "VAT_SPECIAL");
+    /** 专票额度扣除倍率（专票按开票金额的 3 倍扣除额度） */
+    private static final BigDecimal VAT_SPECIAL_MULTIPLIER = new BigDecimal("3");
 
     private final InvoiceMapper invoiceMapper;
     private final InvoiceBatchMapper invoiceBatchMapper;
@@ -115,16 +118,25 @@ public class InvoiceService {
     public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
                                          String taxNumber, BigDecimal amount,
                                          String invoiceType, String remark) {
+        return createInvoice(userId, idempotencyKey, companyName, taxNumber, amount, invoiceType, "NORMAL", remark);
+    }
+
+    @Transactional
+    public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
+                                         String taxNumber, BigDecimal amount,
+                                         String invoiceType, String invoiceCategory, String remark) {
         String normalizedCompanyName = normalizeCompanyName(companyName);
         String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
         String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
-        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType);
+        String normalizedInvoiceCategory = normalizeInvoiceCategory(invoiceCategory);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType, normalizedInvoiceCategory);
         BigDecimal normalizedAmount = normalizeAmount(amount);
+        BigDecimal deductAmount = calculateDeductAmount(normalizedAmount, normalizedInvoiceCategory);
 
         Invoice existing = findByIdempotencyKey(userId, idempotencyKey);
         if (existing != null) {
             return validateRepeatedRequest(
-                    existing, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType);
+                    existing, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType, normalizedInvoiceCategory);
         }
 
         Invoice invoice = new Invoice();
@@ -132,6 +144,7 @@ public class InvoiceService {
         invoice.setTaxNumber(normalizedTaxNumber);
         invoice.setAmount(normalizedAmount);
         invoice.setInvoiceType(normalizedInvoiceType);
+        invoice.setInvoiceCategory(normalizedInvoiceCategory);
         invoice.setRemark(remark == null ? null : remark.trim());
         invoice.setStatus("PENDING");
         invoice.setIsProcessed(false);
@@ -141,8 +154,12 @@ public class InvoiceService {
 
         try {
             invoiceMapper.insert(invoice);
-            // 插入发票成功后扣除额度并关联发票ID
-            userQuotaService.deductQuota(userId, normalizedAmount, invoice.getId());
+            // 插入发票成功后扣除额度并关联发票ID（专票按 3 倍扣除，并在流水中明确标注）
+            if ("VAT_SPECIAL".equals(normalizedInvoiceCategory)) {
+                userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
+            } else {
+                userQuotaService.deductQuota(userId, deductAmount, invoice.getId());
+            }
             return InvoiceResponse.from(invoice);
         } catch (DuplicateKeyException exception) {
             Invoice concurrentlyCreated = findByIdempotencyKey(userId, idempotencyKey);
@@ -150,7 +167,7 @@ public class InvoiceService {
                 throw exception;
             }
             return validateRepeatedRequest(
-                    concurrentlyCreated, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType);
+                    concurrentlyCreated, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType, normalizedInvoiceCategory);
         }
     }
 
@@ -162,12 +179,22 @@ public class InvoiceService {
             Long userId, String outTradeNo, String idempotencyKey,
             String companyName, String taxNumber, BigDecimal amount,
             String invoiceType, String remark) {
+        return createOpenInvoice(userId, outTradeNo, idempotencyKey, companyName, taxNumber, amount, invoiceType, "NORMAL", remark);
+    }
+
+    @Transactional
+    public com.invoice.dto.OpenInvoiceResponse createOpenInvoice(
+            Long userId, String outTradeNo, String idempotencyKey,
+            String companyName, String taxNumber, BigDecimal amount,
+            String invoiceType, String invoiceCategory, String remark) {
         String normalizedOutTradeNo = (outTradeNo != null && !outTradeNo.isBlank()) ? outTradeNo.trim() : null;
         String normalizedCompanyName = normalizeCompanyName(companyName);
         String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
         String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
-        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType);
+        String normalizedInvoiceCategory = normalizeInvoiceCategory(invoiceCategory);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType, normalizedInvoiceCategory);
         BigDecimal normalizedAmount = normalizeAmount(amount);
+        BigDecimal deductAmount = calculateDeductAmount(normalizedAmount, normalizedInvoiceCategory);
 
         // 1. 如果传了 outTradeNo，先检查 outTradeNo 幂等
         if (normalizedOutTradeNo != null) {
@@ -192,6 +219,7 @@ public class InvoiceService {
         invoice.setTaxNumber(normalizedTaxNumber);
         invoice.setAmount(normalizedAmount);
         invoice.setInvoiceType(normalizedInvoiceType);
+        invoice.setInvoiceCategory(normalizedInvoiceCategory);
         invoice.setRemark(remark == null ? null : remark.trim());
         invoice.setOutTradeNo(normalizedOutTradeNo);
         invoice.setStatus("PENDING");
@@ -202,8 +230,12 @@ public class InvoiceService {
 
         try {
             invoiceMapper.insert(invoice);
-            // 插入发票成功后扣除额度并关联发票ID
-            userQuotaService.deductQuota(userId, normalizedAmount, invoice.getId());
+            // 插入发票成功后扣除额度并关联发票ID（专票按 3 倍扣除，并在流水中明确标注）
+            if ("VAT_SPECIAL".equals(normalizedInvoiceCategory)) {
+                userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
+            } else {
+                userQuotaService.deductQuota(userId, deductAmount, invoice.getId());
+            }
             return com.invoice.dto.OpenInvoiceResponse.from(invoice, uploadRoot);
         } catch (DuplicateKeyException exception) {
             if (normalizedOutTradeNo != null) {
@@ -220,7 +252,7 @@ public class InvoiceService {
         }
     }
 
-    public com.invoice.dto.OpenInvoiceResponse getOpenInvoiceById(Long userId, Long invoiceId) {
+        public com.invoice.dto.OpenInvoiceResponse getOpenInvoiceById(Long userId, Long invoiceId) {
         Invoice invoice = requireInvoice(invoiceId);
         if (!Objects.equals(invoice.getUserId(), userId)) {
             throw new BusinessException(HttpStatus.NOT_FOUND, 40401, "发票申请不存在");
@@ -293,6 +325,33 @@ public class InvoiceService {
         return invoiceType == null ? "" : invoiceType.trim();
     }
 
+    /**
+     * 标准化发票票种：去除空白并转大写，支持常见中文别名（普票/专票），空值默认 NORMAL
+     */
+    private String normalizeInvoiceCategory(String invoiceCategory) {
+        if (invoiceCategory == null || invoiceCategory.isBlank()) {
+            return "NORMAL";
+        }
+        String trimmed = invoiceCategory.trim();
+        if ("普票".equals(trimmed) || "普通发票".equals(trimmed) || "增值税普通发票".equals(trimmed)) {
+            return "NORMAL";
+        }
+        if ("专票".equals(trimmed) || "专用发票".equals(trimmed) || "增值税专用发票".equals(trimmed)) {
+            return "VAT_SPECIAL";
+        }
+        return trimmed.toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * 根据票种计算实际扣除额度：专票（VAT_SPECIAL）按开票金额 3 倍扣除
+     */
+    private BigDecimal calculateDeductAmount(BigDecimal amount, String invoiceCategory) {
+        if ("VAT_SPECIAL".equals(invoiceCategory)) {
+            return amount.multiply(VAT_SPECIAL_MULTIPLIER);
+        }
+        return amount;
+    }
+
     private String normalizeSubmissionType(String submissionType) {
         return switch (submissionType == null ? "" : submissionType.trim().toUpperCase(Locale.ROOT)) {
             case "API" -> "API";
@@ -310,6 +369,11 @@ public class InvoiceService {
 
     private void validateSingleInvoice(String companyName, String taxNumber, BigDecimal amount,
                                        String invoiceType) {
+        validateSingleInvoice(companyName, taxNumber, amount, invoiceType, "NORMAL");
+    }
+
+    private void validateSingleInvoice(String companyName, String taxNumber, BigDecimal amount,
+                                       String invoiceType, String invoiceCategory) {
         String validationMessage = validateCompanyName(companyName);
         if (validationMessage == null) {
             validationMessage = validateTaxNumber(taxNumber);
@@ -319,6 +383,9 @@ public class InvoiceService {
         }
         if (validationMessage == null) {
             validationMessage = validateInvoiceType(invoiceType);
+        }
+        if (validationMessage == null) {
+            validationMessage = validateInvoiceCategory(invoiceCategory);
         }
         if (validationMessage != null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, validationMessage);
@@ -373,6 +440,7 @@ public class InvoiceService {
             invoice.setTaxNumber(item.taxNumber());
             invoice.setAmount(item.amount());
             invoice.setInvoiceType(item.invoiceType());
+            invoice.setInvoiceCategory(item.invoiceCategory());
             invoice.setRemark(item.remark());
             invoice.setStatus("PENDING");
             invoice.setIsProcessed(false);
@@ -388,8 +456,11 @@ public class InvoiceService {
             if (invoiceMapper.insertBatch(invoices) != invoices.size()) {
                 throw new IllegalStateException("批量写入数量不一致");
             }
-            // 批量插入成功后扣除对应额度并关联批次ID
-            userQuotaService.deductBatchQuota(userId, totalAmount, batch.getId());
+            // 批量插入成功后扣除对应额度并关联批次ID（专票按 3 倍扣除）
+            BigDecimal totalDeductAmount = normalizedItems.stream()
+                    .map(item -> calculateDeductAmount(item.amount(), item.invoiceCategory()))
+                    .reduce(BigDecimal.ZERO.setScale(2), BigDecimal::add);
+            userQuotaService.deductBatchQuota(userId, totalDeductAmount, batch.getId());
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -471,17 +542,24 @@ public class InvoiceService {
                 addBatchError(errors, rowNumber, "invoiceType", invoiceTypeError);
             }
 
+            String invoiceCategory = normalizeInvoiceCategory(
+                    item == null ? null : item.getInvoiceCategory());
+            String invoiceCategoryError = validateInvoiceCategory(invoiceCategory);
+            if (invoiceCategoryError != null) {
+                addBatchError(errors, rowNumber, "invoiceCategory", invoiceCategoryError);
+            }
+
             String remark = item == null || item.getRemark() == null
                     ? null : item.getRemark().trim();
 
             if (errors.size() == initialErrorCount) {
                 String fingerprint = companyName + '\u0000' + (taxNumber == null ? "" : taxNumber) + '\u0000'
-                        + normalizedAmount.toPlainString() + '\u0000' + invoiceType;
+                        + normalizedAmount.toPlainString() + '\u0000' + invoiceType + '\u0000' + invoiceCategory;
                 if (!rowFingerprints.add(fingerprint)) {
                     addBatchError(errors, rowNumber, "row", "该行与批次内其他行完全重复");
                 }
                 normalizedItems.add(new NormalizedBatchItem(
-                        rowNumber, companyName, taxNumber, normalizedAmount, invoiceType, remark));
+                        rowNumber, companyName, taxNumber, normalizedAmount, invoiceType, invoiceCategory, remark));
             }
         }
 
@@ -503,6 +581,19 @@ public class InvoiceService {
         }
         if (invoiceType.length() > 100) {
             return "开票类型不能超过 100 个字符";
+        }
+        return null;
+    }
+
+    /**
+     * 校验发票票种，返回错误信息或 null
+     */
+    private String validateInvoiceCategory(String invoiceCategory) {
+        if (invoiceCategory == null || invoiceCategory.isEmpty()) {
+            return "发票票种不能为空";
+        }
+        if (!ALLOWED_INVOICE_CATEGORIES.contains(invoiceCategory)) {
+            return "发票票种必须为 NORMAL（普票）或 VAT_SPECIAL（专票）";
         }
         return null;
     }
@@ -619,6 +710,7 @@ public class InvoiceService {
             String taxNumber,
             BigDecimal amount,
             String invoiceType,
+            String invoiceCategory,
             String remark
     ) {
     }
@@ -654,20 +746,25 @@ public class InvoiceService {
     @Transactional
     public InvoiceResponse adminUpdateInvoice(Long invoiceId, String companyName, String taxNumber,
                                               BigDecimal amount, String invoiceType, String remark) {
-        return adminUpdateInvoice(invoiceId, companyName, taxNumber, amount, invoiceType, remark, null);
+        return adminUpdateInvoice(invoiceId, companyName, taxNumber, amount, invoiceType, "NORMAL", remark, null);
     }
 
-    /**
-     * 管理员修改发票申请信息（包含操作员ID，用于同步扣除/退还发票申请人的额度及审计记录）。
-     */
     @Transactional
     public InvoiceResponse adminUpdateInvoice(Long invoiceId, String companyName, String taxNumber,
                                               BigDecimal amount, String invoiceType, String remark,
                                               Long operatorId) {
+        return adminUpdateInvoice(invoiceId, companyName, taxNumber, amount, invoiceType, "NORMAL", remark, operatorId);
+    }
+
+    @Transactional
+    public InvoiceResponse adminUpdateInvoice(Long invoiceId, String companyName, String taxNumber,
+                                              BigDecimal amount, String invoiceType, String invoiceCategory, String remark,
+                                              Long operatorId) {
         String normalizedCompanyName = normalizeCompanyName(companyName);
         String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
         String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
-        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType);
+        String normalizedInvoiceCategory = normalizeInvoiceCategory(invoiceCategory);
+        validateSingleInvoice(normalizedCompanyName, normalizedTaxNumber, amount, normalizedInvoiceType, normalizedInvoiceCategory);
         BigDecimal normalizedAmount = normalizeAmount(amount);
 
         Invoice invoice = requireInvoice(invoiceId);
@@ -685,20 +782,28 @@ public class InvoiceService {
                     "待红冲或已红冲的发票不能修改发票信息");
         }
 
-        // 已开票的发票不允许修改金额，防止与已上传的发票文件金额不一致
-        if ("COMPLETED".equals(invoice.getStatus())
-                && invoice.getAmount().compareTo(normalizedAmount) != 0) {
-            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
-                    "已开票的发票不能修改开票金额");
+        // 已开票的发票不允许修改金额或票种，防止与已上传的发票文件不一致
+        String existingCategory = invoice.getInvoiceCategory() != null ? invoice.getInvoiceCategory() : "NORMAL";
+        if ("COMPLETED".equals(invoice.getStatus())) {
+            if (invoice.getAmount().compareTo(normalizedAmount) != 0) {
+                throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
+                        "已开票的发票不能修改开票金额");
+            }
+            if (!Objects.equals(existingCategory, normalizedInvoiceCategory)) {
+                throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
+                        "已开票的发票不能修改发票票种");
+            }
         }
 
-        // 记录关键字段变化（审计日志）及变动额度调整
-        if (invoice.getAmount().compareTo(normalizedAmount) != 0) {
-            log.info("[Admin] Invoice #{} amount changed: {} -> {} (userId={})",
-                    invoiceId, invoice.getAmount().toPlainString(),
-                    normalizedAmount.toPlainString(), invoice.getUserId());
+        // 记录关键字段变化（审计日志）及变动额度调整（按票种倍率计算实际扣除额度变化）
+        BigDecimal oldDeductAmount = calculateDeductAmount(invoice.getAmount(), existingCategory);
+        BigDecimal newDeductAmount = calculateDeductAmount(normalizedAmount, normalizedInvoiceCategory);
+        if (oldDeductAmount.compareTo(newDeductAmount) != 0) {
+            log.info("[Admin] Invoice #{} deduct amount changed: {} -> {} (userId={})",
+                    invoiceId, oldDeductAmount.toPlainString(),
+                    newDeductAmount.toPlainString(), invoice.getUserId());
 
-            BigDecimal diff = normalizedAmount.subtract(invoice.getAmount());
+            BigDecimal diff = newDeductAmount.subtract(oldDeductAmount);
             userQuotaService.adjustQuotaForInvoiceAmountChange(
                     invoice.getUserId(), diff, invoiceId, operatorId);
         }
@@ -709,6 +814,7 @@ public class InvoiceService {
                 .set(Invoice::getTaxNumber, normalizedTaxNumber)
                 .set(Invoice::getAmount, normalizedAmount)
                 .set(Invoice::getInvoiceType, normalizedInvoiceType)
+                .set(Invoice::getInvoiceCategory, normalizedInvoiceCategory)
                 .set(Invoice::getRemark, remark == null ? null : remark.trim())
                 .set(Invoice::getUpdatedAt, LocalDateTime.now());
 
@@ -805,8 +911,9 @@ public class InvoiceService {
             throw new BusinessException(HttpStatus.CONFLICT, 40902, "该发票已被处理，无法取消");
         }
         
-        // 退还额度给发票所属用户
-        userQuotaService.refundQuota(invoice.getUserId(), invoice.getAmount(), invoiceId, "取消发票申请");
+        // 退还额度给发票所属用户（专票退还 3 倍扣除额度）
+        BigDecimal cancelRefundAmount = calculateDeductAmount(invoice.getAmount(), invoice.getInvoiceCategory());
+        userQuotaService.refundQuota(invoice.getUserId(), cancelRefundAmount, invoiceId, "取消发票申请");
         
         log.info("[Invoice] Invoice #{} cancelled by user {} (owner={}, amount={})",
                 invoiceId, userId, invoice.getUserId(), invoice.getAmount());
@@ -931,9 +1038,10 @@ public class InvoiceService {
             throw new BusinessException(HttpStatus.CONFLICT, 40902, "发票状态已变更，请刷新后重试");
         }
 
-        // 退还额度给发票所属用户（带操作人审计信息）
+        // 退还额度给发票所属用户（带操作人审计信息，专票退还 3 倍扣除额度）
+        BigDecimal flushRefundAmount = calculateDeductAmount(invoice.getAmount(), invoice.getInvoiceCategory());
         String refundRemark = "发票红冲退还额度" + (StringUtils.hasText(trimmedRemark) ? " (" + trimmedRemark + ")" : "");
-        userQuotaService.refundQuota(invoice.getUserId(), invoice.getAmount(), invoiceId, refundRemark, operatorId, "ADMIN");
+        userQuotaService.refundQuota(invoice.getUserId(), flushRefundAmount, invoiceId, refundRemark, operatorId, "ADMIN");
 
         log.info("[Invoice] Invoice #{} red flush confirmed by operator {} (owner={}, amount={})",
                 invoiceId, operatorId, invoice.getUserId(), invoice.getAmount());
@@ -1227,11 +1335,13 @@ public class InvoiceService {
 
     private InvoiceResponse validateRepeatedRequest(Invoice existing, String companyName,
                                                     String taxNumber, BigDecimal amount,
-                                                    String invoiceType) {
+                                                    String invoiceType, String invoiceCategory) {
+        String existingCategory = existing.getInvoiceCategory() != null ? existing.getInvoiceCategory() : "NORMAL";
         boolean samePayload = Objects.equals(existing.getCompanyName(), companyName)
                 && Objects.equals(existing.getTaxNumber(), taxNumber)
                 && existing.getAmount().compareTo(amount) == 0
-                && Objects.equals(existing.getInvoiceType(), invoiceType);
+                && Objects.equals(existing.getInvoiceType(), invoiceType)
+                && Objects.equals(existingCategory, invoiceCategory);
         if (!samePayload) {
             throw new BusinessException(HttpStatus.CONFLICT, 40902,
                     "Idempotency-Key 已用于其他发票申请");

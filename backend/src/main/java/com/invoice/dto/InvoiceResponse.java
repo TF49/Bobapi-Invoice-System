@@ -14,6 +14,7 @@ public record InvoiceResponse(
         String taxNumber,
         BigDecimal amount,
         String invoiceType,
+        String invoiceCategory,
         String remark,
         String status,
         boolean isProcessed,
@@ -51,12 +52,14 @@ public record InvoiceResponse(
         boolean isProcessed = invoice.getIsProcessed() != null && invoice.getIsProcessed();
         String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
         String submissionType = invoice.getSubmissionType() != null ? invoice.getSubmissionType() : "UNKNOWN";
+        String invoiceCategory = invoice.getInvoiceCategory() != null ? invoice.getInvoiceCategory() : "NORMAL";
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getCompanyName(),
                 invoice.getTaxNumber(),
                 invoice.getAmount(),
                 invoice.getInvoiceType(),
+                invoiceCategory,
                 invoice.getRemark(),
                 invoice.getStatus(),
                 isProcessed,

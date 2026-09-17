@@ -22,6 +22,7 @@ vi.mock('@/api/invoice', () => ({
     uploadInvoice: vi.fn(),
     downloadInvoice: vi.fn(),
     previewInvoice: vi.fn(),
+    updateInvoice: vi.fn(),
     updateProcessed: vi.fn(),
     batchUpdateProcessed: vi.fn(),
     cancelInvoice: vi.fn(),
@@ -294,5 +295,86 @@ describe('AdminInvoice', () => {
     const page = await mountPage()
     expect(page.text()).toContain('API')
     expect(page.text()).toContain('手动')
+  })
+
+  it('renders golden badge with icon for VAT_SPECIAL category', async () => {
+    const vatSpecialInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 501,
+      invoiceCategory: 'VAT_SPECIAL'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([vatSpecialInvoice])
+
+    const page = await mountPage()
+    const badge = page.find('.vat-special-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('专票')
+    expect(badge.find('.vat-special-ico').exists()).toBe(true)
+  })
+
+  it('renders normal badge with icon for NORMAL category in admin table', async () => {
+    const normalInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 502,
+      invoiceCategory: 'NORMAL'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([normalInvoice])
+
+    const page = await mountPage()
+    const badge = page.find('.normal-badge')
+    expect(badge.exists()).toBe(true)
+    expect(badge.text()).toContain('普票')
+    expect(badge.find('.normal-ico').exists()).toBe(true)
+  })
+
+  it('filters invoices by keyword "专票"', async () => {
+    const normalInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 502,
+      companyName: '普通公司',
+      invoiceCategory: 'NORMAL'
+    }
+    const vatSpecialInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 503,
+      companyName: '专票企业A',
+      invoiceCategory: 'VAT_SPECIAL'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([normalInvoice, vatSpecialInvoice])
+
+    const page = await mountPage()
+    const searchInput = page.find('.search-input input')
+    await searchInput.setValue('专票')
+    await flushPromises()
+
+    expect(page.text()).toContain('专票企业A')
+    expect(page.text()).not.toContain('普通公司')
+  })
+
+  it('includes invoiceCategory when submitting edit form', async () => {
+    const vatSpecialInvoice: Invoice = {
+      ...pendingInvoice,
+      id: 505,
+      invoiceCategory: 'VAT_SPECIAL'
+    }
+    mockedInvoiceApi.getAllInvoices.mockResolvedValue([vatSpecialInvoice])
+    mockedInvoiceApi.updateInvoice.mockResolvedValue({} as never)
+
+    const page = await mountPage()
+    // Open edit dialog by clicking edit button
+    const editBtn = page.find('.action-btn.icon-only-btn')
+    expect(editBtn.exists()).toBe(true)
+    await editBtn.trigger('click')
+    await flushPromises()
+
+    // Find submit button in edit dialog
+    const saveBtn = page.findAll('.dialog-footer button').find(b => b.text().includes('保存修改'))
+    expect(saveBtn).toBeDefined()
+    await saveBtn!.trigger('click')
+    await flushPromises()
+
+    expect(mockedInvoiceApi.updateInvoice).toHaveBeenCalledWith(505, expect.objectContaining({
+      invoiceCategory: 'VAT_SPECIAL'
+    }))
   })
 })

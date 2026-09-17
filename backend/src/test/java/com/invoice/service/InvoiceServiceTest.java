@@ -881,4 +881,124 @@ class InvoiceServiceTest {
         invoice.setAmount(new BigDecimal(amount));
         return invoice;
     }
+
+    @Test
+    void normalInvoiceDeducts1xQuota() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(501L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-normal-1x", "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "普票备注"
+        );
+
+        assertThat(response.invoiceCategory()).isEqualTo("NORMAL");
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("100.00"), 501L);
+    }
+
+    @Test
+    void specialVatInvoiceDeducts3xQuota() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(502L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-special-3x", "测试公司", "91110000MA00000002",
+                new BigDecimal("100.00"), "技术服务费", "VAT_SPECIAL", "专票备注"
+        );
+
+        assertThat(response.invoiceCategory()).isEqualTo("VAT_SPECIAL");
+        // 专票扣除 3 倍额度：100.00 * 3 = 300.00
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("300.00"), 502L, "开票扣除 (专票3倍额度)");
+    }
+
+    @Test
+    void cancellingSpecialVatInvoiceRefunds3xQuota() {
+        Invoice invoice = invoice(503L, 8L, "PENDING");
+        invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceCategory("VAT_SPECIAL");
+        when(invoiceMapper.selectById(503L)).thenReturn(invoice);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        service.cancelInvoice(503L, 8L);
+
+        // 取消专票退还 3 倍额度：300.00
+        verify(userQuotaService).refundQuota(8L, new BigDecimal("300.00"), 503L, "取消发票申请");
+    }
+
+    @Test
+    void confirmingRedFlushOnSpecialVatInvoiceRefunds3xQuota() {
+        Invoice invoice = invoice(504L, 8L, "COMPLETED");
+        invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceCategory("VAT_SPECIAL");
+        invoice.setRedFlushStatus("PENDING");
+        when(invoiceMapper.selectById(504L)).thenReturn(invoice);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        service.confirmRedFlush(504L, 1L, "冲红完成");
+
+        // 红冲专票退还 3 倍额度：300.00
+        verify(userQuotaService).refundQuota(eq(8L), eq(new BigDecimal("300.00")), eq(504L), any(), eq(1L), eq("ADMIN"));
+    }
+
+    @Test
+    void adminUpdatingCategoryFromNormalToSpecialAdjustsQuotaDiff() {
+        Invoice invoice = invoice(505L, 8L, "PENDING");
+        invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceCategory("NORMAL");
+        when(invoiceMapper.selectById(505L)).thenReturn(invoice);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        service.adminUpdateInvoice(505L, "新公司", "91110000MA00000003",
+                new BigDecimal("100.00"), "技术服务费", "VAT_SPECIAL", "改专票", 1L);
+
+        // 额度从 100 变 300，差额为 +200.00
+        verify(userQuotaService).adjustQuotaForInvoiceAmountChange(8L, new BigDecimal("200.00"), 505L, 1L);
+    }
+
+    @Test
+    void acceptsChineseCategoryAliasesAndNormalizes() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(506L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-chinese-alias", "测试公司", "91110000MA00000004",
+                new BigDecimal("100.00"), "技术服务费", "专票", "别名测试"
+        );
+
+        assertThat(response.invoiceCategory()).isEqualTo("VAT_SPECIAL");
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("300.00"), 506L, "开票扣除 (专票3倍额度)");
+    }
+
+    @Test
+    void rejectsRepeatedRequestWhenInvoiceCategoryDiffers() {
+        Invoice existing = invoice(507L, 8L, "PENDING");
+        existing.setCompanyName("测试公司");
+        existing.setTaxNumber("91110000MA00000005");
+        existing.setAmount(new BigDecimal("100.00"));
+        existing.setInvoiceType("技术服务费");
+        existing.setInvoiceCategory("NORMAL");
+        existing.setIdempotencyKey("key-repeat-cat-mismatch");
+
+        when(invoiceMapper.selectOne(any())).thenReturn(existing);
+
+        assertThatThrownBy(() -> service.createInvoice(
+                8L, "key-repeat-cat-mismatch", "测试公司", "91110000MA00000005",
+                new BigDecimal("100.00"), "技术服务费", "VAT_SPECIAL", null
+        )).isInstanceOfSatisfying(BusinessException.class, ex -> {
+            assertThat(ex.getCode()).isEqualTo(40902);
+            assertThat(ex.getMessage()).contains("Idempotency-Key 已用于其他发票申请");
+        });
+    }
 }

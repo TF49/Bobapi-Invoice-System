@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx'
 import {
   findDuplicateRows,
   normalizeAmount,
+  normalizeInvoiceCategory,
   parseInvoiceFile,
   validateAllRows,
   validateRow,
@@ -107,4 +108,56 @@ describe('invoice batch import validation', () => {
     expect(result[1].error).toBe('税号不能超过 100 个字符')
     expect(result[1].rowNumber).toBe(5)
   })
+
+  it('normalizes invoice category correctly', () => {
+    expect(normalizeInvoiceCategory('专票')).toBe('VAT_SPECIAL')
+    expect(normalizeInvoiceCategory('专用发票')).toBe('VAT_SPECIAL')
+    expect(normalizeInvoiceCategory('增值税专用发票')).toBe('VAT_SPECIAL')
+    expect(normalizeInvoiceCategory('VAT_SPECIAL')).toBe('VAT_SPECIAL')
+    expect(normalizeInvoiceCategory('vat_special')).toBe('VAT_SPECIAL')
+    expect(normalizeInvoiceCategory('普票')).toBe('NORMAL')
+    expect(normalizeInvoiceCategory('普通发票')).toBe('NORMAL')
+    expect(normalizeInvoiceCategory('增值税普通发票')).toBe('NORMAL')
+    expect(normalizeInvoiceCategory('NORMAL')).toBe('NORMAL')
+    expect(normalizeInvoiceCategory('')).toBe('NORMAL')
+    expect(normalizeInvoiceCategory(undefined)).toBe('NORMAL')
+    expect(normalizeInvoiceCategory('未知')).toBe('NORMAL')
+  })
+
+  it('validates invoice category in validateRow', () => {
+    expect(validateRow(row({ invoiceCategory: 'NORMAL' }))).toBeNull()
+    expect(validateRow(row({ invoiceCategory: 'VAT_SPECIAL' }))).toBeNull()
+    expect(validateRow(row({ invoiceCategory: '专票' }))).toBeNull()
+    expect(validateRow(row({ invoiceCategory: '普票' }))).toBeNull()
+    expect(validateRow(row({ invoiceCategory: '电子专票' }))).toBe('发票票种必须为普票或专票（也可填 NORMAL 或 VAT_SPECIAL）')
+  })
+
+  it('differentiates duplicate rows by category', () => {
+    const rows = [
+      row({ rowNumber: 2, amount: '100.00', invoiceCategory: 'NORMAL' }),
+      row({ rowNumber: 3, amount: '100.00', invoiceCategory: 'VAT_SPECIAL' })
+    ]
+    expect(findDuplicateRows(rows)).toEqual([])
+
+    const dupRows = [
+      row({ rowNumber: 2, amount: '100.00', invoiceCategory: 'NORMAL' }),
+      row({ rowNumber: 3, amount: '100.00', invoiceCategory: '普票' })
+    ]
+    expect(findDuplicateRows(dupRows)).toEqual([3])
+  })
+
+  it('parses CSV with 6 columns including 发票票种 and 备注', async () => {
+    const csv = '\uFEFF公司名称,税号,开票金额,开票类型,发票票种,备注\n' +
+      '公司A,91500123456789012A,100.00,技术服务费,专票,加急\n' +
+      '公司B,91500123456789013B,200.00,AI订阅服务费,普票,常规'
+    const file = new File([csv], 'invoices_6col.csv', { type: 'text/csv' })
+    const result = await parseInvoiceFile(file)
+    expect(result.success).toBe(true)
+    expect(result.data).toHaveLength(2)
+    expect(result.data[0].invoiceCategory).toBe('专票')
+    expect(result.data[0].remark).toBe('加急')
+    expect(result.data[1].invoiceCategory).toBe('普票')
+    expect(result.data[1].remark).toBe('常规')
+  })
 })
+

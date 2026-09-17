@@ -28,6 +28,11 @@ public class BatchInvoiceItemRequest {
     private String invoiceType;
 
     /**
+     * 发票票种：NORMAL-普票（默认），VAT_SPECIAL-专票
+     */
+    private String invoiceCategory = "NORMAL";
+
+    /**
      * 备注（可选）
      */
     private String remark;

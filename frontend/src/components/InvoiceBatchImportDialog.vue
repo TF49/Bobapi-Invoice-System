@@ -75,6 +75,22 @@
             </template>
           </el-table-column>
           <el-table-column prop="amount" label="开票金额" width="110" />
+          <el-table-column prop="invoiceCategory" label="票种" width="95" align="center">
+            <template #default="{ row }">
+              <span
+                v-if="normalizeInvoiceCategory(row.invoiceCategory) === 'VAT_SPECIAL'"
+                class="vat-special-badge"
+                title="增值税专用发票（专票），额度按 3 倍扣除"
+              >
+                <el-icon class="vat-special-ico"><Tickets /></el-icon>
+                <span>专票</span>
+              </span>
+              <span v-else class="normal-badge" title="普通发票（普票）">
+                <el-icon class="normal-ico"><Document /></el-icon>
+                <span>普票</span>
+              </span>
+            </template>
+          </el-table-column>
           <el-table-column prop="invoiceType" label="开票类型" width="135">
             <template #default="{ row }">
               <el-tag
@@ -190,12 +206,13 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
 import { ElMessage, type UploadFile, type UploadInstance } from 'element-plus';
-import { Download, InfoFilled, Upload, Warning } from '@element-plus/icons-vue';
+import { Download, InfoFilled, Upload, Warning, Tickets, Document } from '@element-plus/icons-vue';
 import {
   parseInvoiceFile,
   validateAllRows,
   findDuplicateRows,
   normalizeAmount,
+  normalizeInvoiceCategory,
   downloadTemplate as downloadTemplateUtil,
   type ParsedInvoiceRow
 } from '../utils/invoiceImport';
@@ -319,6 +336,7 @@ const handleSubmit = async () => {
       taxNumber: row.taxNumber ? row.taxNumber.trim() : undefined,
       amount: normalizeAmount(row.amount) || row.amount,
       invoiceType: row.invoiceType.trim(),
+      invoiceCategory: normalizeInvoiceCategory(row.invoiceCategory),
       remark: row.remark?.trim() || undefined
     }));
 
@@ -477,6 +495,51 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
   display: inline-flex;
   align-items: center;
   font-weight: 600;
+}
+
+.vat-special-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: linear-gradient(135deg, #fff7e6 0%, #ffe7ba 100%);
+  border: 1px solid #ffd591;
+  border-radius: 4px;
+  color: #d48806;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  box-shadow: 0 1px 3px rgba(212, 136, 6, 0.15);
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+}
+
+.vat-special-ico {
+  font-size: 12px;
+  color: #fa8c16;
+  filter: drop-shadow(0 1px 1px rgba(212, 136, 6, 0.3));
+}
+
+.normal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 4px;
+  color: #1d4ed8;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  box-shadow: 0 1px 3px rgba(37, 99, 235, 0.1);
+  letter-spacing: 0.5px;
+  vertical-align: middle;
+}
+
+.normal-ico {
+  font-size: 12px;
+  color: #2563eb;
 }
 
 .remark-warning-text {

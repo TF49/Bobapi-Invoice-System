@@ -7,3 +7,5 @@ frontend/.playwright-cli/
 .idea/
 .vscode/
 *.log
+*.tar
+.env
