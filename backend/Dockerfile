@@ -32,7 +32,7 @@ EXPOSE 9090
 
 # 健康检查（使用 Spring Boot Actuator 健康端点）
 HEALTHCHECK --interval=30s --timeout=3s --start-period=120s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:9090/actuator/health || exit 1
+  CMD wget --no-verbose --tries=1 --spider http://localhost:9090/api/doc.html || exit 1
 
 # 启动应用
 ENTRYPOINT ["java", "-jar", "app.jar"]

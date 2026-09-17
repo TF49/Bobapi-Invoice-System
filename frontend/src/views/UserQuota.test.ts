@@ -95,4 +95,26 @@ describe('UserQuota', () => {
     expect(text).toContain('/open/v1/invoices/by-out-trade-no/{outTradeNo}/cancel')
     expect(text).toContain('/open/v1/invoices/{id}/cancel')
   })
+
+  it('renders invoiceCategory and allows toggling between normal and special VAT invoice snippets', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    let text = page.text()
+    expect(text).toContain('invoiceCategory')
+    expect(text).toContain('增值税专用发票 (专票)')
+    expect(text).toContain('3倍额度')
+    expect(text).toContain('"invoiceCategory": "NORMAL"')
+
+    const specialCategoryBtn = page.findAll('.category-btn').find((btn) => btn.text().includes('专票示例'))
+    expect(specialCategoryBtn).toBeDefined()
+    await specialCategoryBtn!.trigger('click')
+    await flushPromises()
+
+    text = page.text()
+    expect(text).toContain('"invoiceCategory": "VAT_SPECIAL"')
+    expect(text).toContain('ORDER_20260828002')
+  })
 })

@@ -125,16 +125,21 @@ a,
 }
 
 .workspace-content {
-  width: min(100%, 1480px);
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
-  padding: 28px 32px 48px;
+  padding: 24px 32px 48px;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 16px;
   margin-bottom: 20px;
+}
+
+.quota-stats-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .stat-card {
@@ -277,6 +282,7 @@ a,
 }
 
 .table-scroll .el-table {
+  width: 100%;
   min-width: 920px;
 }
 
@@ -409,8 +415,15 @@ a,
   white-space: nowrap;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1380px) {
   .stats-grid {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  }
+}
+
+@media (max-width: 1080px) {
+  .stats-grid,
+  .quota-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -590,8 +603,9 @@ a,
   }
 }
 
-@media (max-width: 350px) {
-  .stats-grid {
+@media (max-width: 480px) {
+  .stats-grid,
+  .quota-stats-grid {
     grid-template-columns: 1fr;
   }
 }

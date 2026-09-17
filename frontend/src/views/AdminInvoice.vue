@@ -141,7 +141,7 @@
         </div>
         <div v-else class="table-scroll desktop-records">
           <el-table :data="paginatedInvoices" v-loading="loading" class="records-table">
-            <el-table-column prop="companyName" label="公司名称" min-width="210">
+            <el-table-column prop="companyName" label="公司名称" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
                 <div class="company-cell">
                   <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
@@ -149,29 +149,29 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column prop="username" label="申请用户" min-width="120">
+            <el-table-column prop="username" label="申请用户" min-width="95" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="applicant-user-cell">{{ row.username || `用户#${row.userId}` }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="submissionType" label="提交方式" width="100" align="center">
+            <el-table-column prop="submissionType" label="提交方式" width="90" align="center">
               <template #default="{ row }">
                 <el-tag :type="row.submissionType === 'API' ? 'warning' : row.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
                   {{ row.submissionType === 'API' ? 'API' : row.submissionType === 'MANUAL' ? '手动' : '未知' }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="taxNumber" label="税号" min-width="180">
+            <el-table-column prop="taxNumber" label="税号" min-width="170" show-overflow-tooltip>
               <template #default="{ row }">
                 <span class="tax-number-cell">{{ row.taxNumber || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="amount" label="金额" width="130" align="right">
+            <el-table-column prop="amount" label="金额" width="115" align="right">
               <template #default="{ row }">
                 <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="invoiceType" label="开票类型" width="180">
+            <el-table-column prop="invoiceType" label="开票类型" width="165">
               <template #default="{ row }">
                 <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
                   <el-icon class="vat-special-ico"><Tickets /></el-icon>
@@ -211,7 +211,7 @@
                 <span v-else class="remark-text">-</span>
               </template>
             </el-table-column>
-            <el-table-column prop="status" label="状态" width="124" align="center">
+            <el-table-column prop="status" label="状态" width="115" align="center">
               <template #default="{ row }">
                 <el-tooltip
                   v-if="row.status === 'COMPLETED' && row.redFlushStatus === 'PENDING'"
@@ -249,7 +249,7 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="createdAt" label="申请时间" width="160">
+            <el-table-column prop="createdAt" label="申请时间" width="140">
               <template #default="{ row }">
                 <div class="date-cell">
                   <span>{{ formatDateParts(row.createdAt).date }}</span>
@@ -257,7 +257,7 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="280" align="center" fixed="right">
+            <el-table-column label="操作" width="260" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="action-cell-wrapper">
                   <!-- 1. 待开票状态：快捷粘贴 + 选择文件 + 修改发票 -->
@@ -1790,7 +1790,7 @@ onBeforeUnmount(() => {
 }
 
 .search-input {
-  width: 200px;
+  width: 230px;
 }
 
 .status-select {

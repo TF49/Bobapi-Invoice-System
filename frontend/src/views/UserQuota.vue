@@ -426,18 +426,86 @@
               <!-- 接口 1: 提交发票申请 -->
               <div class="api-doc-item">
                 <div class="api-item-header">
-                  <span class="http-badge post">POST</span>
-                  <span class="api-item-title">1. 提交发票申请 (自动扣减额度)</span>
-                  <span class="api-item-path">/open/v1/invoices</span>
+                  <div class="api-item-header-left">
+                    <span class="http-badge post">POST</span>
+                    <span class="api-item-title">1. 提交发票申请 (自动扣减额度)</span>
+                    <span class="api-item-path">/open/v1/invoices</span>
+                  </div>
+                  <!-- 示例票种切换器 -->
+                  <div class="api-category-toggle">
+                    <button
+                      type="button"
+                      class="category-btn"
+                      :class="{ 'is-active': submitCategoryTab === 'NORMAL' }"
+                      @click="submitCategoryTab = 'NORMAL'"
+                    >
+                      普票示例 (NORMAL · 1倍扣额)
+                    </button>
+                    <button
+                      type="button"
+                      class="category-btn"
+                      :class="{ 'is-active': submitCategoryTab === 'VAT_SPECIAL' }"
+                      @click="submitCategoryTab = 'VAT_SPECIAL'"
+                    >
+                      专票示例 (VAT_SPECIAL · 3倍扣额)
+                    </button>
+                  </div>
                 </div>
                 <p class="api-item-desc">
-                  提交单条发票申请，根据开票金额 (<code class="inline-code">amount</code>) 实时扣减账户可用额度。支持通过 <code class="inline-code">outTradeNo</code>（外部商户订单号）进行幂等防重与后续状态回查。
+                  提交单条发票申请，系统根据开票金额（<code class="inline-code">amount</code>）与发票票种（<code class="inline-code">invoiceCategory</code>）实时扣减账户可用额度。支持通过 <code class="inline-code">outTradeNo</code>（外部商户订单号）进行幂等防重与后续状态回查。
                 </p>
+
+                <!-- 票种与额度扣减规则对照 -->
+                <div class="api-quota-rules-card">
+                  <div class="rules-header">
+                    <span class="rules-badge">业务规则</span>
+                    <strong class="rules-title">票种分类（invoiceCategory）与额度扣减对照</strong>
+                  </div>
+                  <div class="rules-grid">
+                    <div
+                      class="rule-box"
+                      :class="{ 'is-selected': submitCategoryTab === 'NORMAL' }"
+                      @click="submitCategoryTab = 'NORMAL'"
+                    >
+                      <div class="rule-box-header">
+                        <span class="rule-type-tag normal">增值税普通发票 (普票)</span>
+                        <code class="rule-code">invoiceCategory: "NORMAL"</code>
+                      </div>
+                      <div class="rule-rate">
+                        额度扣减倍率：<strong class="multiplier-num">1.0 ×</strong>（1倍额度）
+                      </div>
+                      <div class="rule-calc-example">
+                        例：开票金额 ¥500.00 → 实时扣除额度 <strong>¥500.00</strong>（默认票种，未传该字段时按普票处理）
+                      </div>
+                    </div>
+                    <div
+                      class="rule-box"
+                      :class="{ 'is-selected': submitCategoryTab === 'VAT_SPECIAL' }"
+                      @click="submitCategoryTab = 'VAT_SPECIAL'"
+                    >
+                      <div class="rule-box-header">
+                        <span class="rule-type-tag special">增值税专用发票 (专票)</span>
+                        <code class="rule-code">invoiceCategory: "VAT_SPECIAL"</code>
+                      </div>
+                      <div class="rule-rate">
+                        额度扣减倍率：<strong class="multiplier-num special">3.0 ×</strong>（3倍额度）
+                      </div>
+                      <div class="rule-calc-example">
+                        例：开票金额 ¥500.00 → 实时扣除额度 <strong>¥1,500.00</strong>（需显式传入 <code>VAT_SPECIAL</code>）
+                      </div>
+                    </div>
+                  </div>
+                  <div class="rules-refund-tip">
+                    <span class="tip-icon">💡</span>
+                    <span><strong>退还规则：</strong>待开票状态下取消申请（<code>/cancel</code>）或管理员红冲已开具发票时，系统将<strong>按实际扣除额度（专票退还 3 倍）全额原路退还</strong>至账户可用余额中。</span>
+                  </div>
+                </div>
+
                 <div class="api-code-grid">
                   <!-- 请求示例 -->
                   <div class="code-box">
                     <div class="code-box-header">
-                      <span class="code-box-title">请求示例 (cURL)</span>
+                      <span class="code-box-title">请求示例 (cURL - {{ submitCategoryTab === 'NORMAL' ? '普票' : '专票' }})</span>
                       <button class="code-copy-btn" type="button" @click="handleCopyText(snippetSubmitReq, 'cURL 请求示例')">
                         <el-icon :size="12"><CopyDocument /></el-icon>
                         <span>复制</span>
@@ -448,13 +516,21 @@
                   <!-- 返回示例 -->
                   <div class="code-box">
                     <div class="code-box-header">
-                      <span class="code-box-title">响应示例 (JSON - HTTP 200)</span>
+                      <span class="code-box-title">响应示例 (JSON - HTTP 200 - {{ submitCategoryTab === 'NORMAL' ? '普票' : '专票' }})</span>
                       <button class="code-copy-btn" type="button" @click="handleCopyText(snippetSubmitResp, '响应示例')">
                         <el-icon :size="12"><CopyDocument /></el-icon>
                         <span>复制</span>
                       </button>
                     </div>
                     <pre class="code-box-content"><code>{{ snippetSubmitResp }}</code></pre>
+                  </div>
+                </div>
+
+                <!-- 附带批量接口提示 -->
+                <div class="api-sub-tip">
+                  <div class="api-sub-tip-title">📎 批量提交发票申请接口 (POST /open/v1/invoices/batch)：</div>
+                  <div class="api-sub-tip-desc">
+                    支持单次批量提交最多 100 条发票申请。<code class="inline-code">items</code> 数组中每个对象均支持传入 <code class="inline-code">"invoiceCategory": "NORMAL" | "VAT_SPECIAL"</code>，后端自动按各发票明细对应的倍率累计扣减账户可用额度。
                   </div>
                 </div>
               </div>
@@ -467,7 +543,7 @@
                   <span class="api-item-path">/open/v1/invoices/by-out-trade-no/{outTradeNo}</span>
                 </div>
                 <p class="api-item-desc">
-                  无需维护发票系统内部 ID，直接传入外部商户单号回查状态。<code class="inline-code">status</code> 为 <code class="inline-code">PENDING</code>(开票中)、<code class="inline-code">COMPLETED</code>(已开票) 或 <code class="inline-code">CANCELLED</code>(已取消)。当已开票且 <code class="inline-code">downloadable</code> 为 <code class="inline-code">true</code> 时可直接下载发票文件。
+                  无需维护发票系统内部 ID，直接传入外部商户单号回查状态。响应结果中包含票种（<code class="inline-code">invoiceCategory</code>: <code class="inline-code">NORMAL</code> / <code class="inline-code">VAT_SPECIAL</code>），状态 <code class="inline-code">status</code> 为 <code class="inline-code">PENDING</code>(开票中)、<code class="inline-code">COMPLETED</code>(已开票) 或 <code class="inline-code">CANCELLED</code>(已取消)。当已开票且 <code class="inline-code">downloadable</code> 为 <code class="inline-code">true</code> 时可直接下载发票文件。
                 </p>
                 <div class="api-code-grid">
                   <!-- 请求示例 -->
@@ -518,7 +594,7 @@
                   <span class="api-item-path">/open/v1/invoices/by-out-trade-no/{outTradeNo}/cancel</span>
                 </div>
                 <p class="api-item-desc">
-                  仅允许取消状态为 <code class="inline-code">PENDING</code>（待开票）的发票申请。取消成功后，扣减的额度将<strong>实时原路退回</strong>账户可用余额。已开票（<code class="inline-code">COMPLETED</code>）的发票不允许取消。
+                  仅允许取消状态为 <code class="inline-code">PENDING</code>（待开票）的发票申请。取消成功后，扣减的额度将<strong>实时原路退回</strong>账户可用余额（普票退还 1 倍金额，专票退还 3 倍扣除额度）。已开票（<code class="inline-code">COMPLETED</code>）的发票不允许取消。
                 </p>
                 <div class="api-code-grid">
                   <!-- 请求示例 -->
@@ -569,7 +645,7 @@
                   <span class="api-item-path">/open/v1/quota</span>
                 </div>
                 <p class="api-item-desc">
-                  查询当前 API Key 关联账户的可用额度余额 (<code class="inline-code">balance</code>)、累计充值与累计消耗额度，便于外部系统前置做余额预警。
+                  查询当前 API Key 关联账户的可用额度余额 (<code class="inline-code">balance</code>)、累计充值与累计消耗额度。开具专票时需扣除 3 倍金额的额度，建议外部系统在推单前调用此接口核验余额是否充足，便于前置做余额预警。
                 </p>
                 <div class="api-code-grid">
                   <!-- 请求示例 -->
@@ -855,7 +931,24 @@ const currentBaseUrl = computed(() => {
   return 'http://localhost:9090'
 })
 
-const snippetSubmitReq = computed(() => `curl -X POST "${currentBaseUrl.value}/open/v1/invoices" \\
+const submitCategoryTab = ref<'NORMAL' | 'VAT_SPECIAL'>('NORMAL')
+
+const snippetSubmitReq = computed(() => {
+  if (submitCategoryTab.value === 'VAT_SPECIAL') {
+    return `curl -X POST "${currentBaseUrl.value}/open/v1/invoices" \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
+  -d '{
+    "outTradeNo": "ORDER_20260828002",
+    "companyName": "测试企业有限公司",
+    "taxNumber": "91110000MA00000000",
+    "amount": 500.00,
+    "invoiceType": "技术服务费",
+    "invoiceCategory": "VAT_SPECIAL",
+    "remark": "外部系统自动化推单(专票3倍扣额)"
+  }'`
+  }
+  return `curl -X POST "${currentBaseUrl.value}/open/v1/invoices" \\
   -H "Content-Type: application/json" \\
   -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
   -d '{
@@ -864,10 +957,34 @@ const snippetSubmitReq = computed(() => `curl -X POST "${currentBaseUrl.value}/o
     "taxNumber": "91110000MA00000000",
     "amount": 500.00,
     "invoiceType": "技术服务费",
+    "invoiceCategory": "NORMAL",
     "remark": "外部系统自动化推单"
-  }'`)
+  }'`
+})
 
-const snippetSubmitResp = computed(() => `{
+const snippetSubmitResp = computed(() => {
+  if (submitCategoryTab.value === 'VAT_SPECIAL') {
+    return `{
+  "code": 200,
+  "message": "申请成功",
+  "data": {
+    "id": 1025,
+    "outTradeNo": "ORDER_20260828002",
+    "companyName": "测试企业有限公司",
+    "taxNumber": "91110000MA00000000",
+    "amount": 500.00,
+    "invoiceType": "技术服务费",
+    "invoiceCategory": "VAT_SPECIAL",
+    "remark": "外部系统自动化推单(专票3倍扣额)",
+    "status": "PENDING",
+    "downloadable": false,
+    "fileName": null,
+    "createdAt": "2026-08-28T14:05:00",
+    "completedAt": null
+  }
+}`
+  }
+  return `{
   "code": 200,
   "message": "申请成功",
   "data": {
@@ -877,6 +994,7 @@ const snippetSubmitResp = computed(() => `{
     "taxNumber": "91110000MA00000000",
     "amount": 500.00,
     "invoiceType": "技术服务费",
+    "invoiceCategory": "NORMAL",
     "remark": "外部系统自动化推单",
     "status": "PENDING",
     "downloadable": false,
@@ -884,7 +1002,8 @@ const snippetSubmitResp = computed(() => `{
     "createdAt": "2026-08-28T14:00:00",
     "completedAt": null
   }
-}`)
+}`
+})
 
 const snippetQueryReq = computed(() => `curl -X GET "${currentBaseUrl.value}/open/v1/invoices/by-out-trade-no/ORDER_20260828001" \\
   -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}"`)
@@ -899,6 +1018,7 @@ const snippetQueryResp = computed(() => `{
     "taxNumber": "91110000MA00000000",
     "amount": 500.00,
     "invoiceType": "技术服务费",
+    "invoiceCategory": "NORMAL",
     "remark": "外部系统自动化推单",
     "status": "COMPLETED",
     "downloadable": true,
@@ -928,6 +1048,7 @@ const snippetCancelResp = computed(() => `{
     "taxNumber": "91110000MA00000000",
     "amount": 500.00,
     "invoiceType": "技术服务费",
+    "invoiceCategory": "NORMAL",
     "remark": "外部系统自动化推单",
     "status": "CANCELLED",
     "downloadable": false,
@@ -1375,10 +1496,178 @@ onBeforeUnmount(() => {
 
 .api-item-header {
   display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-bottom: 8px;
   flex-wrap: wrap;
+}
+
+.api-item-header-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.api-category-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 2px;
+  gap: 2px;
+}
+
+.category-btn {
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font-size: 11.5px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  transition: all 160ms ease;
+}
+
+.category-btn:hover {
+  color: var(--color-text);
+}
+
+.category-btn.is-active {
+  background: var(--color-primary);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.api-quota-rules-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+
+.rules-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.rules-badge {
+  font-size: 11px;
+  font-weight: 600;
+  background: #ecfdf5;
+  color: #059669;
+  border: 1px solid #a7f3d0;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.rules-title {
+  font-size: 12.5px;
+  color: var(--color-text);
+}
+
+.rules-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.rule-box {
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: all 180ms ease;
+}
+
+.rule-box:hover {
+  border-color: #38bdf8;
+}
+
+.rule-box.is-selected {
+  border-color: #0284c7;
+  background: rgba(2, 132, 199, 0.04);
+  box-shadow: 0 0 0 1px #0284c7;
+}
+
+.rule-box-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.rule-type-tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.rule-type-tag.normal {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.rule-type-tag.special {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.rule-code {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.rule-rate {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 4px;
+}
+
+.multiplier-num {
+  color: #0284c7;
+  font-size: 13px;
+}
+
+.multiplier-num.special {
+  color: #d97706;
+  font-size: 13px;
+}
+
+.rule-calc-example {
+  font-size: 11.5px;
+  color: var(--color-text-muted);
+  line-height: 1.45;
+}
+
+.rules-refund-tip {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--color-border);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.5;
+}
+
+.api-sub-tip-desc {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  margin-top: 4px;
 }
 
 .http-badge {
@@ -1647,6 +1936,21 @@ onBeforeUnmount(() => {
 
   .openapi-guide-card {
     padding: 16px;
+  }
+
+  .api-category-toggle {
+    width: 100%;
+    justify-content: stretch;
+    margin-top: 6px;
+  }
+
+  .api-category-toggle .category-btn {
+    flex: 1;
+    text-align: center;
+  }
+
+  .rules-grid {
+    grid-template-columns: 1fr;
   }
 
   .api-code-grid {
