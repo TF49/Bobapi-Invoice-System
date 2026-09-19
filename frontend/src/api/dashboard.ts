@@ -62,6 +62,8 @@ export interface DashboardStats {
   completedInvoices: number
   totalAmount: number
   pendingAmount?: number
+  totalSettledAmount?: number
+  unsettledAmount?: number
   userStats: UserInvoiceStats[]
   typeStats?: InvoiceTypeStat[]
   companyTopStats?: CompanyStat[]

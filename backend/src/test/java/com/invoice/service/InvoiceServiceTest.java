@@ -76,6 +76,9 @@ class InvoiceServiceTest {
     @Mock
     private RechargeRequestMapper rechargeRequestMapper;
 
+    @Mock
+    private SupplierSettlementService supplierSettlementService;
+
     @TempDir
     Path uploadDirectory;
 
@@ -83,7 +86,7 @@ class InvoiceServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, userMapper, userQuotaMapper, rechargeRequestMapper, uploadDirectory.toString());
+        service = new InvoiceService(invoiceMapper, invoiceBatchMapper, userQuotaService, userMapper, userQuotaMapper, rechargeRequestMapper, supplierSettlementService, uploadDirectory.toString());
         service.initializeUploadDirectory();
     }
 
@@ -370,6 +373,7 @@ class InvoiceServiceTest {
         when(userQuotaMapper.selectQuotaPoolSummary()).thenReturn(
                 new UserQuotaMapper.QuotaPoolSummary(new BigDecimal("10000.00"), new BigDecimal("15000.00"), new BigDecimal("5000.00")));
         when(rechargeRequestMapper.countPendingRequests()).thenReturn(1L);
+        when(supplierSettlementService.getTotalSettledAmount()).thenReturn(new BigDecimal("500.00"));
 
         DashboardStats stats = service.getDashboardStats();
 
@@ -378,6 +382,8 @@ class InvoiceServiceTest {
         assertThat(stats.completedInvoices()).isEqualTo(2L);
         assertThat(stats.totalAmount()).isEqualByComparingTo("2300.75");
         assertThat(stats.pendingAmount()).isEqualByComparingTo("500.00");
+        assertThat(stats.totalSettledAmount()).isEqualByComparingTo("500.00");
+        assertThat(stats.unsettledAmount()).isEqualByComparingTo("1800.75");
         assertThat(stats.userStats()).singleElement().satisfies(user -> {
             assertThat(user.username()).isEqualTo("user");
             assertThat(user.timeline()).singleElement().satisfies(point -> {
@@ -438,7 +444,7 @@ class InvoiceServiceTest {
     @Test
     void rejectsAnImageThatExceedsConfiguredDimensions() throws Exception {
         when(invoiceMapper.selectById(7L)).thenReturn(invoice(7L, 8L, "PENDING"));
-        ReflectionTestUtils.setField(service, "maxImageWidth", 1);
+        ReflectionTestUtils.setField(java.util.Objects.requireNonNull(service), "maxImageWidth", 1);
         MockMultipartFile file = new MockMultipartFile(
                 "file", "large.png", "image/png", imageBytes("png", 2, 2));
 
@@ -626,7 +632,7 @@ class InvoiceServiceTest {
         Invoice pendingInvoice = invoice(invoiceId, userId, "PENDING");
         pendingInvoice.setAmount(new BigDecimal("420.00"));
         when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenAnswer(invocation -> {
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenAnswer(invocation -> {
             pendingInvoice.setStatus("CANCELLED");
             return 1;
         });
@@ -646,7 +652,7 @@ class InvoiceServiceTest {
         Invoice pendingInvoice = invoice(invoiceId, ownerId, "PENDING");
         pendingInvoice.setAmount(new BigDecimal("500.00"));
         when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenAnswer(invocation -> {
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenAnswer(invocation -> {
             pendingInvoice.setStatus("CANCELLED");
             return 1;
         });
@@ -705,7 +711,7 @@ class InvoiceServiceTest {
         Invoice pendingInvoice = invoice(invoiceId, userId, "PENDING");
         pendingInvoice.setAmount(new BigDecimal("100.00"));
         when(invoiceMapper.selectById(invoiceId)).thenReturn(pendingInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(0);
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenReturn(0);
 
         assertThatThrownBy(() -> service.cancelInvoice(invoiceId, userId, false))
                 .isInstanceOf(BusinessException.class)
@@ -720,11 +726,11 @@ class InvoiceServiceTest {
         Invoice completedInvoice = invoice(invoiceId, userId, "COMPLETED");
         completedInvoice.setRedFlushStatus("NONE");
         when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenReturn(1);
 
         InvoiceResponse response = service.applyRedFlush(invoiceId, userId, "税号填错了");
         assertThat(response).isNotNull();
-        verify(invoiceMapper).update(isNull(), any(Wrapper.class));
+        verify(invoiceMapper).update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any());
     }
 
     @Test
@@ -771,7 +777,7 @@ class InvoiceServiceTest {
         completedInvoice.setRedFlushStatus("PENDING");
         completedInvoice.setAmount(new BigDecimal("150.00"));
         when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenReturn(1);
 
         InvoiceResponse response = service.confirmRedFlush(invoiceId, operatorId, "已作废处理");
         assertThat(response).isNotNull();
@@ -786,7 +792,7 @@ class InvoiceServiceTest {
         completedInvoice.setRedFlushStatus("NONE");
         completedInvoice.setAmount(new BigDecimal("200.00"));
         when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenReturn(1);
 
         InvoiceResponse response = service.confirmRedFlush(invoiceId, operatorId, "开票员直接作废重开");
         assertThat(response).isNotNull();
@@ -825,7 +831,7 @@ class InvoiceServiceTest {
         Invoice completedInvoice = invoice(invoiceId, 8L, "COMPLETED");
         completedInvoice.setRedFlushStatus("PENDING");
         when(invoiceMapper.selectById(invoiceId)).thenReturn(completedInvoice);
-        when(invoiceMapper.update(isNull(), any(Wrapper.class))).thenReturn(1);
+        when(invoiceMapper.update(isNull(), org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenReturn(1);
 
         InvoiceResponse response = service.rejectRedFlush(invoiceId, operatorId, "发票已入账不可红冲");
         assertThat(response).isNotNull();
@@ -835,7 +841,7 @@ class InvoiceServiceTest {
 
     @Test
     void getPendingRedFlushCount_returnsCorrectCount() {
-        when(invoiceMapper.selectCount(any(Wrapper.class))).thenReturn(3L);
+        when(invoiceMapper.selectCount(org.mockito.ArgumentMatchers.<Wrapper<Invoice>>any())).thenReturn(3L);
         long count = service.getPendingRedFlushCount();
         assertThat(count).isEqualTo(3L);
     }

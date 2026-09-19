@@ -34,6 +34,16 @@ public record DashboardStats(
         BigDecimal pendingAmount,
 
         /**
+         * 供应商已结算金额
+         */
+        BigDecimal totalSettledAmount,
+
+        /**
+         * 供应商未结算金额
+         */
+        BigDecimal unsettledAmount,
+
+        /**
          * 各用户统计列表
          */
         List<UserInvoiceStats> userStats,

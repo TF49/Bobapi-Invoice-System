@@ -17,6 +17,7 @@ import com.invoice.mapper.InvoiceMapper;
 import com.invoice.mapper.RechargeRequestMapper;
 import com.invoice.mapper.UserMapper;
 import com.invoice.mapper.UserQuotaMapper;
+import com.invoice.service.SupplierSettlementService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
@@ -78,6 +79,7 @@ public class InvoiceService {
     private final UserMapper userMapper;
     private final UserQuotaMapper userQuotaMapper;
     private final RechargeRequestMapper rechargeRequestMapper;
+    private final SupplierSettlementService supplierSettlementService;
     private final Path uploadRoot;
 
     @Value("${file.image.max-width:8000}")
@@ -95,6 +97,7 @@ public class InvoiceService {
     public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper,
                           UserQuotaService userQuotaService, UserMapper userMapper,
                           UserQuotaMapper userQuotaMapper, RechargeRequestMapper rechargeRequestMapper,
+                          SupplierSettlementService supplierSettlementService,
                           @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
         this.invoiceBatchMapper = invoiceBatchMapper;
@@ -102,6 +105,7 @@ public class InvoiceService {
         this.userMapper = userMapper;
         this.userQuotaMapper = userQuotaMapper;
         this.rechargeRequestMapper = rechargeRequestMapper;
+        this.supplierSettlementService = supplierSettlementService;
         this.uploadRoot = Path.of(uploadDirectory).toAbsolutePath().normalize();
     }
 
@@ -1199,12 +1203,26 @@ public class InvoiceService {
                 pendingRechargeCount != null ? pendingRechargeCount : 0L
         );
 
+        // 10. 供应商结算统计
+        BigDecimal totalSettledAmount = BigDecimal.ZERO;
+        if (supplierSettlementService != null) {
+            BigDecimal settled = supplierSettlementService.getTotalSettledAmount();
+            if (settled != null) {
+                totalSettledAmount = settled;
+            }
+        }
+        BigDecimal totalAmount = overallStat != null && overallStat.totalAmount() != null ? overallStat.totalAmount() : BigDecimal.ZERO;
+        // 修复 #1：max(0) 兜底，防止结算记录异常时 Dashboard 显示负数
+        BigDecimal unsettledAmount = totalAmount.subtract(totalSettledAmount).max(BigDecimal.ZERO);
+
         return new com.invoice.dto.DashboardStats(
                 overallStat != null && overallStat.totalInvoices() != null ? overallStat.totalInvoices() : 0L,
                 overallStat != null && overallStat.pendingInvoices() != null ? overallStat.pendingInvoices() : 0L,
                 overallStat != null && overallStat.completedInvoices() != null ? overallStat.completedInvoices() : 0L,
-                overallStat != null && overallStat.totalAmount() != null ? overallStat.totalAmount() : BigDecimal.ZERO,
+                totalAmount,
                 overallStat != null && overallStat.pendingAmount() != null ? overallStat.pendingAmount() : BigDecimal.ZERO,
+                totalSettledAmount,
+                unsettledAmount,
                 userInvoiceStats,
                 typeStats,
                 companyTopStats,

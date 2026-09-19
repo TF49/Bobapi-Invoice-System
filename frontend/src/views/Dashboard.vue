@@ -25,6 +25,18 @@
             <span>刷新</span>
           </el-button>
 
+          <!-- 供应商结算按钮（仅管理员） -->
+          <el-button
+            v-if="isAdmin"
+            type="success"
+            size="small"
+            class="quick-action-btn"
+            @click="showSettlementDialog = true"
+          >
+            <el-icon><Money /></el-icon>
+            <span>供应商结算</span>
+          </el-button>
+
           <!-- 待办快捷入口 -->
           <el-button
             v-if="stats && stats.pendingInvoices > 0"
@@ -127,6 +139,38 @@
             </div>
             <div class="stat-footer-pill">
               <span>累计充值: ¥<strong><CountUp :value="stats?.quotaPoolStats?.totalRecharged || 0" :decimals="2" /></strong></span>
+            </div>
+          </div>
+        </SpotlightCard>
+
+        <!-- 6. 供应商已结款项 -->
+        <SpotlightCard class="stat-card stat-card-settled">
+          <div class="stat-card-content">
+            <span class="stat-icon success"><CircleCheck /></span>
+            <div class="stat-copy">
+              <span class="stat-label">供应商已结款项</span>
+              <strong class="stat-value success-text">
+                <CountUp :value="stats?.totalSettledAmount || 0" :decimals="2" prefix="¥" />
+              </strong>
+            </div>
+            <div class="stat-footer-pill success-pill">
+              <span>已结算</span>
+            </div>
+          </div>
+        </SpotlightCard>
+
+        <!-- 7. 供应商未结款项 -->
+        <SpotlightCard class="stat-card stat-card-unsettled">
+          <div class="stat-card-content">
+            <span class="stat-icon warning"><Clock /></span>
+            <div class="stat-copy">
+              <span class="stat-label">供应商未结款项</span>
+              <strong class="stat-value warning-text">
+                <CountUp :value="stats?.unsettledAmount || 0" :decimals="2" prefix="¥" />
+              </strong>
+            </div>
+            <div class="stat-footer-pill warning-pill">
+              <span>待结算</span>
             </div>
           </div>
         </SpotlightCard>
@@ -301,8 +345,62 @@
             </el-card>
           </el-col>
         </el-row>
+
+        <!-- ROW 4: 供应商结算记录列表（仅管理员可见） -->
+        <el-row v-if="isAdmin" :gutter="20" class="charts-row">
+          <el-col :xs="24">
+            <el-card class="chart-card">
+              <template #header>
+                <div class="card-header">
+                  <div class="header-title">
+                    <span class="header-icon"><Money /></span>
+                    <div>
+                      <h3 class="title-text">供应商结算记录</h3>
+                      <p class="subtitle-text">历史结算操作记录与金额汇总</p>
+                    </div>
+                  </div>
+                  <div class="header-controls">
+                    <el-button size="small" @click="loadSettlementHistory">
+                      <el-icon><Refresh /></el-icon>
+                      <span>刷新记录</span>
+                    </el-button>
+                  </div>
+                </div>
+              </template>
+              <el-table
+                :data="settlementHistory"
+                v-loading="loadingSettlementHistory"
+                stripe
+                style="width: 100%"
+              >
+                <el-table-column prop="createdAt" label="结算时间" width="180">
+                  <template #default="{ row }">
+                    {{ formatDate(row.createdAt) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="settlementAmount" label="结算金额" width="150">
+                  <template #default="{ row }">
+                    ¥{{ formatMoney(row.settlementAmount) }}
+                  </template>
+                </el-table-column>
+                <el-table-column prop="operatorName" label="操作人" width="120" />
+                <el-table-column prop="remark" label="备注" min-width="200" show-overflow-tooltip />
+              </el-table>
+              <div v-if="!loadingSettlementHistory && settlementHistory.length === 0" class="table-empty">
+                <el-empty description="暂无结算记录" :image-size="60" />
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
       </div>
     </main>
+
+    <!-- 供应商结算对话框：修复 #2/#8 传入当前未结款项，供动态限额和提示展示 -->
+    <SupplierSettlementDialog
+      v-model="showSettlementDialog"
+      :unsettled-amount="stats?.unsettledAmount"
+      @success="handleSettlementSuccess"
+    />
   </div>
 </template>
 
@@ -335,10 +433,13 @@ import {
 } from '@element-plus/icons-vue'
 import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '@/stores/dashboard'
+import { useUserStore } from '@/stores/user'
 import AppHeader from '@/components/AppHeader.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
+import SupplierSettlementDialog from '@/components/SupplierSettlementDialog.vue'
+import { getSettlementHistory, type SupplierSettlementResponse } from '@/api/supplierSettlement'
 
 // 注册 ECharts 核心组件
 use([
@@ -370,6 +471,8 @@ const THEME_COLORS = [
 
 const dashboardStore = useDashboardStore()
 const { stats, loading } = storeToRefs(dashboardStore)
+const userStore = useUserStore()
+const { role } = storeToRefs(userStore)
 
 // 控制状态
 const timeRange = ref<'7' | '30' | '90' | 'all'>('all')
@@ -377,6 +480,14 @@ const trendViewMode = ref<'composite' | 'amount' | 'created' | 'completed' | 'us
 const typeMetricMode = ref<'amount' | 'count'>('amount')
 const companyMetricMode = ref<'amount' | 'count'>('amount')
 const userMetricMode = ref<'count' | 'amount'>('count')
+
+// 供应商结算相关状态
+const showSettlementDialog = ref(false)
+const settlementHistory = ref<SupplierSettlementResponse[]>([])
+const loadingSettlementHistory = ref(false)
+
+// 是否为管理员
+const isAdmin = computed(() => role.value === 'ADMIN')
 
 // DOM 根节点与图表 DOM 引用
 const dashboardRootRef = ref<HTMLElement>()
@@ -1319,6 +1430,37 @@ async function loadData() {
   renderAllCharts()
 }
 
+// 加载供应商结算历史记录
+async function loadSettlementHistory() {
+  if (!isAdmin.value) return
+
+  loadingSettlementHistory.value = true
+  try {
+    settlementHistory.value = await getSettlementHistory()
+  } catch (error: any) {
+    console.error('加载结算历史失败:', error)
+  } finally {
+    loadingSettlementHistory.value = false
+  }
+}
+
+// 处理结算成功：修复 #7 改为 Promise.all，确保两个刷新请求并行完成后数据一致
+async function handleSettlementSuccess() {
+  await Promise.all([loadData(), loadSettlementHistory()])
+}
+
+// 格式化日期
+function formatDate(dateString: string) {
+  const date = new Date(dateString)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
 // 监听各个维度的视图与指标切换
 watch(timeRange, () => initTrendChart())
 watch(trendViewMode, () => initTrendChart())
@@ -1338,6 +1480,9 @@ function handleResize() {
 
 onMounted(() => {
   loadData()
+  if (isAdmin.value) {
+    loadSettlementHistory()
+  }
   window.addEventListener('resize', handleResize)
   if (typeof ResizeObserver !== 'undefined' && dashboardRootRef.value) {
     resizeObserver = new ResizeObserver(() => handleResize())
@@ -1431,7 +1576,7 @@ onBeforeUnmount(() => {
 /* 关键指标 KPI 卡片群 */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -1489,6 +1634,16 @@ onBeforeUnmount(() => {
 .stat-icon.cyan {
   background: #e6f6f7;
   color: #0077b6;
+}
+
+.stat-card-settled .stat-icon {
+  background: #eaf8ee;
+  color: #12715b;
+}
+
+.stat-card-unsettled .stat-icon {
+  background: #fff6df;
+  color: #d69a2d;
 }
 
 .stat-copy {
@@ -1621,6 +1776,13 @@ onBeforeUnmount(() => {
   justify-content: center;
   align-items: center;
   height: 360px;
+}
+
+.table-empty {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px 20px;
 }
 
 @media (max-width: 768px) {

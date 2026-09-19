@@ -52,12 +52,18 @@ vi.mock('@/api/dashboard', () => ({
   }
 }))
 
+vi.mock('@/api/supplierSettlement', () => ({
+  getSettlementHistory: vi.fn(() => Promise.resolve([]))
+}))
+
 const emptyStats: DashboardStats = {
   totalInvoices: 0,
   pendingInvoices: 0,
   completedInvoices: 0,
   totalAmount: 0,
   pendingAmount: 0,
+  totalSettledAmount: 0,
+  unsettledAmount: 0,
   userStats: [],
   typeStats: [],
   companyTopStats: [],
@@ -78,6 +84,8 @@ const populatedStats: DashboardStats = {
   completedInvoices: 2,
   totalAmount: 2300.75,
   pendingAmount: 500.0,
+  totalSettledAmount: 1000.0,
+  unsettledAmount: 1300.75,
   userStats: [
     {
       userId: 2,
@@ -132,6 +140,11 @@ async function mountPage() {
         CountUp: {
           props: ['value', 'prefix', 'decimals'],
           template: '<span>{{ prefix }}{{ Number(value || 0).toLocaleString("zh-CN", { minimumFractionDigits: decimals || 0, maximumFractionDigits: decimals || 0 }) }}</span>'
+        },
+        SupplierSettlementDialog: {
+          template: '<div v-if="modelValue">Settlement Dialog</div>',
+          props: ['modelValue'],
+          emits: ['update:modelValue', 'success']
         }
       }
     }
@@ -177,7 +190,11 @@ describe('Dashboard', () => {
     expect(page.text()).toContain('已开具发票')
     expect(page.text()).toContain('累计已开金额')
     expect(page.text()).toContain('用户额度总余额')
+    expect(page.text()).toContain('供应商已结款项')
+    expect(page.text()).toContain('供应商未结款项')
     expect(page.text()).toContain('¥2,300.75')
+    expect(page.text()).toContain('¥1,000.00')
+    expect(page.text()).toContain('¥1,300.75')
     expect(page.text()).toContain('待开票 1 笔')
     expect(page.text()).toContain('待审充值 2 笔')
 
@@ -266,6 +283,8 @@ describe('Dashboard', () => {
   it('aggregates top users and scroll legend when user count exceeds 8', async () => {
     const multiUserStats: DashboardStats = {
       ...populatedStats,
+      totalSettledAmount: 1000.0,
+      unsettledAmount: 1300.75,
       userStats: Array.from({ length: 12 }, (_, i) => ({
         userId: i + 1,
         username: `user_${i + 1}`,
@@ -306,6 +325,17 @@ describe('Dashboard', () => {
     await mountPage()
 
     expect(errorMessage).not.toHaveBeenCalled()
+  })
+
+  it('displays supplier settlement KPI cards with correct values', async () => {
+    mockedApi.getStats.mockResolvedValue(populatedStats)
+
+    const page = await mountPage()
+
+    expect(page.text()).toContain('供应商已结款项')
+    expect(page.text()).toContain('供应商未结款项')
+    expect(page.text()).toContain('¥1,000.00')
+    expect(page.text()).toContain('¥1,300.75')
   })
 })
 
