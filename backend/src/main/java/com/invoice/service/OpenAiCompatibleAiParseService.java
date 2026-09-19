@@ -269,9 +269,6 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
         }
         return switch (normalizedProvider()) {
             case "deepseek" -> "https://api.deepseek.com/chat/completions";
-            case "openai" -> "https://api.openai.com/v1/chat/completions";
-            case "gemini" -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
-            case "qwen" -> "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
             default -> throw unsupportedProvider();
         };
     }
