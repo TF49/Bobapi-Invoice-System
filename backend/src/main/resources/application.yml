@@ -39,7 +39,10 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # SQL 日志默认关闭：StdOutImpl 会把含金额、公司名称、税号等敏感数据的完整 SQL
+    # 打印到标准输出，生产环境存在数据泄露风险。需要排查 SQL 时通过环境变量显式开启：
+    #   MYBATIS_SQL_LOG_IMPL=org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: ${MYBATIS_SQL_LOG_IMPL:org.apache.ibatis.logging.nologging.NoLoggingImpl}
   global-config:
     db-config:
       id-type: auto
@@ -85,7 +88,7 @@ ai:
   provider: ${AI_PROVIDER:deepseek}          # 支持: deepseek / openai / gemini / qwen
   api-key: ${AI_API_KEY:}                    # 通过环境变量 AI_API_KEY 注入，切勿硬编码
   api-url: ${AI_API_URL:}                    # 留空时按 provider 使用默认地址
-  model: ${AI_MODEL:deepseek-v4-flash}        # 指定模型: deepseek-v4-flash
+  model: ${AI_MODEL:deepseek-v4-flash}        # 指定模型；留空时按 provider 使用代码内置默认值
   timeout-seconds: ${AI_TIMEOUT_SECONDS:20}  # 请求超时时间（秒）
 
 # Knife4j 配置

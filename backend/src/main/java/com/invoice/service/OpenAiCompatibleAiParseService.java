@@ -21,6 +21,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 通用 OpenAI 兼容协议的 AI 发票识别服务实现类
@@ -37,6 +38,9 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
 
     /** 允许的开票类型白名单（直接引用 InvoiceService 中的权威定义，两处保持同步） */
     private static final java.util.Set<String> ALLOWED_INVOICE_TYPES = InvoiceService.ALLOWED_INVOICE_TYPES;
+
+    /** 支持的 AI 服务商白名单（单一来源，供校验与默认地址/模型解析共用） */
+    private static final Set<String> SUPPORTED_PROVIDERS = Set.of("deepseek", "openai", "gemini", "qwen");
 
     /** 第一阶段：从原文中提取发票字段 */
     private static final String EXTRACT_SYSTEM_PROMPT = """
@@ -269,6 +273,9 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
         }
         return switch (normalizedProvider()) {
             case "deepseek" -> "https://api.deepseek.com/chat/completions";
+            case "openai" -> "https://api.openai.com/v1/chat/completions";
+            case "qwen" -> "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions";
+            case "gemini" -> "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
             default -> throw unsupportedProvider();
         };
     }
@@ -278,7 +285,8 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
             return model.trim();
         }
         return switch (normalizedProvider()) {
-            case "deepseek" -> "deepseek-chat";
+            // 与 application.yml 中 ai.model 的默认值保持一致，避免配置缺省时行为不一致
+            case "deepseek" -> "deepseek-v4-flash";
             case "openai" -> "gpt-4o-mini";
             case "gemini" -> "gemini-2.0-flash";
             case "qwen" -> "qwen-plus";
@@ -291,7 +299,7 @@ public class OpenAiCompatibleAiParseService implements AiParseService {
     }
 
     private void ensureSupportedProvider() {
-        if (!List.of("deepseek", "openai", "gemini", "qwen").contains(normalizedProvider())) {
+        if (!SUPPORTED_PROVIDERS.contains(normalizedProvider())) {
             throw unsupportedProvider();
         }
     }
