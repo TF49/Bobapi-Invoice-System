@@ -240,6 +240,15 @@ public class UserQuotaService {
      */
     @Transactional
     public void deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
+        deductQuota(userId, amount, invoiceId, remark, null, "SYSTEM");
+    }
+
+    /**
+     * 扣除额度（支持自定义流水说明及操作人）
+     */
+    @Transactional
+    public void deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark,
+                            Long operatorId, String operatorType) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
         }
@@ -262,7 +271,7 @@ public class UserQuotaService {
         
         // 记录交易历史
         createTransaction(userId, "DEDUCT", amount.negate(), balanceBefore, balanceAfter,
-                         null, "SYSTEM", invoiceId, remark != null ? remark : "开票扣除", null);
+                         operatorId, operatorType != null ? operatorType : "SYSTEM", invoiceId, remark != null ? remark : "开票扣除", null);
     }
 
     /**
@@ -270,6 +279,15 @@ public class UserQuotaService {
      */
     @Transactional
     public void deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId) {
+        deductBatchQuota(userId, totalAmount, batchId, null, "SYSTEM");
+    }
+
+    /**
+     * 批量扣除额度（支持指定操作人）
+     */
+    @Transactional
+    public void deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId,
+                                 Long operatorId, String operatorType) {
         if (totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
         }
@@ -292,7 +310,8 @@ public class UserQuotaService {
 
         // 记录交易历史
         createTransaction(userId, "DEDUCT", totalAmount.negate(), balanceBefore, balanceAfter,
-                         null, "SYSTEM", null, "批量开票扣除(批次#" + batchId + ")", null);
+                         operatorId, operatorType != null ? operatorType : "SYSTEM", null,
+                         "ADMIN".equals(operatorType) ? "批量开票扣除(批次#" + batchId + ", 管理员代提交)" : "批量开票扣除(批次#" + batchId + ")", null);
     }
 
     /**

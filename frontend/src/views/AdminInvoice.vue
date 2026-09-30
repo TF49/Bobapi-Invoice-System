@@ -132,6 +132,15 @@
             <el-tooltip content="刷新列表" placement="top">
               <el-button class="refresh-button" :icon="RefreshRight" :loading="loading" aria-label="刷新列表" @click="loadInvoices" />
             </el-tooltip>
+
+            <div v-if="userStore.role === 'ADMIN'" class="admin-create-actions">
+              <el-button type="primary" :icon="Plus" class="submit-action-button" @click="showSubmitDialog">
+                提交申请
+              </el-button>
+              <el-button type="success" plain :icon="UploadFilled" class="batch-action-button" @click="showBatchDialog = true">
+                批量导入
+              </el-button>
+            </div>
           </div>
         </div>
 
@@ -400,7 +409,9 @@
                         </el-button>
                         <template #dropdown>
                           <el-dropdown-menu>
-                            <el-dropdown-item command="edit" :icon="EditPen">修改信息</el-dropdown-item>
+                            <el-dropdown-item command="edit" :icon="EditPen">修改信息 / 替换</el-dropdown-item>
+                            <el-dropdown-item command="replacePaste" :icon="CopyDocument">重新粘贴发票</el-dropdown-item>
+                            <el-dropdown-item command="replaceUpload" :icon="UploadFilled">选择文件替换</el-dropdown-item>
                             <el-dropdown-item command="directRedFlush" :icon="DocumentDelete" divided>主动冲红</el-dropdown-item>
                           </el-dropdown-menu>
                         </template>
@@ -577,6 +588,9 @@
                   </el-button>
                 </template>
                 <template v-else-if="row.status === 'COMPLETED' && row.redFlushStatus !== 'COMPLETED'">
+                  <el-button size="small" :icon="CopyDocument" :loading="uploadingId === row.id" @click="handlePasteButtonClick(row)">
+                    重新粘贴
+                  </el-button>
                   <el-button type="danger" plain :icon="DocumentDelete" @click="handleOpenConfirmRedFlush(row)">
                     主动冲红
                   </el-button>
@@ -688,7 +702,7 @@
         </el-tag>
         <template v-if="editingRow.status === 'COMPLETED'">
           <el-divider direction="vertical" />
-          <el-tag type="warning" size="small" effect="plain">已开票不可修改金额与票种</el-tag>
+          <el-tag type="info" size="small" effect="plain">已开票（修改金额/票种自动多退少补对应用户额度）</el-tag>
         </template>
       </div>
       <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-position="top">
@@ -713,7 +727,6 @@
             :step="100"
             controls-position="right"
             class="amount-input"
-            :disabled="editingRow?.status === 'COMPLETED'"
           />
         </el-form-item>
         <el-form-item label="开票类型" prop="invoiceType">
@@ -728,7 +741,6 @@
           <el-radio-group
             v-model="editForm.invoiceCategory"
             class="invoice-category-group"
-            :disabled="editingRow?.status === 'COMPLETED'"
           >
             <el-radio value="NORMAL">
               <span class="normal-badge" style="margin-right:4px"><el-icon class="normal-ico"><Document /></el-icon><span>普票</span></span>
@@ -747,6 +759,55 @@
             maxlength="500"
             show-word-limit
           />
+        </el-form-item>
+        <el-form-item v-if="editingRow" label="发票图片附件">
+          <div class="edit-dialog-file-card">
+            <div class="edit-file-info">
+              <el-icon class="file-icon"><PictureRounded /></el-icon>
+              <div class="file-text">
+                <span class="file-title">{{ editingRow.fileName || (editingRow.status === 'COMPLETED' ? '已粘贴图片' : '未上传发票图片') }}</span>
+                <small v-if="editingRow.status === 'COMPLETED'" class="file-tip">若发票粘贴错误，可直接粘贴或选择新图片替换</small>
+                <small v-else class="file-tip">可在此提前上传或直接粘贴发票图片</small>
+              </div>
+            </div>
+            <div class="edit-file-btns">
+              <el-button
+                size="small"
+                :icon="CopyDocument"
+                :loading="uploadingId === editingRow.id"
+                @click="handleEditDialogPaste"
+              >
+                {{ editingRow.status === 'COMPLETED' ? '粘贴替换图片' : '粘贴图片' }}
+              </el-button>
+              <el-upload
+                :show-file-list="false"
+                :before-upload="handleEditDialogUpload"
+                :disabled="uploadingId !== null"
+                accept=".jpg,.jpeg,.png"
+                class="upload-inline"
+              >
+                <el-button
+                  size="small"
+                  type="primary"
+                  plain
+                  :icon="UploadFilled"
+                  :loading="uploadingId === editingRow.id"
+                >
+                  {{ editingRow.status === 'COMPLETED' ? '选择新图替换' : '选择图片上传' }}
+                </el-button>
+              </el-upload>
+              <el-button
+                v-if="editingRow.downloadable && editingRow.fileExists"
+                size="small"
+                text
+                type="primary"
+                :icon="ZoomIn"
+                @click="handlePreview(editingRow)"
+              >
+                预览当前图片
+              </el-button>
+            </div>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -905,6 +966,199 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 隐藏的文件选择框，用于操作列快捷触发替换上传 -->
+    <input
+      ref="replaceFileInputRef"
+      type="file"
+      style="display: none"
+      accept=".jpg,.jpeg,.png"
+      @change="handleReplaceFileChange"
+    />
+
+    <!-- 批量导入发票弹窗（管理员端） -->
+    <InvoiceBatchImportDialog
+      v-model="showBatchDialog"
+      @success="handleBatchSuccess"
+    />
+
+    <!-- 管理员提交发票申请弹窗 -->
+    <el-dialog
+      v-model="submitDialogVisible"
+      title="提交发票申请（管理员）"
+      width="540px"
+      class="submit-invoice-dialog"
+      destroy-on-close
+      @closed="resetAiParseState"
+    >
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        class="admin-submit-alert"
+      >
+        <template #title>
+          <span>管理员开票将默认扣除系统普通用户 <strong>[user]</strong> 的额度</span>
+        </template>
+        <template #default>
+          <div class="admin-alert-subtext">
+            <span>当前 [user] 可用额度：</span>
+            <strong class="user-quota-highlight">¥{{ defaultUserQuota != null ? defaultUserQuota.toFixed(2) : '--' }}</strong>
+          </div>
+        </template>
+      </el-alert>
+
+      <!-- AI 智能识别栏 -->
+      <div class="ai-parse-card" :class="{ 'is-open': aiParseExpanded }">
+        <div class="ai-parse-header" @click="aiStep === 'idle' && (aiParseExpanded = !aiParseExpanded)">
+          <div class="ai-parse-title">
+            <el-icon class="ai-sparkle-icon"><MagicStick /></el-icon>
+            <span>AI 智能识别自动填单</span>
+            <el-tag size="small" type="success" effect="plain" class="ai-tag">智能提取</el-tag>
+          </div>
+          <el-button link type="primary" size="small" class="ai-toggle-btn" :disabled="aiStep !== 'idle'">
+            {{ aiParseExpanded ? '收起' : '展开文本识别' }}
+          </el-button>
+        </div>
+
+        <div v-show="aiParseExpanded" class="ai-parse-body">
+          <p class="ai-parse-hint">直接粘贴包含发票的文本信息，AI 将自动识别公司名称、税号、开票金额：</p>
+          <el-input
+            v-model="aiRawText"
+            type="textarea"
+            :rows="3"
+            placeholder="例如：公司名称：北京某某科技有限公司，税号：91110108MA01XXXXXX，金额：1500.00元..."
+            maxlength="2000"
+            show-word-limit
+            :disabled="aiStep !== 'idle'"
+          />
+
+          <!-- 进度条（AI 处理中） -->
+          <div v-if="aiStep !== 'idle'" class="ai-progress-container">
+            <div class="ai-progress-steps">
+              <div class="ai-step-item" :class="aiStep === 'extracting' ? 'is-active' : 'is-done'">
+                <span class="ai-step-dot">
+                  <el-icon v-if="aiStep === 'extracting'" class="is-loading"><Loading /></el-icon>
+                  <el-icon v-else class="ai-step-check"><Check /></el-icon>
+                </span>
+                <span class="ai-step-label">AI 提取中</span>
+              </div>
+              <span class="ai-step-line" :class="{ 'is-active': aiStep === 'verifying' }"></span>
+              <div class="ai-step-item" :class="aiStep === 'verifying' ? 'is-active' : 'is-pending'">
+                <span class="ai-step-dot">
+                  <el-icon v-if="aiStep === 'verifying'" class="is-loading"><Loading /></el-icon>
+                  <span v-else class="ai-step-number">2</span>
+                </span>
+                <span class="ai-step-label">AI 审核中</span>
+              </div>
+            </div>
+            <el-progress
+              :percentage="Math.min(100, Math.max(0, Math.round(aiProgress)))"
+              :stroke-width="5"
+              :show-text="false"
+              color="#059669"
+              class="ai-progress-bar"
+            />
+          </div>
+
+          <!-- 操作按钮（空闲时） -->
+          <div v-else class="ai-parse-actions">
+            <el-button size="small" :disabled="!aiRawText" @click="aiRawText = ''">
+              清空
+            </el-button>
+            <el-button
+              type="primary"
+              size="small"
+              :icon="MagicStick"
+              :disabled="!aiRawText.trim()"
+              @click="handleAiParse"
+            >
+              识别并填充表单
+            </el-button>
+          </div>
+        </div>
+      </div>
+
+      <el-form ref="submitFormRef" :model="submitForm" :rules="submitRules" label-position="top">
+        <el-form-item label="公司名称" prop="companyName">
+          <el-input v-model="submitForm.companyName" :prefix-icon="OfficeBuilding" placeholder="请输入公司名称" />
+        </el-form-item>
+        <el-form-item label="税号" prop="taxNumber">
+          <el-input
+            v-model="submitForm.taxNumber"
+            :prefix-icon="Postcard"
+            placeholder="选填，例如：91110108...（个人/无税号可留空）"
+            maxlength="100"
+          />
+        </el-form-item>
+        <el-form-item label="开票金额" prop="amount">
+          <el-input-number
+            v-model="submitForm.amount"
+            :min="0.01"
+            :max="9999999999.99"
+            :precision="2"
+            :step="100"
+            controls-position="right"
+            class="amount-input"
+          />
+        </el-form-item>
+        <el-form-item label="开票数量" prop="count">
+          <el-input-number
+            v-model="submitForm.count"
+            :min="1"
+            :max="100"
+            :step="1"
+            step-strictly
+            controls-position="right"
+            class="count-input"
+          />
+          <div class="count-hint">
+            <span>针对相同抬头和金额开具多张发票（1 ~ 100 张）</span>
+          </div>
+        </el-form-item>
+        <el-form-item label="开票类型" prop="invoiceType">
+          <el-select v-model="submitForm.invoiceType" placeholder="请选择开票类型" class="type-select">
+            <el-option label="技术服务费" value="技术服务费" />
+            <el-option label="AI订阅服务费" value="AI订阅服务费" />
+            <el-option label="计算服务费" value="计算服务费" />
+            <el-option label="研发和技术服务" value="研发和技术服务" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="发票票种" prop="invoiceCategory">
+          <el-radio-group v-model="submitForm.invoiceCategory" class="invoice-category-group">
+            <el-radio value="NORMAL">
+              <span class="normal-badge" style="margin-right:4px"><el-icon class="normal-ico"><Document /></el-icon><span>普票</span></span>
+            </el-radio>
+            <el-radio value="VAT_SPECIAL">
+              <span class="vat-special-badge" style="margin-right:4px"><el-icon class="vat-special-ico"><Tickets /></el-icon><span>专票</span></span>（额度按 3 倍扣除）
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input
+            v-model="submitForm.remark"
+            type="textarea"
+            :rows="3"
+            placeholder="请输入备注（选填）"
+            maxlength="500"
+            show-word-limit
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="submitDialogVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :icon="Plus"
+            :loading="submitSubmitting"
+            @click="handleSubmitInvoice"
+          >
+            {{ submitSubmitting ? '提交中…' : '立即提交' }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -929,9 +1183,11 @@ import {
   Finished,
   List,
   Loading,
+  MagicStick,
   MoreFilled,
   OfficeBuilding,
   PictureRounded,
+  Plus,
   Postcard,
   RefreshRight,
   Search,
@@ -942,14 +1198,17 @@ import {
   Warning,
   ZoomIn
 } from '@element-plus/icons-vue'
-import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
+import { invoiceApi, type Invoice, type InvoiceRequest, type BatchInvoiceItemRequest } from '@/api/invoice'
+import { userApi } from '@/api/user'
 import AppHeader from '@/components/AppHeader.vue'
+import InvoiceBatchImportDialog from '@/components/InvoiceBatchImportDialog.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import { useUserStore } from '@/stores/user'
 import { saveBlobResponse } from '@/utils/download'
 import { copyImageToClipboard } from '@/utils/clipboard'
+import { generateIdempotencyKey } from '@/utils/idempotency'
 import { ApiRequestError } from '@/utils/request'
 
 const VALID_STATUSES = ['ALL', 'PENDING', 'COMPLETED', 'COMPLETED_PROCESSED', 'COMPLETED_UNPROCESSED', 'RED_FLUSH_PENDING', 'RED_FLUSH_COMPLETED', 'CANCELLED']
@@ -1306,7 +1565,12 @@ const MIME_TO_EXT: Record<string, string> = {
 }
 
 const handleUpload = async (row: Invoice, file: File) => {
-  if (uploadingId.value !== null || row.status !== 'PENDING') return false
+  if (uploadingId.value !== null || (row.status !== 'PENDING' && row.status !== 'COMPLETED')) return false
+
+  if (row.redFlushStatus === 'PENDING' || row.redFlushStatus === 'COMPLETED') {
+    ElMessage.warning('待红冲或已红冲的发票不能上传或替换发票文件')
+    return false
+  }
 
   const isValidType = ALLOWED_MIME.includes(file.type)
   const isLt10M = file.size <= 10 * 1024 * 1024
@@ -1320,17 +1584,60 @@ const handleUpload = async (row: Invoice, file: File) => {
     return false
   }
 
+  const isReplacing = row.status === 'COMPLETED'
   uploadingId.value = row.id
   try {
     await invoiceApi.uploadInvoice(row.id, file)
-    ElMessage.success('上传成功')
+    ElMessage.success(isReplacing ? '发票文件已成功替换更新' : '上传成功')
     await loadInvoices()
+    if (editingRow.value && editingRow.value.id === row.id) {
+      const refreshed = invoices.value.find(item => item.id === row.id)
+      if (refreshed) {
+        editingRow.value = refreshed
+      }
+    }
   } catch (error) {
     throw error
   } finally {
     uploadingId.value = null
   }
   return false
+}
+
+// 快捷替换上传发票文件
+const replaceFileInputRef = ref<HTMLInputElement | null>(null)
+const targetReplaceRow = ref<Invoice | null>(null)
+
+const triggerReplaceUpload = (row: Invoice) => {
+  if (row.redFlushStatus === 'PENDING' || row.redFlushStatus === 'COMPLETED') {
+    ElMessage.warning('待红冲或已红冲的发票不能替换文件')
+    return
+  }
+  targetReplaceRow.value = row
+  if (replaceFileInputRef.value) {
+    replaceFileInputRef.value.value = ''
+    replaceFileInputRef.value.click()
+  }
+}
+
+const handleReplaceFileChange = async (event: Event) => {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (file && targetReplaceRow.value) {
+    await handleUpload(targetReplaceRow.value, file)
+  }
+}
+
+// 编辑弹窗内的文件替换处理
+const handleEditDialogUpload = (file: UploadRawFile) => {
+  if (!editingRow.value) return false
+  handleUpload(editingRow.value, file)
+  return false
+}
+
+const handleEditDialogPaste = async () => {
+  if (!editingRow.value) return
+  await handlePasteButtonClick(editingRow.value)
 }
 
 const handleDownload = async (row: Invoice) => {
@@ -1706,6 +2013,10 @@ const handleDropdownCommand = (command: string, row: Invoice) => {
     handleOpenConfirmRedFlush(row)
   } else if (command === 'edit') {
     handleEditInvoice(row)
+  } else if (command === 'replacePaste') {
+    handlePasteButtonClick(row)
+  } else if (command === 'replaceUpload') {
+    triggerReplaceUpload(row)
   }
 }
 
@@ -1757,6 +2068,245 @@ onBeforeUnmount(() => {
   window.removeEventListener('invoice-red-flush-applied', handleRealtimeRefresh)
   window.removeEventListener('invoice-red-flush-processed', handleRealtimeRefresh)
 })
+
+// ==================== 管理员提交发票申请功能 ====================
+const submitDialogVisible = ref(false)
+const showBatchDialog = ref(false)
+const defaultUserQuota = ref<number | null>(null)
+const submitSubmitting = ref(false)
+const submitPendingIdempotencyKey = ref<string | null>(null)
+const submitFormRef = ref<FormInstance>()
+
+const submitForm = reactive({
+  companyName: '',
+  taxNumber: '',
+  amount: 100,
+  count: 1,
+  invoiceType: '技术服务费',
+  invoiceCategory: 'NORMAL',
+  remark: ''
+})
+
+const submitRules = {
+  companyName: [{ required: true, message: '请输入公司名称', trigger: 'blur' }],
+  taxNumber: [
+    { max: 100, message: '税号不能超过 100 个字符', trigger: 'blur' }
+  ],
+  amount: [
+    { required: true, message: '请输入开票金额', trigger: 'blur' },
+    { type: 'number', min: 0.01, max: 9999999999.99, message: '开票金额必须在有效范围内', trigger: 'change' }
+  ],
+  count: [
+    { required: true, message: '请输入开票数量', trigger: 'blur' },
+    { type: 'number', min: 1, max: 100, message: '开票数量必须在 1 ~ 100 之间', trigger: 'change' }
+  ],
+  invoiceType: [{ required: true, message: '请选择开票类型', trigger: 'change' }]
+}
+
+// AI 智能识别自动填单状态
+const aiParseExpanded = ref(false)
+const aiRawText = ref('')
+const aiStep = ref<'idle' | 'extracting' | 'verifying'>('idle')
+const aiProgress = ref(0)
+let aiParseSessionId = 0
+let rafId: number | null = null
+let currentAnimationResolver: (() => void) | null = null
+
+const resetAiParseState = () => {
+  aiParseSessionId++
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
+  if (currentAnimationResolver) { currentAnimationResolver(); currentAnimationResolver = null }
+  aiStep.value = 'idle'
+  aiProgress.value = 0
+  aiRawText.value = ''
+  aiParseExpanded.value = false
+}
+
+const animateProgress = (from: number, to: number, durationMs: number): Promise<void> => {
+  if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
+  if (currentAnimationResolver) { currentAnimationResolver(); currentAnimationResolver = null }
+  return new Promise(resolve => {
+    currentAnimationResolver = resolve
+    aiProgress.value = from
+    const startTime = Date.now()
+    const tick = () => {
+      const elapsed = Date.now() - startTime
+      const t = durationMs <= 0 ? 1 : Math.min(1, elapsed / durationMs)
+      aiProgress.value = from + (to - from) * t
+      if (t < 1) {
+        rafId = requestAnimationFrame(tick)
+      } else {
+        rafId = null
+        currentAnimationResolver = null
+        resolve()
+      }
+    }
+    rafId = requestAnimationFrame(tick)
+  })
+}
+
+const handleAiParse = async () => {
+  const text = aiRawText.value.trim()
+  if (!text) {
+    ElMessage.warning('请先输入或粘贴包含发票信息的文本')
+    return
+  }
+
+  const sessionId = aiParseSessionId
+  aiStep.value = 'extracting'
+  aiProgress.value = 0
+
+  try {
+    const [res1] = await Promise.all([
+      invoiceApi.parseInvoiceText(text),
+      animateProgress(0, 45, 1200)
+    ])
+    if (aiParseSessionId !== sessionId) return
+
+    if (!res1.companyName && !res1.taxNumber && res1.amount === null) {
+      aiStep.value = 'idle'
+      aiProgress.value = 0
+      ElMessage.warning(res1.hint || '未能从文本中识别出发票相关信息，请手动填写')
+      return
+    }
+
+    aiStep.value = 'verifying'
+    aiProgress.value = 50
+
+    const [res2] = await Promise.all([
+      invoiceApi.verifyInvoiceText(text, {
+        companyName: res1.companyName,
+        taxNumber: res1.taxNumber,
+        amount: res1.amount !== null ? Number(res1.amount) : null,
+        invoiceType: res1.invoiceType ?? null
+      }),
+      animateProgress(50, 90, 1200)
+    ])
+    if (aiParseSessionId !== sessionId) return
+
+    await animateProgress(aiProgress.value, 100, 200)
+    if (aiParseSessionId !== sessionId) return
+
+    const companyName = res2.companyName || res1.companyName || null
+    const taxNumber   = res2.taxNumber   || res1.taxNumber   || null
+    const rawAmount   = res2.amount      ?? res1.amount
+    const amount = rawAmount !== null
+      ? (() => {
+          const n = Math.round(Number(rawAmount) * 100) / 100
+          return Number.isFinite(n) && n >= 0.01 ? n : null
+        })()
+      : null
+
+    aiStep.value = 'idle'
+    aiProgress.value = 0
+
+    if (companyName) submitForm.companyName = companyName
+    if (taxNumber)   submitForm.taxNumber = taxNumber
+    if (amount !== null) submitForm.amount = amount
+    if (res2.invoiceType) submitForm.invoiceType = res2.invoiceType
+    aiParseExpanded.value = false
+    ElMessage.success('AI 识别结果已回填')
+  } catch (err) {
+    aiStep.value = 'idle'
+    aiProgress.value = 0
+    ElMessage.error('AI 识别服务暂时不可用，请手动填写')
+  }
+}
+
+const loadDefaultUserQuota = async () => {
+  try {
+    const res = await userApi.getUsers({ keyword: 'user', page: 1, pageSize: 10 })
+    const userItem = res.users.find(u => u.username === 'user')
+    if (userItem && userItem.quota) {
+      defaultUserQuota.value = userItem.quota.balance
+    }
+  } catch (e) {
+    console.warn('获取默认用户额度失败', e)
+  }
+}
+
+const showSubmitDialog = () => {
+  submitFormRef.value?.resetFields()
+  submitForm.companyName = ''
+  submitForm.taxNumber = ''
+  submitForm.amount = 100
+  submitForm.count = 1
+  submitForm.invoiceType = '技术服务费'
+  submitForm.invoiceCategory = 'NORMAL'
+  submitForm.remark = ''
+  submitPendingIdempotencyKey.value = null
+  resetAiParseState()
+  loadDefaultUserQuota()
+  submitDialogVisible.value = true
+}
+
+const handleSubmitInvoice = async () => {
+  if (submitSubmitting.value) return
+  submitSubmitting.value = true
+  try {
+    const valid = await submitFormRef.value?.validate().catch(() => false)
+    if (!valid) {
+      ElMessage.warning('请检查并完善申请信息')
+      return
+    }
+
+    const count = Number(submitForm.count) || 1
+    const singleQuota = submitForm.invoiceCategory === 'VAT_SPECIAL' ? submitForm.amount * 3 : submitForm.amount
+    const requiredQuota = singleQuota * count
+    if (defaultUserQuota.value !== null && requiredQuota > defaultUserQuota.value) {
+      ElMessage.error(
+        submitForm.invoiceCategory === 'VAT_SPECIAL'
+          ? `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张专票` : '专票'}按 3 倍扣除需 ¥${requiredQuota.toFixed(2)}`
+          : `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张发票` : ''}需要 ¥${requiredQuota.toFixed(2)}`
+      )
+      return
+    }
+
+    const idempotencyKey = submitPendingIdempotencyKey.value || generateIdempotencyKey()
+    submitPendingIdempotencyKey.value = idempotencyKey
+
+    if (count > 1) {
+      const items: BatchInvoiceItemRequest[] = Array.from({ length: count }, (_, idx) => ({
+        rowNumber: idx + 1,
+        companyName: submitForm.companyName.trim(),
+        taxNumber: submitForm.taxNumber?.trim() || undefined,
+        amount: submitForm.amount.toFixed(2),
+        invoiceType: submitForm.invoiceType,
+        invoiceCategory: submitForm.invoiceCategory || 'NORMAL',
+        remark: submitForm.remark?.trim() || undefined
+      }))
+      await invoiceApi.createInvoicesBatch(items, idempotencyKey, true)
+      ElMessage.success(`成功以管理员身份提交 ${count} 笔发票申请，已从用户 [user] 扣除额度`)
+    } else {
+      await invoiceApi.createInvoice({
+        companyName: submitForm.companyName.trim(),
+        taxNumber: submitForm.taxNumber?.trim() || undefined,
+        amount: submitForm.amount,
+        invoiceType: submitForm.invoiceType,
+        invoiceCategory: submitForm.invoiceCategory || 'NORMAL',
+        remark: submitForm.remark?.trim() || undefined
+      }, idempotencyKey)
+      ElMessage.success('成功以管理员身份提交发票申请，已从用户 [user] 扣除额度')
+    }
+
+    submitPendingIdempotencyKey.value = null
+    submitDialogVisible.value = false
+    await loadInvoices()
+    await loadDefaultUserQuota()
+  } catch (error) {
+    console.error('管理员提交发票申请失败', error)
+    if (!(error instanceof ApiRequestError)) {
+      ElMessage.error('提交失败，请稍后重试')
+    }
+  } finally {
+    submitSubmitting.value = false
+  }
+}
+
+const handleBatchSuccess = async () => {
+  ElMessage.success('批量导入成功，额度已从用户 [user] 扣除')
+  await loadInvoices()
+}
 </script>
 
 <style scoped>
@@ -2479,6 +3029,222 @@ onBeforeUnmount(() => {
 .normal-badge .normal-ico {
   font-size: 12px;
   color: #2563eb;
+}
+
+/* 管理员开票操作按钮组 */
+.admin-create-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 4px;
+}
+
+.admin-submit-alert {
+  margin-bottom: 16px;
+  border-radius: 8px;
+}
+
+.admin-alert-subtext {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #4b5563;
+}
+
+.user-quota-highlight {
+  color: #059669;
+  font-size: 15px;
+  font-weight: 700;
+  margin-left: 2px;
+}
+
+/* 编辑弹窗中的发票文件附件卡片 */
+.edit-dialog-file-card {
+  width: 100%;
+  padding: 12px 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.edit-file-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.edit-file-info .file-icon {
+  font-size: 22px;
+  color: var(--color-primary, #059669);
+}
+
+.edit-file-info .file-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.edit-file-info .file-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.edit-file-info .file-tip {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+
+.edit-file-btns {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.upload-inline {
+  display: inline-block;
+}
+
+/* AI 智能识别卡片 */
+.ai-parse-card {
+  margin-bottom: 16px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, rgba(6, 95, 70, 0.06) 100%);
+  border: 1px dashed rgba(16, 185, 129, 0.35);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: all 0.2s ease;
+}
+
+.ai-parse-card.is-open {
+  border-style: solid;
+  border-color: rgba(16, 185, 129, 0.5);
+  background: #f8fdfa;
+}
+
+.ai-parse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-parse-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #065f46;
+}
+
+.ai-sparkle-icon {
+  font-size: 15px;
+  color: #059669;
+}
+
+.ai-tag {
+  font-size: 11px;
+  height: 20px;
+  padding: 0 6px;
+}
+
+.ai-toggle-btn {
+  font-size: 12px;
+  padding: 0;
+}
+
+.ai-parse-body {
+  padding: 0 14px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-parse-hint {
+  margin: 0;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.ai-parse-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.ai-progress-container {
+  padding: 8px 0 4px;
+}
+
+.ai-progress-steps {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.ai-step-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.ai-step-item.is-active {
+  color: #059669;
+  font-weight: 600;
+}
+
+.ai-step-item.is-done {
+  color: #059669;
+}
+
+.ai-step-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: #e5e7eb;
+}
+
+.ai-step-item.is-active .ai-step-dot {
+  background: #059669;
+  color: #fff;
+}
+
+.ai-step-item.is-done .ai-step-dot {
+  background: #d1fae5;
+  color: #059669;
+}
+
+.ai-step-line {
+  width: 32px;
+  height: 2px;
+  background: #e5e7eb;
+}
+
+.ai-step-line.is-active {
+  background: #059669;
+}
+
+.count-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6b7280;
 }
 </style>
 

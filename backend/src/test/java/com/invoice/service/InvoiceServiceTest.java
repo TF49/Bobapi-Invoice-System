@@ -10,6 +10,7 @@ import com.invoice.dto.InvoiceResponse;
 import com.invoice.dto.OpenInvoiceResponse;
 import com.invoice.entity.Invoice;
 import com.invoice.entity.InvoiceBatch;
+import com.invoice.entity.User;
 import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
@@ -1085,4 +1086,74 @@ class InvoiceServiceTest {
             assertThat(ex.getMessage()).contains("Idempotency-Key 已用于其他发票申请");
         });
     }
+
+    @Test
+    void adminCreateInvoice_deductsQuotaFromDefaultUser() {
+        User defaultUser = new User();
+        defaultUser.setId(99L);
+        defaultUser.setUsername("user");
+        defaultUser.setRole("USER");
+        defaultUser.setDeleted(0);
+        when(userMapper.selectOne(any())).thenReturn(defaultUser);
+
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(601L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                1L, "ADMIN", "key-admin-create-01", "管理开票公司", "91110000MA00000009",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "管理员提交测试"
+        );
+
+        assertThat(response.userId()).isEqualTo(99L);
+        verify(userQuotaService).deductQuota(
+                org.mockito.ArgumentMatchers.eq(99L),
+                org.mockito.ArgumentMatchers.eq(new BigDecimal("100.00")),
+                org.mockito.ArgumentMatchers.eq(601L),
+                org.mockito.ArgumentMatchers.contains("管理员代提交"),
+                org.mockito.ArgumentMatchers.eq(1L),
+                org.mockito.ArgumentMatchers.eq("ADMIN")
+        );
+    }
+
+    @Test
+    void uploadInvoiceFile_allowsReplacingCompletedInvoiceAndDeletesOldFile() throws Exception {
+        Invoice completedInvoice = invoice(701L, 8L, "COMPLETED");
+        completedInvoice.setFilePath("old-file-to-delete.png");
+        completedInvoice.setFileName("old-file.png");
+        Files.write(uploadDirectory.resolve("old-file-to-delete.png"), imageBytes("png", 2, 2));
+
+        when(invoiceMapper.selectById(701L)).thenReturn(completedInvoice);
+        when(invoiceMapper.update(isNull(), any())).thenReturn(1);
+
+        MockMultipartFile newFile = new MockMultipartFile(
+                "file", "new-file.png", "image/png", imageBytes("png", 2, 2));
+
+        InvoiceResponse response = service.uploadInvoiceFile(701L, newFile);
+
+        assertThat(response.id()).isEqualTo(701L);
+        // 旧文件应该被清理
+        assertThat(Files.exists(uploadDirectory.resolve("old-file-to-delete.png"))).isFalse();
+    }
+
+    @Test
+    void adminUpdateInvoice_allowsCompletedInvoiceAmountChange() {
+        Invoice completed = invoice(702L, 8L, "COMPLETED");
+        completed.setAmount(new BigDecimal("100.00"));
+        completed.setInvoiceCategory("NORMAL");
+        when(invoiceMapper.selectById(702L)).thenReturn(completed);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        // 修改金额为 200.00，不会因为已开票报错，并触发额度补扣
+        service.adminUpdateInvoice(
+                702L, "更新公司", "91110000MA00000010",
+                new BigDecimal("200.00"), "技术服务费", "NORMAL", "已开票金额修改", 1L);
+
+        verify(userQuotaService).adjustQuotaForInvoiceAmountChange(
+                8L, new BigDecimal("100.00"), 702L, 1L);
+    }
 }
+

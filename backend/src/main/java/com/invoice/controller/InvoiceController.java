@@ -82,10 +82,15 @@ public class InvoiceController {
                     "发票申请提交过于频繁，请稍后再试", rateLimit.retryAfterSeconds());
         }
 
-        InvoiceResponse invoice = invoiceService.createInvoice(
-                principal.userId(), idempotencyKey, request.getCompanyName(),
-                request.getTaxNumber(), request.getAmount(),
-                request.getInvoiceType(), request.getInvoiceCategory(), request.getRemark());
+        InvoiceResponse invoice = "ADMIN".equals(principal.role())
+                ? invoiceService.createInvoice(
+                        principal.userId(), principal.role(), idempotencyKey, request.getCompanyName(),
+                        request.getTaxNumber(), request.getAmount(),
+                        request.getInvoiceType(), request.getInvoiceCategory(), request.getRemark())
+                : invoiceService.createInvoice(
+                        principal.userId(), idempotencyKey, request.getCompanyName(),
+                        request.getTaxNumber(), request.getAmount(),
+                        request.getInvoiceType(), request.getInvoiceCategory(), request.getRemark());
         return ApiResponse.success("申请成功", invoice);
     }
 
@@ -113,11 +118,14 @@ public class InvoiceController {
                     "当前网络批量申请过于频繁，请稍后再试", ipRateLimit.retryAfterSeconds());
         }
 
+        boolean isAdmin = "ADMIN".equals(principal.role());
         BatchInvoiceResponse response = Boolean.TRUE.equals(request.getDuplicateInvoiceRequest())
-                ? invoiceService.createInvoicesBatch(
-                        principal.userId(), idempotencyKey, request.getItems(), "MANUAL", true)
-                : invoiceService.createInvoicesBatch(
-                        principal.userId(), idempotencyKey, request.getItems(), "MANUAL");
+                ? (isAdmin
+                        ? invoiceService.createInvoicesBatch(principal.userId(), principal.role(), idempotencyKey, request.getItems(), "MANUAL", true)
+                        : invoiceService.createInvoicesBatch(principal.userId(), idempotencyKey, request.getItems(), "MANUAL", true))
+                : (isAdmin
+                        ? invoiceService.createInvoicesBatch(principal.userId(), principal.role(), idempotencyKey, request.getItems(), "MANUAL")
+                        : invoiceService.createInvoicesBatch(principal.userId(), idempotencyKey, request.getItems(), "MANUAL"));
         return ApiResponse.success("批量申请成功", response);
     }
 

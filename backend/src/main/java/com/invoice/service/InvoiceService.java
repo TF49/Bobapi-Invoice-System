@@ -118,17 +118,47 @@ public class InvoiceService {
         }
     }
 
+    public Long resolveEffectiveUserId(Long operatorUserId, String operatorRole) {
+        if ("ADMIN".equals(operatorRole)) {
+            User defaultUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                    .eq(User::getUsername, "user")
+                    .eq(User::getDeleted, 0));
+            if (defaultUser != null) {
+                return defaultUser.getId();
+            }
+            User fallbackUser = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                    .eq(User::getRole, "USER")
+                    .eq(User::getDeleted, 0)
+                    .last("LIMIT 1"));
+            if (fallbackUser != null) {
+                return fallbackUser.getId();
+            }
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40004, "系统未找到用于扣除额度的普通用户(user)");
+        }
+        return operatorUserId;
+    }
+
     @Transactional
     public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
                                          String taxNumber, BigDecimal amount,
                                          String invoiceType, String remark) {
-        return createInvoice(userId, idempotencyKey, companyName, taxNumber, amount, invoiceType, "NORMAL", remark);
+        return createInvoice(userId, "USER", idempotencyKey, companyName, taxNumber, amount, invoiceType, "NORMAL", remark);
     }
 
     @Transactional
     public InvoiceResponse createInvoice(Long userId, String idempotencyKey, String companyName,
                                          String taxNumber, BigDecimal amount,
                                          String invoiceType, String invoiceCategory, String remark) {
+        return createInvoice(userId, "USER", idempotencyKey, companyName, taxNumber, amount, invoiceType, invoiceCategory, remark);
+    }
+
+    @Transactional
+    public InvoiceResponse createInvoice(Long operatorUserId, String operatorRole, String idempotencyKey,
+                                         String companyName, String taxNumber, BigDecimal amount,
+                                         String invoiceType, String invoiceCategory, String remark) {
+        Long effectiveUserId = resolveEffectiveUserId(operatorUserId, operatorRole);
+        boolean isAdmin = "ADMIN".equals(operatorRole);
+
         String normalizedCompanyName = normalizeCompanyName(companyName);
         String normalizedTaxNumber = normalizeTaxNumber(taxNumber);
         String normalizedInvoiceType = normalizeInvoiceType(invoiceType);
@@ -137,7 +167,7 @@ public class InvoiceService {
         BigDecimal normalizedAmount = normalizeAmount(amount);
         BigDecimal deductAmount = calculateDeductAmount(normalizedAmount, normalizedInvoiceCategory);
 
-        Invoice existing = findByIdempotencyKey(userId, idempotencyKey);
+        Invoice existing = findByIdempotencyKey(effectiveUserId, idempotencyKey);
         if (existing != null) {
             return validateRepeatedRequest(
                     existing, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType, normalizedInvoiceCategory);
@@ -153,20 +183,28 @@ public class InvoiceService {
         invoice.setStatus("PENDING");
         invoice.setIsProcessed(false);
         invoice.setSubmissionType("MANUAL");  // 标记为手动提交
-        invoice.setUserId(userId);
+        invoice.setUserId(effectiveUserId);
         invoice.setIdempotencyKey(idempotencyKey);
 
         try {
             invoiceMapper.insert(invoice);
             // 插入发票成功后扣除额度并关联发票ID（专票按 3 倍扣除，并在流水中明确标注）
-            if ("VAT_SPECIAL".equals(normalizedInvoiceCategory)) {
-                userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
+            if (isAdmin) {
+                String deductRemark = "VAT_SPECIAL".equals(normalizedInvoiceCategory)
+                        ? "开票扣除 (管理员代提交, 专票3倍额度)"
+                        : "开票扣除 (管理员代提交)";
+                userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), deductRemark,
+                        operatorUserId, "ADMIN");
             } else {
-                userQuotaService.deductQuota(userId, deductAmount, invoice.getId());
+                if ("VAT_SPECIAL".equals(normalizedInvoiceCategory)) {
+                    userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
+                } else {
+                    userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId());
+                }
             }
             return InvoiceResponse.from(invoice);
         } catch (DuplicateKeyException exception) {
-            Invoice concurrentlyCreated = findByIdempotencyKey(userId, idempotencyKey);
+            Invoice concurrentlyCreated = findByIdempotencyKey(effectiveUserId, idempotencyKey);
             if (concurrentlyCreated == null) {
                 throw exception;
             }
@@ -403,14 +441,14 @@ public class InvoiceService {
     @Transactional
     public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
                                                      List<BatchInvoiceItemRequest> items) {
-        return createInvoicesBatch(userId, idempotencyKey, items, "MANUAL", false);
+        return createInvoicesBatch(userId, "USER", idempotencyKey, items, "MANUAL", false);
     }
 
     @Transactional
     public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
                                                      List<BatchInvoiceItemRequest> items,
                                                      String submissionType) {
-        return createInvoicesBatch(userId, idempotencyKey, items, submissionType, false);
+        return createInvoicesBatch(userId, "USER", idempotencyKey, items, submissionType, false);
     }
 
     @Transactional
@@ -418,11 +456,31 @@ public class InvoiceService {
                                                      List<BatchInvoiceItemRequest> items,
                                                      String submissionType,
                                                      boolean duplicateInvoiceRequest) {
+        return createInvoicesBatch(userId, "USER", idempotencyKey, items, submissionType, duplicateInvoiceRequest);
+    }
+
+    @Transactional
+    public BatchInvoiceResponse createInvoicesBatch(Long operatorUserId, String operatorRole,
+                                                     String idempotencyKey,
+                                                     List<BatchInvoiceItemRequest> items,
+                                                     String submissionType) {
+        return createInvoicesBatch(operatorUserId, operatorRole, idempotencyKey, items, submissionType, false);
+    }
+
+    @Transactional
+    public BatchInvoiceResponse createInvoicesBatch(Long operatorUserId, String operatorRole,
+                                                     String idempotencyKey,
+                                                     List<BatchInvoiceItemRequest> items,
+                                                     String submissionType,
+                                                     boolean duplicateInvoiceRequest) {
+        Long effectiveUserId = resolveEffectiveUserId(operatorUserId, operatorRole);
+        boolean isAdmin = "ADMIN".equals(operatorRole);
+
         String normalizedSubmissionType = normalizeSubmissionType(submissionType);
         List<NormalizedBatchItem> normalizedItems = validateAndNormalizeBatch(items, duplicateInvoiceRequest);
         String requestHash = computeRequestHash(normalizedItems);
 
-        InvoiceBatch existingBatch = findBatchByIdempotencyKey(userId, idempotencyKey);
+        InvoiceBatch existingBatch = findBatchByIdempotencyKey(effectiveUserId, idempotencyKey);
         if (existingBatch != null) {
             return handleExistingBatch(existingBatch, requestHash);
         }
@@ -432,7 +490,7 @@ public class InvoiceService {
                 .reduce(BigDecimal.ZERO.setScale(2), BigDecimal::add);
 
         InvoiceBatch batch = new InvoiceBatch();
-        batch.setUserId(userId);
+        batch.setUserId(effectiveUserId);
         batch.setIdempotencyKey(idempotencyKey);
         batch.setRequestHash(requestHash);
         batch.setTotalCount(normalizedItems.size());
@@ -443,7 +501,7 @@ public class InvoiceService {
             invoiceBatchMapper.insert(batch);
         } catch (DuplicateKeyException exception) {
             InvoiceBatch concurrentlyCreated = invoiceBatchMapper.selectByIdempotencyKeyForUpdate(
-                    userId, idempotencyKey);
+                    effectiveUserId, idempotencyKey);
             if (concurrentlyCreated == null) {
                 throw exception;
             }
@@ -461,7 +519,7 @@ public class InvoiceService {
             invoice.setStatus("PENDING");
             invoice.setIsProcessed(false);
             invoice.setSubmissionType(normalizedSubmissionType);
-            invoice.setUserId(userId);
+            invoice.setUserId(effectiveUserId);
             invoice.setBatchId(batch.getId());
             invoice.setBatchRowNumber(item.rowNumber());
             invoice.setIdempotencyKey(null);
@@ -476,7 +534,12 @@ public class InvoiceService {
             BigDecimal totalDeductAmount = normalizedItems.stream()
                     .map(item -> calculateDeductAmount(item.amount(), item.invoiceCategory()))
                     .reduce(BigDecimal.ZERO.setScale(2), BigDecimal::add);
-            userQuotaService.deductBatchQuota(userId, totalDeductAmount, batch.getId());
+            if (isAdmin) {
+                userQuotaService.deductBatchQuota(effectiveUserId, totalDeductAmount, batch.getId(),
+                        operatorUserId, "ADMIN");
+            } else {
+                userQuotaService.deductBatchQuota(effectiveUserId, totalDeductAmount, batch.getId());
+            }
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -804,18 +867,7 @@ public class InvoiceService {
                     "待红冲或已红冲的发票不能修改发票信息");
         }
 
-        // 已开票的发票不允许修改金额或票种，防止与已上传的发票文件不一致
         String existingCategory = invoice.getInvoiceCategory() != null ? invoice.getInvoiceCategory() : "NORMAL";
-        if ("COMPLETED".equals(invoice.getStatus())) {
-            if (invoice.getAmount().compareTo(normalizedAmount) != 0) {
-                throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
-                        "已开票的发票不能修改开票金额");
-            }
-            if (!Objects.equals(existingCategory, normalizedInvoiceCategory)) {
-                throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
-                        "已开票的发票不能修改发票票种");
-            }
-        }
 
         // 记录关键字段变化（审计日志）及变动额度调整（按票种倍率计算实际扣除额度变化）
         BigDecimal oldDeductAmount = calculateDeductAmount(invoice.getAmount(), existingCategory);
@@ -1274,32 +1326,50 @@ public class InvoiceService {
 
     public InvoiceResponse uploadInvoiceFile(Long invoiceId, MultipartFile file) {
         Invoice invoice = requireInvoice(invoiceId);
-        if (!"PENDING".equals(invoice.getStatus())) {
-            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "只有待开票申请可以上传文件");
+        if (!"PENDING".equals(invoice.getStatus()) && !"COMPLETED".equals(invoice.getStatus())) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "当前发票状态不允许上传发票文件");
+        }
+
+        String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
+        if ("PENDING".equals(redFlushStatus) || "COMPLETED".equals(redFlushStatus)) {
+            throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "待红冲或已红冲的发票不能上传发票文件");
         }
 
         ValidatedFile validatedFile = validateFile(file);
         String storedFileName = UUID.randomUUID() + "." + validatedFile.storedExtension();
         Path target = resolveStoredFile(storedFileName);
+        String oldFilePath = invoice.getFilePath();
 
         try (InputStream inputStream = file.getInputStream()) {
             Files.copy(inputStream, target);
 
-            LocalDateTime completedAt = LocalDateTime.now();
+            LocalDateTime now = LocalDateTime.now();
             LambdaUpdateWrapper<Invoice> update = new LambdaUpdateWrapper<>();
             update.eq(Invoice::getId, invoiceId)
-                    .eq(Invoice::getStatus, "PENDING")
+                    .in(Invoice::getStatus, "PENDING", "COMPLETED")
                     .set(Invoice::getFilePath, storedFileName)
                     .set(Invoice::getFileName, validatedFile.originalFileName())
                     .set(Invoice::getStatus, "COMPLETED")
-                    .set(Invoice::getCompletedAt, completedAt)
-                    .set(Invoice::getUpdatedAt, completedAt);
+                    .set(Invoice::getUpdatedAt, now);
+            if (invoice.getCompletedAt() == null) {
+                update.set(Invoice::getCompletedAt, now);
+            }
 
             if (invoiceMapper.update(null, update) != 1) {
                 Files.deleteIfExists(target);
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
                         "该发票已被处理，请刷新后重试");
             }
+
+            if (oldFilePath != null && !oldFilePath.isBlank() && !oldFilePath.equals(storedFileName)) {
+                try {
+                    Path oldTarget = resolveStoredFile(oldFilePath);
+                    Files.deleteIfExists(oldTarget);
+                } catch (Exception e) {
+                    log.warn("[Upload] Failed to delete replaced invoice file: {}", oldFilePath, e);
+                }
+            }
+
             User user = userMapper.selectById(invoice.getUserId());
             String username = user != null ? user.getUsername() : null;
             return InvoiceResponse.from(requireInvoice(invoiceId), uploadRoot, username);
