@@ -35,6 +35,11 @@ public class SupplierSettlement {
      */
     private String operatorName;
 
+    /**
+     * 结算请求幂等键
+     */
+    private String idempotencyKey;
+
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 

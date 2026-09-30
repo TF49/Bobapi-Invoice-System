@@ -31,8 +31,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -232,9 +235,7 @@ public class RechargeRequestService {
                 .orderByDesc(RechargeRequest::getCreatedAt)
         );
         
-        return requests.stream()
-            .map(this::toResponse)
-            .collect(Collectors.toList());
+        return toResponseList(requests);
     }
 
     /**
@@ -247,9 +248,7 @@ public class RechargeRequestService {
                 .orderByAsc(RechargeRequest::getCreatedAt)
         );
         
-        return requests.stream()
-            .map(this::toResponse)
-            .collect(Collectors.toList());
+        return toResponseList(requests);
     }
 
     /**
@@ -265,9 +264,7 @@ public class RechargeRequestService {
         
         List<RechargeRequest> requests = rechargeRequestMapper.selectList(wrapper);
         
-        return requests.stream()
-            .map(this::toResponse)
-            .collect(Collectors.toList());
+        return toResponseList(requests);
     }
 
     /**
@@ -395,9 +392,48 @@ public class RechargeRequestService {
     }
 
     /**
-     * 转换为响应对象
+     * 批量转换为响应对象，通过一次批量查询消除 N+1 问题
+     */
+    private List<RechargeRequestResponse> toResponseList(List<RechargeRequest> requests) {
+        if (requests == null || requests.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Set<Long> userIds = new HashSet<>();
+        for (RechargeRequest req : requests) {
+            if (req.getUserId() != null) {
+                userIds.add(req.getUserId());
+            }
+            if (req.getReviewedBy() != null) {
+                userIds.add(req.getReviewedBy());
+            }
+        }
+
+        Map<Long, String> userNames = userIds.isEmpty()
+                ? Collections.emptyMap()
+                : userMapper.selectBatchIds(userIds).stream()
+                        .filter(Objects::nonNull)
+                        .filter(u -> u.getId() != null && u.getUsername() != null)
+                        .collect(Collectors.toMap(User::getId, User::getUsername, (a, b) -> a));
+
+        return requests.stream().map(req -> {
+            RechargeRequestResponse resp = toResponse(req, false);
+            resp.setUsername(userNames.get(req.getUserId()));
+            if (req.getReviewedBy() != null) {
+                resp.setReviewedByName(userNames.get(req.getReviewedBy()));
+            }
+            return resp;
+        }).collect(Collectors.toList());
+    }
+
+    /**
+     * 转换为响应对象（单条）
      */
     public RechargeRequestResponse toResponse(RechargeRequest request) {
+        return toResponse(request, true);
+    }
+
+    private RechargeRequestResponse toResponse(RechargeRequest request, boolean fetchUsers) {
         RechargeRequestResponse response = new RechargeRequestResponse();
         response.setId(request.getId());
         response.setUserId(request.getUserId());
@@ -411,21 +447,25 @@ public class RechargeRequestService {
         response.setReviewedAt(request.getReviewedAt());
         response.setCreatedAt(request.getCreatedAt());
         response.setUpdatedAt(request.getUpdatedAt());
-        
-        // 查询用户名
-        User user = userMapper.selectById(request.getUserId());
-        if (user != null) {
-            response.setUsername(user.getUsername());
-        }
-        
-        // 查询审核管理员名
-        if (request.getReviewedBy() != null) {
-            User admin = userMapper.selectById(request.getReviewedBy());
-            if (admin != null) {
-                response.setReviewedByName(admin.getUsername());
+
+        if (fetchUsers) {
+            // 查询用户名
+            if (request.getUserId() != null) {
+                User user = userMapper.selectById(request.getUserId());
+                if (user != null) {
+                    response.setUsername(user.getUsername());
+                }
+            }
+
+            // 查询审核管理员名
+            if (request.getReviewedBy() != null) {
+                User admin = userMapper.selectById(request.getReviewedBy());
+                if (admin != null) {
+                    response.setReviewedByName(admin.getUsername());
+                }
             }
         }
-        
+
         return response;
     }
 }

@@ -22,12 +22,14 @@ const displayValue = ref(0)
 let animationFrame = 0
 
 const formattedValue = computed(() => {
+  const isNegative = displayValue.value < 0
+  const absValue = Math.abs(displayValue.value)
   const value = new Intl.NumberFormat('zh-CN', {
     minimumFractionDigits: props.decimals,
     maximumFractionDigits: props.decimals
-  }).format(displayValue.value)
+  }).format(absValue)
 
-  return `${props.prefix}${value}${props.suffix}`
+  return `${isNegative ? '-' : ''}${props.prefix}${value}${props.suffix}`
 })
 
 const animateTo = (target: number) => {

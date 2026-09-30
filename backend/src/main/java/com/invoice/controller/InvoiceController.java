@@ -113,8 +113,11 @@ public class InvoiceController {
                     "当前网络批量申请过于频繁，请稍后再试", ipRateLimit.retryAfterSeconds());
         }
 
-        BatchInvoiceResponse response = invoiceService.createInvoicesBatch(
-                principal.userId(), idempotencyKey, request.getItems(), "MANUAL");
+        BatchInvoiceResponse response = Boolean.TRUE.equals(request.getDuplicateInvoiceRequest())
+                ? invoiceService.createInvoicesBatch(
+                        principal.userId(), idempotencyKey, request.getItems(), "MANUAL", true)
+                : invoiceService.createInvoicesBatch(
+                        principal.userId(), idempotencyKey, request.getItems(), "MANUAL");
         return ApiResponse.success("批量申请成功", response);
     }
 

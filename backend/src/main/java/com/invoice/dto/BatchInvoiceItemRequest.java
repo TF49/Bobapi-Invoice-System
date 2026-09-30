@@ -9,7 +9,7 @@ import lombok.Data;
 public class BatchInvoiceItemRequest {
 
     /**
-     * 源文件中的原始行号。未提供时按请求顺序从第 2 行推导。
+     * 客户端原始行号。网页端批量提交从 1 开始；Excel 导入可传入包含表头偏移的真实行号。
      */
     private Integer rowNumber;
 

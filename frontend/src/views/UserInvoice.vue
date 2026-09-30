@@ -124,6 +124,18 @@
                 <el-option label="手动提交" value="MANUAL" />
               </el-select>
             </div>
+            <div class="filter-control">
+              <span class="filter-label"><Tickets />票种</span>
+              <el-select
+                v-model="categoryFilter"
+                aria-label="筛选发票票种"
+                class="category-select"
+              >
+                <el-option label="全部票种" value="ALL" />
+                <el-option label="普票" value="NORMAL" />
+                <el-option label="专票" value="VAT_SPECIAL" />
+              </el-select>
+            </div>
             <el-button :icon="Search" class="search-button" @click="handleSearch">搜索</el-button>
             <div class="action-buttons-wrap">
               <span class="result-count"><i></i>{{ filteredInvoices.length }} 条记录</span>
@@ -722,6 +734,20 @@
             class="amount-input"
           />
         </el-form-item>
+        <el-form-item label="开票数量" prop="count">
+          <el-input-number
+            v-model="form.count"
+            :min="1"
+            :max="100"
+            :step="1"
+            step-strictly
+            controls-position="right"
+            class="count-input"
+          />
+          <div class="count-hint">
+            <span>针对相同抬头和金额开具多张发票（1 ~ 100 张）</span>
+          </div>
+        </el-form-item>
         <el-form-item label="开票类型" prop="invoiceType">
           <el-select v-model="form.invoiceType" placeholder="请选择开票类型" class="type-select">
             <el-option label="技术服务费" value="技术服务费" />
@@ -747,9 +773,27 @@
           </el-radio-group>
           <div v-if="form.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-hint">
             <el-icon class="hint-icon"><InfoFilled /></el-icon>
-            <span>专票实际扣除额度：<strong>¥{{ (form.amount * 3).toFixed(2) }}</strong>（开票金额 ¥{{ form.amount.toFixed(2) }} × 3）</span>
+            <span v-if="(form.count || 1) > 1">
+              专票实际扣除额度：<strong>¥{{ ((form.amount || 0) * 3 * (form.count || 1)).toFixed(2) }}</strong>（开票金额 ¥{{ (form.amount || 0).toFixed(2) }} × {{ form.count }} 张 × 3 倍）
+            </span>
+            <span v-else>
+              专票实际扣除额度：<strong>¥{{ ((form.amount || 0) * 3).toFixed(2) }}</strong>（开票金额 ¥{{ (form.amount || 0).toFixed(2) }} × 3）
+            </span>
           </div>
         </el-form-item>
+        <!-- 多张发票开票与额度扣除预览 -->
+        <div v-if="(form.count || 1) > 1" class="multi-invoice-summary">
+          <el-icon class="summary-icon"><InfoFilled /></el-icon>
+          <span>
+            共 <strong>{{ form.count }}</strong> 张，单张 ¥{{ (form.amount || 0).toFixed(2) }}，合计开票金额：<strong>¥{{ ((form.amount || 0) * (form.count || 1)).toFixed(2) }}</strong>
+            <template v-if="form.invoiceCategory === 'VAT_SPECIAL'">
+              ，专票按 3 倍预计扣除额度：<strong>¥{{ ((form.amount || 0) * 3 * (form.count || 1)).toFixed(2) }}</strong>
+            </template>
+            <template v-else>
+              ，预计扣除额度：<strong>¥{{ ((form.amount || 0) * (form.count || 1)).toFixed(2) }}</strong>
+            </template>
+          </span>
+        </div>
         <el-form-item label="备注" prop="remark">
           <el-input
             v-model="form.remark"
@@ -1027,7 +1071,7 @@ import {
   Warning,
   ZoomIn
 } from '@element-plus/icons-vue'
-import { invoiceApi, type Invoice, type InvoiceRequest } from '@/api/invoice'
+import { invoiceApi, type Invoice, type InvoiceRequest, type BatchInvoiceItemRequest } from '@/api/invoice'
 import { quotaApi } from '@/api/quota'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
@@ -1051,6 +1095,7 @@ const cancellingId = ref<number | null>(null)
 const searchKeyword = ref('')
 const statusFilter = ref<'ALL' | 'PENDING' | 'COMPLETED' | 'COMPLETED_UNPROCESSED' | 'COMPLETED_PROCESSED' | 'RED_FLUSH_PENDING' | 'RED_FLUSH_COMPLETED' | 'CANCELLED'>('ALL')
 const submissionTypeFilter = ref<'ALL' | 'API' | 'MANUAL'>('ALL')
+const categoryFilter = ref<'ALL' | 'NORMAL' | 'VAT_SPECIAL'>('ALL')
 const dateRange = ref<[string, string] | null>(null)
 const dateShortcuts = [
   {
@@ -1109,6 +1154,12 @@ const filteredInvoices = computed(() => {
       if (type !== submissionTypeFilter.value) return false
     }
 
+    // 票种筛选
+    if (categoryFilter.value !== 'ALL') {
+      const category = invoice.invoiceCategory || 'NORMAL'
+      if (category !== categoryFilter.value) return false
+    }
+
     // 状态筛选
     if (statusFilter.value === 'COMPLETED_PROCESSED') {
       if (invoice.status !== 'COMPLETED' || !invoice.isProcessed || invoice.redFlushStatus === 'COMPLETED') return false
@@ -1149,11 +1200,11 @@ const handleSearch = () => {
 const emptyText = computed(() => {
   if (invoices.value.length === 0) return '暂无发票记录'
   if (searchKeyword.value.trim()) return '未找到匹配的发票记录'
-  if (statusFilter.value !== 'ALL' || dateRange.value || submissionTypeFilter.value !== 'ALL') return '未找到符合筛选条件的发票记录'
+  if (statusFilter.value !== 'ALL' || dateRange.value || submissionTypeFilter.value !== 'ALL' || categoryFilter.value !== 'ALL') return '未找到符合筛选条件的发票记录'
   return '暂无发票记录'
 })
 
-watch([searchKeyword, statusFilter, dateRange, submissionTypeFilter], () => {
+watch([searchKeyword, statusFilter, dateRange, submissionTypeFilter, categoryFilter], () => {
   page.value = 1
 })
 
@@ -1294,10 +1345,11 @@ const migrateLegacyProcessedData = async () => {
   }
 }
 
-const form = reactive<InvoiceRequest>({
+const form = reactive<InvoiceRequest & { count: number }>({
   companyName: '',
   taxNumber: '',
   amount: 0.01,
+  count: 1,
   invoiceType: '技术服务费',
   invoiceCategory: 'NORMAL',
   remark: ''
@@ -1317,6 +1369,10 @@ const rules = {
   amount: [
     { required: true, message: '请输入开票金额', trigger: 'blur' },
     { type: 'number', min: 0.01, max: 9999999999.99, message: '开票金额必须在有效范围内', trigger: 'change' }
+  ],
+  count: [
+    { required: true, message: '请输入开票数量', trigger: 'blur' },
+    { type: 'integer', min: 1, max: 100, message: '开票数量必须为 1 到 100 之间的整数', trigger: 'change' }
   ],
   invoiceType: [{ required: true, message: '请选择开票类型', trigger: 'change' }]
 }
@@ -1455,6 +1511,7 @@ let currentAnimationResolver: (() => void) | null = null
 let aiParseSessionId = 0
 
 const showSubmitDialog = () => {
+  form.count = 1
   submitDialogVisible.value = true
 }
 
@@ -1468,6 +1525,7 @@ const resetAiParseState = () => {
   aiProgress.value = 0
   aiConfirmVisible.value = false
   aiConfirmData.value = null
+  form.count = 1
 }
 
 /** requestAnimationFrame 驱动的进度条平滑动画 */
@@ -1602,30 +1660,49 @@ const handleSubmit = async () => {
       return
     }
 
-    // 检查额度是否充足（专票按 3 倍扣除）
-    const requiredQuota = form.invoiceCategory === 'VAT_SPECIAL' ? form.amount * 3 : form.amount
+    const count = Number(form.count) || 1
+    // 检查额度是否充足（专票按 3 倍扣除，乘以开票数量）
+    const singleQuota = form.invoiceCategory === 'VAT_SPECIAL' ? form.amount * 3 : form.amount
+    const requiredQuota = singleQuota * count
     if (requiredQuota > quotaBalance.value) {
       ElMessage.error(
         form.invoiceCategory === 'VAT_SPECIAL'
-          ? `额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，专票按 3 倍扣除需 ¥${requiredQuota.toFixed(2)}`
-          : `额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，需要 ¥${form.amount.toFixed(2)}`
+          ? `额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，${count > 1 ? `共 ${count} 张专票` : '专票'}按 3 倍扣除需 ¥${requiredQuota.toFixed(2)}`
+          : `额度不足，当前余额 ¥${quotaBalance.value.toFixed(2)}，${count > 1 ? `共 ${count} 张发票` : ''}需要 ¥${requiredQuota.toFixed(2)}`
       )
       return
     }
 
     const idempotencyKey = pendingIdempotencyKey.value || generateIdempotencyKey()
     pendingIdempotencyKey.value = idempotencyKey
-    await invoiceApi.createInvoice({
-      companyName: form.companyName.trim(),
-      taxNumber: form.taxNumber?.trim() || undefined,
-      amount: form.amount,
-      invoiceType: form.invoiceType,
-      invoiceCategory: form.invoiceCategory || 'NORMAL',
-      remark: form.remark?.trim() || undefined
-    }, idempotencyKey)
-    ElMessage.success('提交成功')
+
+    if (count > 1) {
+      const items: BatchInvoiceItemRequest[] = Array.from({ length: count }, (_, idx) => ({
+        rowNumber: idx + 1,
+        companyName: form.companyName.trim(),
+        taxNumber: form.taxNumber?.trim() || undefined,
+        amount: form.amount.toFixed(2),
+        invoiceType: form.invoiceType,
+        invoiceCategory: form.invoiceCategory || 'NORMAL',
+        remark: form.remark?.trim() || undefined
+      }))
+      await invoiceApi.createInvoicesBatch(items, idempotencyKey, true)
+      ElMessage.success(`成功提交 ${count} 笔发票申请`)
+    } else {
+      await invoiceApi.createInvoice({
+        companyName: form.companyName.trim(),
+        taxNumber: form.taxNumber?.trim() || undefined,
+        amount: form.amount,
+        invoiceType: form.invoiceType,
+        invoiceCategory: form.invoiceCategory || 'NORMAL',
+        remark: form.remark?.trim() || undefined
+      }, idempotencyKey)
+      ElMessage.success('提交成功')
+    }
+
     pendingIdempotencyKey.value = null
     formRef.value?.resetFields()
+    form.count = 1
     submitDialogVisible.value = false
     await loadInvoices()
     await loadQuota() // 刷新额度
@@ -1734,9 +1811,15 @@ const handleCopyImage = async (row: Invoice) => {
 const handleCancel = async (row: Invoice) => {
   if (cancellingId.value !== null) return
   
+  const isVatSpecial = row.invoiceCategory === 'VAT_SPECIAL'
+  const refundAmount = Number(row.amount || 0) * (isVatSpecial ? 3 : 1)
+  const refundText = isVatSpecial
+    ? `取消后将退还 3 倍开票额度 ${formatCurrency(refundAmount)} (专票规则) 到您的账户余额`
+    : `取消后将退还开票金额 ${formatCurrency(row.amount)} 到您的账户余额`
+
   try {
     await ElMessageBox.confirm(
-      `确定要取消编号为 ${formatInvoiceId(row.id)} 的发票申请吗？取消后将退还开票金额 ${formatCurrency(row.amount)} 到您的账户余额。`,
+      `确定要取消编号为 ${formatInvoiceId(row.id)} 的发票申请吗？${refundText}。`,
       '取消发票申请',
       {
         confirmButtonText: '确认取消',
@@ -1949,6 +2032,11 @@ onBeforeUnmount(() => {
   flex-shrink: 0 !important;
 }
 
+.category-select {
+  width: 110px !important;
+  flex-shrink: 0 !important;
+}
+
 .action-buttons-wrap {
   display: flex;
   align-items: center;
@@ -1968,8 +2056,36 @@ onBeforeUnmount(() => {
 }
 
 .amount-input,
+.count-input,
 .type-select {
   width: 100%;
+}
+
+.count-hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+  line-height: 1.4;
+}
+
+.multi-invoice-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #166534;
+}
+
+.multi-invoice-summary .summary-icon {
+  font-size: 16px;
+  color: #16a34a;
+  flex-shrink: 0;
 }
 
 .batch-import-button:hover,
@@ -2644,7 +2760,8 @@ onBeforeUnmount(() => {
 
   .records-panel .date-picker,
   .records-panel .status-select,
-  .records-panel .submission-type-select {
+  .records-panel .submission-type-select,
+  .records-panel .category-select {
     flex: 1;
     width: 100% !important;
   }

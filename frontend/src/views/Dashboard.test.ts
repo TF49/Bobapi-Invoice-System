@@ -139,7 +139,7 @@ async function mountPage() {
         SpotlightCard: { template: '<div><slot /></div>' },
         CountUp: {
           props: ['value', 'prefix', 'decimals'],
-          template: '<span>{{ prefix }}{{ Number(value || 0).toLocaleString("zh-CN", { minimumFractionDigits: decimals || 0, maximumFractionDigits: decimals || 0 }) }}</span>'
+          template: '<span>{{ (Number(value) < 0 ? "-" : "") + (prefix || "") }}{{ Number(Math.abs(value) || 0).toLocaleString("zh-CN", { minimumFractionDigits: decimals || 0, maximumFractionDigits: decimals || 0 }) }}</span>'
         },
         SupplierSettlementDialog: {
           template: '<div v-if="modelValue">Settlement Dialog</div>',
@@ -336,6 +336,20 @@ describe('Dashboard', () => {
     expect(page.text()).toContain('供应商未结款项')
     expect(page.text()).toContain('¥1,000.00')
     expect(page.text()).toContain('¥1,300.75')
+  })
+
+  it('displays negative unsettled amount and pre-settlement pill when unsettled is negative', async () => {
+    mockedApi.getStats.mockResolvedValue({
+      ...populatedStats,
+      totalSettledAmount: 3000.0,
+      unsettledAmount: -700.0
+    })
+
+    const page = await mountPage()
+
+    expect(page.text()).toContain('供应商未结款项')
+    expect(page.text()).toContain('-¥700.00')
+    expect(page.text()).toContain('预结待抵扣')
   })
 })
 

@@ -16,13 +16,15 @@ export interface SupplierSettlementResponse {
 /**
  * 创建供应商结算记录
  */
-export function createSettlement(data: SupplierSettlementRequest) {
-  return request.post<any, SupplierSettlementResponse>('/api/admin/supplier-settlement', data)
+export function createSettlement(data: SupplierSettlementRequest, idempotencyKey?: string) {
+  return request.post<any, SupplierSettlementResponse>('/admin/supplier-settlement', data, {
+    headers: idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}
+  })
 }
 
 /**
  * 获取供应商结算历史记录
  */
 export function getSettlementHistory() {
-  return request.get<any, SupplierSettlementResponse[]>('/api/admin/supplier-settlement')
+  return request.get<any, SupplierSettlementResponse[]>('/admin/supplier-settlement')
 }

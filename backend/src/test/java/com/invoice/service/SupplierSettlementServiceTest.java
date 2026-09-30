@@ -8,12 +8,17 @@ import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceMapper;
 import com.invoice.mapper.SupplierSettlementMapper;
 import com.invoice.mapper.UserMapper;
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -26,6 +31,12 @@ import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class SupplierSettlementServiceTest {
+
+    @BeforeAll
+    static void initializeMybatisMetadata() {
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "test"), SupplierSettlement.class);
+    }
 
     @Mock
     private SupplierSettlementMapper supplierSettlementMapper;
@@ -64,9 +75,6 @@ class SupplierSettlementServiceTest {
         mockSettlement.setOperatorName("admin");
         mockSettlement.setCreatedAt(LocalDateTime.now());
 
-        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
-                10L, 2L, 8L, new BigDecimal("10000.00"), new BigDecimal("1000.00")));
-        when(supplierSettlementMapper.selectTotalSettledAmount()).thenReturn(BigDecimal.ZERO);
         when(supplierSettlementMapper.insert(any(SupplierSettlement.class))).thenReturn(1);
         when(userMapper.selectById(operatorId)).thenReturn(testUser);
 
@@ -90,9 +98,6 @@ class SupplierSettlementServiceTest {
         BigDecimal amount = new BigDecimal("500.00");
         Long operatorId = 1L;
 
-        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
-                10L, 2L, 8L, new BigDecimal("10000.00"), new BigDecimal("1000.00")));
-        when(supplierSettlementMapper.selectTotalSettledAmount()).thenReturn(BigDecimal.ZERO);
         when(supplierSettlementMapper.insert(any(SupplierSettlement.class))).thenReturn(1);
         when(userMapper.selectById(operatorId)).thenReturn(testUser);
 
@@ -109,19 +114,19 @@ class SupplierSettlementServiceTest {
     }
 
     @Test
-    void testCreateSettlement_ExceedsUnsettledAmount() {
+    void testCreateSettlement_ExceedsUnsettledAmount_Allowed() {
         BigDecimal amount = new BigDecimal("5000.00");
         Long operatorId = 1L;
 
-        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
-                5L, 1L, 4L, new BigDecimal("3000.00"), BigDecimal.ZERO));
-        when(supplierSettlementMapper.selectTotalSettledAmount()).thenReturn(BigDecimal.ZERO);
+        when(supplierSettlementMapper.insert(any(SupplierSettlement.class))).thenReturn(1);
+        when(userMapper.selectById(operatorId)).thenReturn(testUser);
 
-        BusinessException ex = assertThrows(BusinessException.class, () ->
-                supplierSettlementService.createSettlement(amount, "超额结算", operatorId)
-        );
-        assertEquals(40001, ex.getCode());
-        verify(supplierSettlementMapper, never()).insert(any(SupplierSettlement.class));
+        SupplierSettlementResponse response = supplierSettlementService.createSettlement(amount, "提前预结", operatorId);
+        assertNotNull(response);
+        assertEquals(amount, response.settlementAmount());
+        assertEquals("提前预结", response.remark());
+        assertEquals("admin", response.operatorName());
+        verify(supplierSettlementMapper, times(1)).insert(any(SupplierSettlement.class));
     }
 
     @Test
@@ -225,5 +230,94 @@ class SupplierSettlementServiceTest {
         assertEquals(expectedTotal, total);
 
         verify(supplierSettlementMapper, times(1)).selectTotalSettledAmount();
+    }
+
+    @Test
+    void testGetTotalUnsettledAmount_Positive() {
+        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
+                10L, 2L, 8L, new BigDecimal("10000.00"), new BigDecimal("1000.00")));
+        when(supplierSettlementMapper.selectTotalSettledAmount()).thenReturn(new BigDecimal("3000.00"));
+
+        BigDecimal unsettled = supplierSettlementService.getTotalUnsettledAmount();
+        assertEquals(new BigDecimal("7000.00"), unsettled);
+    }
+
+    @Test
+    void testGetTotalUnsettledAmount_NegativeWhenPreSettled() {
+        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
+                10L, 2L, 8L, new BigDecimal("10000.00"), new BigDecimal("1000.00")));
+        when(supplierSettlementMapper.selectTotalSettledAmount()).thenReturn(new BigDecimal("15000.00"));
+
+        BigDecimal unsettled = supplierSettlementService.getTotalUnsettledAmount();
+        assertEquals(new BigDecimal("-5000.00"), unsettled);
+    }
+
+    @Test
+    void testCreateSettlement_WithIdempotencyKey_ReturnsExisting() {
+        String key = "settlement-unique-123";
+        SupplierSettlement existing = new SupplierSettlement();
+        existing.setId(99L);
+        existing.setSettlementAmount(new BigDecimal("1000.00"));
+        existing.setRemark("已存在结算");
+        existing.setOperatorId(1L);
+        existing.setOperatorName("admin");
+        existing.setCreatedAt(LocalDateTime.now());
+        existing.setIdempotencyKey(key);
+
+        when(supplierSettlementMapper.selectOne(any())).thenReturn(existing);
+
+        SupplierSettlementResponse response = supplierSettlementService.createSettlement(
+                new BigDecimal("1000.00"), "已存在结算", 1L, key);
+
+        assertNotNull(response);
+        assertEquals(99L, response.id());
+        assertEquals(new BigDecimal("1000.00"), response.settlementAmount());
+        assertEquals("admin", response.operatorName());
+        verify(supplierSettlementMapper, never()).insert(any(SupplierSettlement.class));
+    }
+
+    @Test
+    void testCreateSettlement_WithIdempotencyKey_ConcurrentDuplicateRecovers() {
+        String key = "settlement-race-456";
+        when(userMapper.selectById(1L)).thenReturn(testUser);
+
+        SupplierSettlement existing = new SupplierSettlement();
+        existing.setId(100L);
+        existing.setSettlementAmount(new BigDecimal("2000.00"));
+        existing.setRemark("并发结算");
+        existing.setOperatorId(1L);
+        existing.setOperatorName("admin");
+        existing.setCreatedAt(LocalDateTime.now());
+        existing.setIdempotencyKey(key);
+
+        when(supplierSettlementMapper.insert(any(SupplierSettlement.class)))
+                .thenThrow(new DuplicateKeyException("duplicate key"));
+        when(supplierSettlementMapper.selectOne(any())).thenReturn(null, existing);
+
+        SupplierSettlementResponse response = supplierSettlementService.createSettlement(
+                new BigDecimal("2000.00"), "并发结算", 1L, key);
+
+        assertNotNull(response);
+        assertEquals(100L, response.id());
+        assertEquals(new BigDecimal("2000.00"), response.settlementAmount());
+    }
+
+    @Test
+    void testCreateSettlement_WithIdempotencyKey_RejectsDifferentPayload() {
+        String key = "settlement-payload-123";
+        SupplierSettlement existing = new SupplierSettlement();
+        existing.setId(101L);
+        existing.setSettlementAmount(new BigDecimal("1000.00"));
+        existing.setRemark("原始备注");
+        existing.setOperatorId(1L);
+        existing.setCreatedAt(LocalDateTime.now());
+        when(supplierSettlementMapper.selectOne(any())).thenReturn(existing);
+
+        BusinessException exception = assertThrows(BusinessException.class, () ->
+                supplierSettlementService.createSettlement(
+                        new BigDecimal("5000.00"), "不同备注", 1L, key));
+
+        assertEquals(40902, exception.getCode());
+        verify(supplierSettlementMapper, never()).insert(any(SupplierSettlement.class));
     }
 }

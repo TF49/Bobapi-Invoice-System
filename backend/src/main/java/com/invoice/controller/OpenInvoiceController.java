@@ -84,8 +84,11 @@ public class OpenInvoiceController {
                 ? idempotencyKey.trim()
                 : ("open_batch_" + UUID.randomUUID().toString().replace("-", ""));
 
-        BatchInvoiceResponse response = invoiceService.createInvoicesBatch(
-                principal.userId(), finalKey, request.getItems(), "API");
+        BatchInvoiceResponse response = Boolean.TRUE.equals(request.getDuplicateInvoiceRequest())
+                ? invoiceService.createInvoicesBatch(
+                        principal.userId(), finalKey, request.getItems(), "API", true)
+                : invoiceService.createInvoicesBatch(
+                        principal.userId(), finalKey, request.getItems(), "API");
         return ApiResponse.success("批量申请成功", response);
     }
 

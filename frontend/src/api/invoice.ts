@@ -31,6 +31,7 @@ export interface InvoiceRequest {
   companyName: string
   taxNumber?: string
   amount: number
+  count?: number
   invoiceType: string
   invoiceCategory?: string
   remark?: string
@@ -125,8 +126,8 @@ export const invoiceApi = {
   },
 
   // 批量创建发票申请
-  createInvoicesBatch(items: BatchInvoiceItemRequest[], idempotencyKey: string) {
-    return request.post<any, BatchInvoiceResponse>('/invoices/batch', { items }, {
+  createInvoicesBatch(items: BatchInvoiceItemRequest[], idempotencyKey: string, duplicateInvoiceRequest: boolean = false) {
+    return request.post<any, BatchInvoiceResponse>('/invoices/batch', { items, duplicateInvoiceRequest }, {
       headers: { 'Idempotency-Key': idempotencyKey }
     })
   },

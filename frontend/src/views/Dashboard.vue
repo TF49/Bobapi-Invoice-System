@@ -170,7 +170,7 @@
               </strong>
             </div>
             <div class="stat-footer-pill warning-pill">
-              <span>待结算</span>
+              <span>{{ (stats?.unsettledAmount || 0) < 0 ? '预结待抵扣' : '待结算' }}</span>
             </div>
           </div>
         </SpotlightCard>

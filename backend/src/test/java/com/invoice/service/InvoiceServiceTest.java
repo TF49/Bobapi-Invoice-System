@@ -45,6 +45,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -238,6 +239,57 @@ class InvoiceServiceTest {
     }
 
     @Test
+    void allowsDuplicateRowsWhenAllowDuplicatesIsTrueAndSupportsRowNumberStartingAtOne() {
+        doAnswer(invocation -> {
+            InvoiceBatch batch = invocation.getArgument(0);
+            batch.setId(52L);
+            return null;
+        }).when(invoiceBatchMapper).insert(any(InvoiceBatch.class));
+        when(invoiceMapper.insertBatch(anyList())).thenReturn(2);
+
+        Invoice first = batchInvoice(104L, 52L, 1, "同一抬头公司", "ABCDE12345678901", "100.00");
+        Invoice second = batchInvoice(105L, 52L, 2, "同一抬头公司", "ABCDE12345678901", "100.00");
+        when(invoiceMapper.selectByBatchId(52L)).thenReturn(List.of(first, second));
+
+        List<BatchInvoiceItemRequest> items = List.of(
+                batchItem(1, "同一抬头公司", "ABCDE12345678901", "100.00"),
+                batchItem(2, "同一抬头公司", "ABCDE12345678901", "100.00")
+        );
+
+        BatchInvoiceResponse response = service.createInvoicesBatch(
+                8L, "batch-allow-duplicates-123", items, "MANUAL", true);
+
+        assertThat(response.getBatchId()).isEqualTo(52L);
+        assertThat(response.getItems()).hasSize(2);
+        verify(invoiceMapper).insertBatch(anyList());
+        verify(userQuotaService).deductBatchQuota(8L, new BigDecimal("200.00"), 52L);
+    }
+
+    @Test
+    void rollsBackBatchWhenDeductingQuotaFails() {
+        doAnswer(invocation -> {
+            InvoiceBatch batch = invocation.getArgument(0);
+            batch.setId(53L);
+            return 1;
+        }).when(invoiceBatchMapper).insert(any(InvoiceBatch.class));
+        when(invoiceMapper.insertBatch(anyList())).thenReturn(2);
+        doThrow(new BusinessException(org.springframework.http.HttpStatus.BAD_REQUEST, 40002, "额度不足"))
+                .when(userQuotaService).deductBatchQuota(8L, new BigDecimal("200.00"), 53L);
+
+        List<BatchInvoiceItemRequest> items = List.of(
+                batchItem(1, "同一抬头公司", "ABCDE12345678901", "100.00"),
+                batchItem(2, "同一抬头公司", "ABCDE12345678901", "100.00")
+        );
+
+        assertThatThrownBy(() -> service.createInvoicesBatch(
+                8L, "batch-quota-rollback-123", items, "MANUAL", true))
+                .isInstanceOf(BusinessException.class)
+                .hasMessageContaining("额度不足");
+        verify(invoiceMapper).insertBatch(anyList());
+        verify(userQuotaService).deductBatchQuota(8L, new BigDecimal("200.00"), 53L);
+    }
+
+    @Test
     void reportsInvalidDecimalTextAsAStructuredRowError() {
         List<BatchInvoiceItemRequest> items = List.of(
                 batchItem(3, "示例公司", "ABCDE12345678901", "1e3"),
@@ -406,6 +458,32 @@ class InvoiceServiceTest {
         assertThat(stats.amountRangeStats().get(1).amount()).isEqualByComparingTo("2000.75");
         assertThat(stats.quotaPoolStats().pendingRechargeCount()).isEqualTo(1L);
         assertThat(stats.quotaPoolStats().totalBalance()).isEqualByComparingTo("10000.00");
+    }
+
+    @Test
+    void dashboardStats_ReturnsNegativeUnsettledAmountWhenSettledExceedsInvoiced() {
+        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
+                1L, 0L, 1L, new BigDecimal("1000.00"), BigDecimal.ZERO));
+        when(supplierSettlementService.getTotalSettledAmount()).thenReturn(new BigDecimal("1500.00"));
+        when(invoiceMapper.selectUserInvoiceStats()).thenReturn(List.of());
+        when(invoiceMapper.selectAllTimelineStats()).thenReturn(List.of());
+        when(invoiceMapper.selectInvoiceTypeStats()).thenReturn(List.of());
+        when(invoiceMapper.selectTopCompanyStats()).thenReturn(List.of());
+        when(invoiceMapper.selectHourDistributionStats()).thenReturn(List.of());
+        when(invoiceMapper.selectDailyTrendStats()).thenReturn(List.of());
+        when(invoiceMapper.selectAmountRangeSummary()).thenReturn(
+                new InvoiceMapper.AmountRangeSummary(
+                        0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO,
+                        0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO));
+        when(userQuotaMapper.selectQuotaPoolSummary()).thenReturn(
+                new UserQuotaMapper.QuotaPoolSummary(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(rechargeRequestMapper.countPendingRequests()).thenReturn(0L);
+
+        DashboardStats stats = service.getDashboardStats();
+
+        assertThat(stats.totalAmount()).isEqualByComparingTo("1000.00");
+        assertThat(stats.totalSettledAmount()).isEqualByComparingTo("1500.00");
+        assertThat(stats.unsettledAmount()).isEqualByComparingTo("-500.00");
     }
 
     @Test

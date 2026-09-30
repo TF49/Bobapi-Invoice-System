@@ -13,6 +13,7 @@ vi.mock('@/api/invoice', () => ({
   invoiceApi: {
     getMyInvoices: vi.fn(),
     createInvoice: vi.fn(),
+    createInvoicesBatch: vi.fn(),
     previewInvoice: vi.fn(),
     downloadInvoice: vi.fn(),
     parseInvoiceText: vi.fn(),
@@ -84,6 +85,7 @@ describe('UserInvoice', () => {
     } as never)
     mockedApi.getMyInvoices.mockResolvedValue([])
     mockedApi.createInvoice.mockResolvedValue({} as never)
+    mockedApi.createInvoicesBatch.mockResolvedValue({} as never)
     // 默认提供足够的额度，避免提交时被额度检查拦截
     mockedQuotaApi.getMyQuota.mockResolvedValue({
       userId: 1,
@@ -899,5 +901,90 @@ describe('UserInvoice', () => {
 
     expect(mockedApi.createInvoice).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('专票按 3 倍扣除需 ¥300.00'))
+  })
+
+  it('submits multiple invoices successfully using createInvoicesBatch when count > 1', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    expect(openSubmitBtn).toBeDefined()
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('多开公司')
+    await inputs[1].setValue('91110108MA01XXXXXX')
+    await inputs[2].setValue('150.00')
+    await inputs[3].setValue('3')
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoicesBatch).toHaveBeenCalledWith(
+      [
+        {
+          rowNumber: 1,
+          companyName: '多开公司',
+          taxNumber: '91110108MA01XXXXXX',
+          amount: '150.00',
+          invoiceType: '技术服务费',
+          invoiceCategory: 'NORMAL',
+          remark: undefined
+        },
+        {
+          rowNumber: 2,
+          companyName: '多开公司',
+          taxNumber: '91110108MA01XXXXXX',
+          amount: '150.00',
+          invoiceType: '技术服务费',
+          invoiceCategory: 'NORMAL',
+          remark: undefined
+        },
+        {
+          rowNumber: 3,
+          companyName: '多开公司',
+          taxNumber: '91110108MA01XXXXXX',
+          amount: '150.00',
+          invoiceType: '技术服务费',
+          invoiceCategory: 'NORMAL',
+          remark: undefined
+        }
+      ],
+      expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/),
+      true
+    )
+    expect(ElMessage.success).toHaveBeenCalledWith('成功提交 3 笔发票申请')
+    expect(mockedApi.getMyInvoices).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects multiple invoice submission when quota is insufficient', async () => {
+    mockedQuotaApi.getMyQuota.mockResolvedValue({
+      userId: 1,
+      balance: 200,
+      totalRecharged: 1000,
+      totalDeducted: 800
+    })
+    const errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('超额公司')
+    await inputs[1].setValue('91110108MA01XXXXXX')
+    await inputs[2].setValue('100.00')
+    await inputs[3].setValue('3')
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoicesBatch).not.toHaveBeenCalled()
+    expect(mockedApi.createInvoice).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('共 3 张发票需要 ¥300.00'))
   })
 })

@@ -688,7 +688,7 @@
         </el-tag>
         <template v-if="editingRow.status === 'COMPLETED'">
           <el-divider direction="vertical" />
-          <el-tag type="warning" size="small" effect="plain">已开票不可修改金额</el-tag>
+          <el-tag type="warning" size="small" effect="plain">已开票不可修改金额与票种</el-tag>
         </template>
       </div>
       <el-form ref="editFormRef" :model="editForm" :rules="editRules" label-position="top">
@@ -725,7 +725,11 @@
           </el-select>
         </el-form-item>
         <el-form-item label="发票票种" prop="invoiceCategory">
-          <el-radio-group v-model="editForm.invoiceCategory" class="invoice-category-group">
+          <el-radio-group
+            v-model="editForm.invoiceCategory"
+            class="invoice-category-group"
+            :disabled="editingRow?.status === 'COMPLETED'"
+          >
             <el-radio value="NORMAL">
               <span class="normal-badge" style="margin-right:4px"><el-icon class="normal-ico"><Document /></el-icon><span>普票</span></span>
             </el-radio>

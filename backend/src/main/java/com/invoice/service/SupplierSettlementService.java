@@ -8,6 +8,7 @@ import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceMapper;
 import com.invoice.mapper.SupplierSettlementMapper;
 import com.invoice.mapper.UserMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,19 +43,38 @@ public class SupplierSettlementService {
 
     /**
      * 创建结算记录。
-     * 修复 #1：校验结算金额不得超过当前未结款项，防止超额结算导致未结款项变为负数。
+     * 支持提前给供应商结款（预结）：结算金额可大于当前未结款项，差额计为负数并在后续开票中自动抵扣。
      * 修复 #5：同时冗余存储 operatorName，保证用户删除后历史操作人信息不丢失。
      */
     @Transactional
     public SupplierSettlementResponse createSettlement(BigDecimal amount, String remark, Long operatorId) {
-        // 校验：结算金额不得超过当前未结款项
-        BigDecimal currentUnsettled = getTotalUnsettledAmount();
-        if (amount.compareTo(currentUnsettled) > 0) {
-            throw new BusinessException(
-                    HttpStatus.BAD_REQUEST,
-                    40001,
-                    String.format("结算金额（¥%.2f）不能超过当前未结款项（¥%.2f）", amount, currentUnsettled)
-            );
+        return createSettlement(amount, remark, operatorId, null);
+    }
+
+    /**
+     * 创建结算记录（支持幂等控制）。
+     * 支持提前给供应商结款（预结）：结算金额可大于当前未结款项，差额计为负数并在后续开票中自动抵扣。
+     * 同时冗余存储 operatorName，保证用户删除后历史操作人信息不丢失。
+     */
+    @Transactional
+    public SupplierSettlementResponse createSettlement(BigDecimal amount, String remark, Long operatorId, String idempotencyKey) {
+        String normalizedKey = (idempotencyKey != null && !idempotencyKey.isBlank()) ? idempotencyKey.trim() : null;
+        String normalizedRemark = remark == null ? null : remark.trim();
+        if (normalizedKey != null) {
+            LambdaQueryWrapper<SupplierSettlement> queryWrapper = new LambdaQueryWrapper<>();
+            queryWrapper.eq(SupplierSettlement::getIdempotencyKey, normalizedKey);
+            SupplierSettlement existing = supplierSettlementMapper.selectOne(queryWrapper);
+            if (existing != null) {
+                validateRepeatedSettlement(existing, amount, normalizedRemark, operatorId);
+                OffsetDateTime createdAtWithZone = existing.getCreatedAt().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+                return new SupplierSettlementResponse(
+                        existing.getId(),
+                        existing.getSettlementAmount(),
+                        existing.getRemark(),
+                        existing.getOperatorName(),
+                        createdAtWithZone
+                );
+            }
         }
 
         // 查询操作人名称（冗余写入，即使将来用户被删，历史记录操作人仍可查）
@@ -63,14 +83,35 @@ public class SupplierSettlementService {
 
         SupplierSettlement settlement = new SupplierSettlement();
         settlement.setSettlementAmount(amount);
-        settlement.setRemark(remark);
+        settlement.setRemark(normalizedRemark);
         settlement.setOperatorId(operatorId);
         settlement.setOperatorName(operatorName);
+        settlement.setIdempotencyKey(normalizedKey);
         LocalDateTime now = LocalDateTime.now();
         settlement.setCreatedAt(now);
         settlement.setUpdatedAt(now);
 
-        supplierSettlementMapper.insert(settlement);
+        try {
+            supplierSettlementMapper.insert(settlement);
+        } catch (DuplicateKeyException e) {
+            if (normalizedKey != null) {
+                LambdaQueryWrapper<SupplierSettlement> queryWrapper = new LambdaQueryWrapper<>();
+                queryWrapper.eq(SupplierSettlement::getIdempotencyKey, normalizedKey);
+                SupplierSettlement existing = supplierSettlementMapper.selectOne(queryWrapper);
+                if (existing != null) {
+                    validateRepeatedSettlement(existing, amount, normalizedRemark, operatorId);
+                    OffsetDateTime createdAtWithZone = existing.getCreatedAt().atZone(ZoneId.systemDefault()).toOffsetDateTime();
+                    return new SupplierSettlementResponse(
+                            existing.getId(),
+                            existing.getSettlementAmount(),
+                            existing.getRemark(),
+                            existing.getOperatorName(),
+                            createdAtWithZone
+                    );
+                }
+            }
+            throw e;
+        }
 
         // 修复 #6：转换为 OffsetDateTime，序列化时携带时区信息（+08:00）
         OffsetDateTime createdAtWithZone = now.atZone(ZoneId.systemDefault()).toOffsetDateTime();
@@ -81,6 +122,18 @@ public class SupplierSettlementService {
                 operatorName,
                 createdAtWithZone
         );
+    }
+
+    private void validateRepeatedSettlement(SupplierSettlement existing, BigDecimal amount,
+                                             String remark, Long operatorId) {
+        boolean sameAmount = existing.getSettlementAmount() != null
+                && existing.getSettlementAmount().compareTo(amount) == 0;
+        boolean sameRemark = java.util.Objects.equals(existing.getRemark(), remark);
+        boolean sameOperator = java.util.Objects.equals(existing.getOperatorId(), operatorId);
+        if (!sameAmount || !sameRemark || !sameOperator) {
+            throw new BusinessException(HttpStatus.CONFLICT, 40902,
+                    "Idempotency-Key 已用于其他供应商结算");
+        }
     }
 
     /**
@@ -137,7 +190,7 @@ public class SupplierSettlementService {
 
     /**
      * 获取当前未结款项（累计已开票金额 - 累计已结算金额）。
-     * 修复 #1：供 createSettlement 校验及前端查询使用，确保值始终 >= 0。
+     * 支持负数（提前给供应商结款时为负数，后续开票自动抵扣）。
      */
     public BigDecimal getTotalUnsettledAmount() {
         InvoiceMapper.OverallStat overallStat = invoiceMapper.selectOverallStat();
@@ -145,7 +198,7 @@ public class SupplierSettlementService {
                 ? overallStat.totalAmount()
                 : BigDecimal.ZERO;
         BigDecimal totalSettled = getTotalSettledAmount();
-        return totalAmount.subtract(totalSettled).max(BigDecimal.ZERO);
+        return totalAmount.subtract(totalSettled);
     }
 }
 

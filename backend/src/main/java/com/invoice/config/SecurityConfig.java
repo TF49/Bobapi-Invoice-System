@@ -58,6 +58,7 @@ public class SecurityConfig {
                 .requestMatchers("/recharge-requests/screenshot/**").permitAll()
                 .requestMatchers("/doc.html", "/webjars/**", "/v3/api-docs/**", "/swagger-resources/**").permitAll()
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
+                .requestMatchers("/admin/supplier-settlement/**").hasRole("ADMIN")
                 .requestMatchers("/invoices/admin/dashboard").hasRole("ADMIN")
                 .requestMatchers("/invoices/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
                 .requestMatchers("/users/admin/**").hasRole("ADMIN")

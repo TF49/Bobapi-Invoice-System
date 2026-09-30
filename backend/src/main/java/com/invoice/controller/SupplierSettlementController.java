@@ -6,6 +6,7 @@ import com.invoice.dto.SupplierSettlementResponse;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.service.SupplierSettlementService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Pattern;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
@@ -16,7 +17,7 @@ import java.util.List;
  * 供应商结算控制器（仅管理员）
  */
 @RestController
-@RequestMapping("/api/admin/supplier-settlement")
+@RequestMapping("/admin/supplier-settlement")
 @PreAuthorize("hasRole('ADMIN')")
 public class SupplierSettlementController {
 
@@ -32,11 +33,15 @@ public class SupplierSettlementController {
     @PostMapping
     public ApiResponse<SupplierSettlementResponse> createSettlement(
             @Valid @RequestBody SupplierSettlementRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false)
+            @Pattern(regexp = "^[A-Za-z0-9._:-]{16,64}$", message = "Idempotency-Key 格式不正确")
+            String idempotencyKey,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         SupplierSettlementResponse response = supplierSettlementService.createSettlement(
                 request.getAmount(),
                 request.getRemark(),
-                principal.userId()
+                principal.userId(),
+                idempotencyKey
         );
         return ApiResponse.success(response);
     }

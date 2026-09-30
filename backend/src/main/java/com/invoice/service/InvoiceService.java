@@ -204,6 +204,8 @@ public class InvoiceService {
         if (normalizedOutTradeNo != null) {
             Invoice existingByOutTradeNo = findByOutTradeNo(userId, normalizedOutTradeNo);
             if (existingByOutTradeNo != null) {
+                validateRepeatedRequest(
+                        existingByOutTradeNo, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType, normalizedInvoiceCategory);
                 return com.invoice.dto.OpenInvoiceResponse.from(existingByOutTradeNo, uploadRoot);
             }
         }
@@ -215,6 +217,8 @@ public class InvoiceService {
 
         Invoice existingByKey = findByIdempotencyKey(userId, finalIdempotencyKey);
         if (existingByKey != null) {
+            validateRepeatedRequest(
+                    existingByKey, normalizedCompanyName, normalizedTaxNumber, normalizedAmount, normalizedInvoiceType, normalizedInvoiceCategory);
             return com.invoice.dto.OpenInvoiceResponse.from(existingByKey, uploadRoot);
         }
 
@@ -399,15 +403,23 @@ public class InvoiceService {
     @Transactional
     public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
                                                      List<BatchInvoiceItemRequest> items) {
-        return createInvoicesBatch(userId, idempotencyKey, items, "MANUAL");
+        return createInvoicesBatch(userId, idempotencyKey, items, "MANUAL", false);
     }
 
     @Transactional
     public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
                                                      List<BatchInvoiceItemRequest> items,
                                                      String submissionType) {
+        return createInvoicesBatch(userId, idempotencyKey, items, submissionType, false);
+    }
+
+    @Transactional
+    public BatchInvoiceResponse createInvoicesBatch(Long userId, String idempotencyKey,
+                                                     List<BatchInvoiceItemRequest> items,
+                                                     String submissionType,
+                                                     boolean duplicateInvoiceRequest) {
         String normalizedSubmissionType = normalizeSubmissionType(submissionType);
-        List<NormalizedBatchItem> normalizedItems = validateAndNormalizeBatch(items);
+        List<NormalizedBatchItem> normalizedItems = validateAndNormalizeBatch(items, duplicateInvoiceRequest);
         String requestHash = computeRequestHash(normalizedItems);
 
         InvoiceBatch existingBatch = findBatchByIdempotencyKey(userId, idempotencyKey);
@@ -483,6 +495,10 @@ public class InvoiceService {
     }
 
     private List<NormalizedBatchItem> validateAndNormalizeBatch(List<BatchInvoiceItemRequest> items) {
+        return validateAndNormalizeBatch(items, false);
+    }
+
+    private List<NormalizedBatchItem> validateAndNormalizeBatch(List<BatchInvoiceItemRequest> items, boolean duplicateInvoiceRequest) {
         if (items == null || items.isEmpty() || items.size() > maxBatchItems) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001,
                     "单次批量申请数量为 1～" + maxBatchItems + " 条");
@@ -496,11 +512,11 @@ public class InvoiceService {
         for (int index = 0; index < items.size(); index++) {
             BatchInvoiceItemRequest item = items.get(index);
             int rowNumber = item != null && item.getRowNumber() != null
-                    ? item.getRowNumber() : index + 2;
+                    ? item.getRowNumber() : index + 1;
             int initialErrorCount = errors.size();
 
-            if (rowNumber < 2) {
-                addBatchError(errors, rowNumber, "rowNumber", "原始行号必须大于等于 2");
+            if (rowNumber < 1) {
+                addBatchError(errors, rowNumber, "rowNumber", "原始行号必须大于等于 1");
             }
             if (!rowNumbers.add(rowNumber)) {
                 addBatchError(errors, rowNumber, "rowNumber", "原始行号在批次内重复");
@@ -557,10 +573,12 @@ public class InvoiceService {
                     ? null : item.getRemark().trim();
 
             if (errors.size() == initialErrorCount) {
-                String fingerprint = companyName + '\u0000' + (taxNumber == null ? "" : taxNumber) + '\u0000'
-                        + normalizedAmount.toPlainString() + '\u0000' + invoiceType + '\u0000' + invoiceCategory;
-                if (!rowFingerprints.add(fingerprint)) {
-                    addBatchError(errors, rowNumber, "row", "该行与批次内其他行完全重复");
+                if (!duplicateInvoiceRequest) {
+                    String fingerprint = companyName + '\u0000' + (taxNumber == null ? "" : taxNumber) + '\u0000'
+                            + normalizedAmount.toPlainString() + '\u0000' + invoiceType + '\u0000' + invoiceCategory;
+                    if (!rowFingerprints.add(fingerprint)) {
+                        addBatchError(errors, rowNumber, "row", "该行与批次内其他行完全重复");
+                    }
                 }
                 normalizedItems.add(new NormalizedBatchItem(
                         rowNumber, companyName, taxNumber, normalizedAmount, invoiceType, invoiceCategory, remark));
@@ -1212,8 +1230,8 @@ public class InvoiceService {
             }
         }
         BigDecimal totalAmount = overallStat != null && overallStat.totalAmount() != null ? overallStat.totalAmount() : BigDecimal.ZERO;
-        // 修复 #1：max(0) 兜底，防止结算记录异常时 Dashboard 显示负数
-        BigDecimal unsettledAmount = totalAmount.subtract(totalSettledAmount).max(BigDecimal.ZERO);
+        // 未结款项 = 累计已开金额 - 累计已结算金额。支持负数（提前给供应商结款时为负，后续开票自动抵扣）
+        BigDecimal unsettledAmount = totalAmount.subtract(totalSettledAmount);
 
         return new com.invoice.dto.DashboardStats(
                 overallStat != null && overallStat.totalInvoices() != null ? overallStat.totalInvoices() : 0L,

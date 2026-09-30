@@ -7,17 +7,18 @@
     destroy-on-close
     @close="handleClose"
   >
-    <!-- 修复 #8：显示当前未结款项供管理员参考，避免盲目录入 -->
+    <!-- 显示当前未结款项供管理员参考，支持提前结款与负数抵扣 -->
     <el-alert
       v-if="unsettledAmount !== undefined"
-      type="info"
+      :type="unsettledAmount < 0 ? 'warning' : 'info'"
       :closable="false"
       class="unsettled-hint"
     >
       <template #default>
         <span>当前未结款项：</span>
-        <strong class="unsettled-amount">¥{{ formatAmount(unsettledAmount) }}</strong>
-        <span class="unsettled-sub">（本次结算金额不得超过此值）</span>
+        <strong class="unsettled-amount">{{ formatDisplayAmount(unsettledAmount) }}</strong>
+        <span v-if="unsettledAmount < 0" class="unsettled-sub">（当前已提前预结，后续开票将自动抵扣）</span>
+        <span v-else class="unsettled-sub">（支持提前结款，超出未结金额部分将计为负数自动抵扣）</span>
       </template>
     </el-alert>
 
@@ -29,11 +30,10 @@
       @submit.prevent="handleSubmit"
     >
       <el-form-item label="结算金额" prop="amount">
-        <!-- 修复 #2：:max 动态绑定当前未结款项，防止超额录入通过前端校验 -->
         <el-input-number
           v-model="form.amount"
           :min="0.01"
-          :max="effectiveMax"
+          :max="99999999.99"
           :precision="2"
           :step="100"
           controls-position="right"
@@ -69,6 +69,7 @@
 import { computed, reactive, ref } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { createSettlement, type SupplierSettlementRequest } from '@/api/supplierSettlement'
+import { generateIdempotencyKey } from '@/utils/idempotency'
 
 interface Props {
   modelValue: boolean
@@ -89,13 +90,9 @@ const visible = computed({
   set: (val: boolean) => emit('update:modelValue', val)
 })
 
-// 修复 #2：有效最大值 = 当前未结款项（无值时降级为 999999.99）
-const effectiveMax = computed(() =>
-  props.unsettledAmount !== undefined ? props.unsettledAmount : 999999.99
-)
-
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
+const pendingIdempotencyKey = ref<string>('')
 
 const form = reactive<SupplierSettlementRequest>({
   amount: undefined as any,
@@ -111,11 +108,8 @@ const rules: FormRules = {
           callback(new Error('结算金额必须大于 0'))
         } else if (value < 0.01) {
           callback(new Error('结算金额不能小于 0.01 元'))
-        } else if (props.unsettledAmount !== undefined && value > props.unsettledAmount) {
-          // 修复 #2：动态校验，超过当前未结款项时给出明确提示
-          callback(new Error(`结算金额不能超过当前未结款项 ¥${formatAmount(props.unsettledAmount)}`))
-        } else if (value > 999999.99) {
-          callback(new Error('结算金额不能超过 999,999.99 元'))
+        } else if (value > 99999999.99) {
+          callback(new Error('结算金额不能超过 99,999,999.99 元'))
         } else {
           callback()
         }
@@ -129,6 +123,7 @@ const resetForm = () => {
   formRef.value?.resetFields()
   form.amount = undefined as any
   form.remark = ''
+  pendingIdempotencyKey.value = ''
 }
 
 const handleClose = () => {
@@ -142,6 +137,9 @@ const handleSubmit = async () => {
   await formRef.value.validate(async (valid) => {
     if (!valid) return
 
+    const idempotencyKey = pendingIdempotencyKey.value || generateIdempotencyKey('settlement')
+    pendingIdempotencyKey.value = idempotencyKey
+
     submitting.value = true
     try {
       const payload: SupplierSettlementRequest = {
@@ -149,8 +147,9 @@ const handleSubmit = async () => {
         remark: form.remark?.trim() || undefined
       }
 
-      await createSettlement(payload)
+      await createSettlement(payload, idempotencyKey)
 
+      pendingIdempotencyKey.value = ''
       ElMessage.success('结算记录创建成功')
       emit('success')
       handleClose()
@@ -164,6 +163,12 @@ const handleSubmit = async () => {
 
 function formatAmount(val: number): string {
   return (val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatDisplayAmount(val: number): string {
+  const isNegative = val < 0
+  const abs = Math.abs(val)
+  return `${isNegative ? '-' : ''}¥${formatAmount(abs)}`
 }
 </script>
 
