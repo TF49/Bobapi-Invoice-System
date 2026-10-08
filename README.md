@@ -5,7 +5,7 @@
 
 - 后端：Spring Boot 3.1.5 + JDK 17，端口 `9090`，上下文路径 `/api`
 - 前端：Vue 3 + TypeScript 5.3 + Vite 5，端口 `8080`
-- 数据库：MySQL 8，结构由 Flyway 版本化管理（V1–V22）
+- 数据库：MySQL 8，结构由 Flyway 版本化管理（V1–V24）
 
 ---
 
@@ -359,7 +359,7 @@ cd frontend; npm install; npm run dev
 
 ### 7.4 数据库初始化与升级
 
-后端首次启动由 Flyway 依次执行 `V1` → `V22`，自动建表并写入默认账号。
+后端首次启动由 Flyway 依次执行 `V1` → `V24`，自动建表并写入默认账号。
 
 - **新服务器部署（推荐）**：创建字符集 `utf8mb4`、排序规则 `utf8mb4_unicode_ci` 的**空**数据库
   `invoice_system`，配置 `DB_PASSWORD` 与 `JWT_SECRET` 后启动。**不要**预先执行 `init.sql`。
