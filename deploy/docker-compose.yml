@@ -23,7 +23,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # 后端服务（使用离线导入的镜像）
+  # 后端服务（直接使用离线导入的镜像）
   backend:
     image: invoice-backend:latest
     container_name: invoice-backend
@@ -61,7 +61,7 @@ services:
       retries: 3
       start_period: 120s
 
-  # 前端服务（使用离线导入的镜像）
+  # 前端服务（直接使用离线导入的镜像）
   frontend:
     image: invoice-frontend:latest
     container_name: invoice-frontend
