@@ -1,5 +1,6 @@
 version: '3.8'
 
+# 生产部署请通过 .env 覆盖 DB_PASSWORD / JWT_SECRET，切勿使用下方开发默认值。
 services:
   # MySQL 数据库
   mysql:

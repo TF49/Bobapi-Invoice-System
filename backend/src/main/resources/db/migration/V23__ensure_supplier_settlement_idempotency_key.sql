@@ -1,6 +1,5 @@
 -- Ensure supplier settlement idempotency support exists in databases where V22
 -- was recorded as applied before the column/index was actually present.
--- Keep this migration immutable: already-deployed databases validate its checksum.
 SET @db_name = DATABASE();
 
 SET @add_column_sql = IF(
