@@ -22,4 +22,7 @@ public class LoginRequest {
     
     // 记住我功能：true 时 token 有效期延长为 7 天
     private Boolean rememberMe;
+
+    /** 滑块验证通过后的一次性凭证（失败达到阈值后必填） */
+    private String captchaToken;
 }

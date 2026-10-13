@@ -19,6 +19,9 @@ public class LoginAttemptService {
     public static final int ADMIN_MAX_ATTEMPTS = 3;
     public static final long ADMIN_LOCK_DURATION_MS = 30 * 60 * 1000L; // 30分钟
 
+    /** 连续登录失败达到该次数后，后续登录必须通过滑块验证 */
+    public static final int CAPTCHA_AFTER_FAILURES = 2;
+
     private static final class AttemptRecord {
         private final int count;
         private final long lastAttemptTime;
@@ -94,6 +97,21 @@ public class LoginAttemptService {
         }
 
         return true;
+    }
+
+    /**
+     * 获取当前连续失败次数（未锁定或已过期时可能为 0）
+     */
+    public int getAttemptCount(String key) {
+        AttemptRecord record = attemptsCache.get(key);
+        return record == null ? 0 : record.count;
+    }
+
+    /**
+     * 登录是否需要滑块验证（连续失败达到阈值后）
+     */
+    public boolean requiresCaptcha(String key) {
+        return getAttemptCount(key) >= CAPTCHA_AFTER_FAILURES;
     }
 
     /**

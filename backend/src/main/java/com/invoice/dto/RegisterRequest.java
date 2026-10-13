@@ -20,4 +20,8 @@ public class RegisterRequest {
     @Size(min = 6, max = 20, message = "密码长度必须在 6-20 位之间")
     @Pattern(regexp = "^(?=.*[0-9])(?=.*[a-zA-Z]).{6,20}$", message = "密码必须包含字母和数字")
     private String password;
+
+    /** 滑块验证通过后的一次性凭证（注册必填） */
+    @NotBlank(message = "请先完成安全验证")
+    private String captchaToken;
 }

@@ -22,7 +22,10 @@ vi.mock('vue-router', async (importOriginal) => {
 vi.mock('@/api/auth', () => ({
   authApi: {
     login: vi.fn(),
-    register: vi.fn()
+    register: vi.fn(),
+    generateCaptcha: vi.fn(),
+    verifyCaptcha: vi.fn(),
+    captchaRequired: vi.fn().mockResolvedValue({ required: false })
   }
 }))
 
@@ -46,6 +49,9 @@ async function mountPage() {
         AuthShell: {
           props: ['eyebrow', 'title', 'subtitle'],
           template: '<div class="auth-shell"><slot /></div>'
+        },
+        SlideCaptcha: {
+          template: '<div class="slide-captcha-stub" data-testid="slide-captcha" />'
         }
       }
     }
@@ -56,19 +62,23 @@ async function mountPage() {
 
 describe('Login.vue', () => {
   beforeEach(() => {
+    sessionStorage.clear()
     mockedUseUserStore.mockReturnValue({
       setUser: setUserMock,
       setToken: setTokenMock
     } as never)
 
+    mockedAuthApi.captchaRequired.mockResolvedValue({ required: false })
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
     vi.spyOn(ElMessage, 'error').mockImplementation(() => undefined as never)
+    vi.spyOn(ElMessage, 'warning').mockImplementation(() => undefined as never)
   })
 
   afterEach(() => {
     wrapper?.unmount()
     wrapper = null
     document.body.innerHTML = ''
+    sessionStorage.clear()
     vi.unstubAllGlobals()
     vi.restoreAllMocks()
     vi.clearAllMocks()
@@ -140,5 +150,37 @@ describe('Login.vue', () => {
     const submitBtn = page.find('.submit-button')
     expect(submitBtn.attributes('disabled')).toBeDefined()
     expect(submitBtn.text()).toContain('已锁定 (500s)')
+  })
+
+  it('shows slide captcha after two failed logins', async () => {
+    mockedAuthApi.login.mockRejectedValue(new ApiRequestError('用户名或密码错误', 40101))
+
+    const page = await mountPage()
+    const inputs = page.findAll('input')
+    await inputs[0].setValue('alice')
+    await inputs[1].setValue('badpass')
+
+    await page.find('form').trigger('submit')
+    await flushPromises()
+    expect(page.find('[data-testid="slide-captcha"]').exists()).toBe(false)
+
+    await page.find('form').trigger('submit')
+    await flushPromises()
+    expect(page.find('[data-testid="slide-captcha"]').exists()).toBe(true)
+  })
+
+  it('shows slide captcha when server returns 40102', async () => {
+    mockedAuthApi.login.mockRejectedValue(
+      new ApiRequestError('用户名或密码错误，请完成安全验证后重试', 40102)
+    )
+
+    const page = await mountPage()
+    const inputs = page.findAll('input')
+    await inputs[0].setValue('alice')
+    await inputs[1].setValue('badpass')
+
+    await page.find('form').trigger('submit')
+    await flushPromises()
+    expect(page.find('[data-testid="slide-captcha"]').exists()).toBe(true)
   })
 })

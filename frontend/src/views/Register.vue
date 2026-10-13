@@ -24,7 +24,20 @@
           autocomplete="new-password"
         />
       </el-form-item>
-      <el-button class="submit-button" type="primary" :icon="Right" native-type="submit" :loading="loading">
+      <SlideCaptcha
+        ref="captchaRef"
+        :reset-key="captchaResetKey"
+        @verified="onCaptchaVerified"
+        @invalidate="captchaToken = ''"
+      />
+      <el-button
+        class="submit-button"
+        type="primary"
+        :icon="Right"
+        native-type="submit"
+        :loading="loading"
+        :disabled="!captchaToken"
+      >
         创建账号
       </el-button>
       <p class="auth-switch">
@@ -43,16 +56,21 @@ import { Key, Lock, Right, User } from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { authApi, type RegisterRequest } from '@/api/auth'
 import AuthShell from '@/components/AuthShell.vue'
+import SlideCaptcha from '@/components/SlideCaptcha.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref()
+const captchaRef = ref<InstanceType<typeof SlideCaptcha>>()
 const loading = ref(false)
+const captchaToken = ref('')
+const captchaResetKey = ref(0)
 
 const form = reactive<RegisterRequest & { confirmPassword: string }>({
   username: '',
   password: '',
-  confirmPassword: ''
+  confirmPassword: '',
+  captchaToken: ''
 })
 
 const validateConfirmPassword = (_rule: any, value: any, callback: any) => {
@@ -81,23 +99,43 @@ const rules = {
   ]
 }
 
+const onCaptchaVerified = (token: string) => {
+  captchaToken.value = token
+  form.captchaToken = token
+}
+
+const resetCaptchaUi = () => {
+  captchaToken.value = ''
+  form.captchaToken = ''
+  captchaResetKey.value += 1
+}
+
 const handleRegister = async () => {
   if (loading.value) return
   const valid = await formRef.value.validate().catch(() => false)
   if (!valid) return
+  if (!captchaToken.value) {
+    ElMessage.warning('请先完成安全验证')
+    return
+  }
   loading.value = true
   try {
     const response = await authApi.register({
       username: form.username,
-      password: form.password
+      password: form.password,
+      captchaToken: captchaToken.value
     })
     // 先写 role，再写 token，确保路由守卫触发时 role 已存在
     userStore.setUser({ username: response.username, role: response.role })
     userStore.setToken(response.token)
     ElMessage.success('注册成功')
     router.push('/user')
-  } catch {
-    // 错误提示由请求拦截器统一处理
+  } catch (err: any) {
+    // 任意注册失败都重置滑块：token 可能已核销，或用户名冲突后需重验
+    resetCaptchaUi()
+    if (err && (err.code === 40020 || err.code === 40021 || err.code === 40901)) {
+      // 已重置；提示由拦截器统一处理
+    }
   } finally {
     loading.value = false
   }

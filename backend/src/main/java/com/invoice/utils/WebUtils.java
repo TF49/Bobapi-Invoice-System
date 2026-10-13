@@ -7,35 +7,49 @@ import jakarta.servlet.http.HttpServletRequest;
  */
 public final class WebUtils {
 
+    private static volatile boolean trustForwardedHeaders = false;
+
     private WebUtils() {
+    }
+
+    /**
+     * 是否信任 {@code X-Forwarded-For} / {@code X-Real-IP}。
+     * 仅在确有可信反向代理改写这些头时开启，否则客户端可伪造 IP 绕过限流与验证码绑定。
+     */
+    public static void configureTrustForwardedHeaders(boolean trust) {
+        trustForwardedHeaders = trust;
+    }
+
+    public static boolean isTrustForwardedHeaders() {
+        return trustForwardedHeaders;
     }
 
     /**
      * 提取客户端真实 IP 地址。
      *
-     * <p>优先级：{@code X-Forwarded-For} 第一段 → {@code X-Real-IP} → {@code remoteAddr}。
-     *
-     * <p><strong>注意</strong>：生产环境部署在反向代理（Nginx 等）后面时，必须在代理侧正确设置
-     * {@code proxy_set_header X-Real-IP $remote_addr}，否则客户端可以通过伪造
-     * {@code X-Forwarded-For} 头绕过基于 IP 的限流和锁定机制。
+     * <p>未开启 {@link #configureTrustForwardedHeaders(boolean)} 时一律使用
+     * {@code remoteAddr}。开启后优先级：{@code X-Forwarded-For} 第一段 →
+     * {@code X-Real-IP} → {@code remoteAddr}。
      */
     public static String extractClientIp(HttpServletRequest request) {
-        String xff = request.getHeader("X-Forwarded-For");
-        if (xff != null && !xff.isBlank()) {
-            // X-Forwarded-For 可能包含多个 IP（逗号分隔），取第一个（最原始的客户端 IP）
-            int commaIndex = xff.indexOf(',');
-            String candidate = commaIndex >= 0 ? xff.substring(0, commaIndex) : xff;
-            candidate = candidate.strip();
-            if (!candidate.isEmpty()) {
-                return candidate;
+        if (trustForwardedHeaders) {
+            String xff = request.getHeader("X-Forwarded-For");
+            if (xff != null && !xff.isBlank()) {
+                int commaIndex = xff.indexOf(',');
+                String candidate = commaIndex >= 0 ? xff.substring(0, commaIndex) : xff;
+                candidate = candidate.strip();
+                if (!candidate.isEmpty()) {
+                    return candidate;
+                }
+            }
+
+            String xRealIp = request.getHeader("X-Real-IP");
+            if (xRealIp != null && !xRealIp.isBlank()) {
+                return xRealIp.strip();
             }
         }
 
-        String xRealIp = request.getHeader("X-Real-IP");
-        if (xRealIp != null && !xRealIp.isBlank()) {
-            return xRealIp.strip();
-        }
-
-        return request.getRemoteAddr();
+        String remote = request.getRemoteAddr();
+        return remote == null || remote.isBlank() ? "unknown" : remote;
     }
 }

@@ -214,14 +214,14 @@
 | POST | `/ai/parse-invoice` | 从文本提取发票字段 |
 | POST | `/ai/verify-invoice` | 核查并修正已提取字段 |
 
-### 3.9 供应商结算 `/api/admin/supplier-settlement`（仅 ADMIN）
+### 3.9 供应商结算 `/admin/supplier-settlement`（仅 ADMIN）
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/api/admin/supplier-settlement` | 创建结算记录 |
-| GET | `/api/admin/supplier-settlement` | 结算历史 |
+| POST | `/admin/supplier-settlement` | 创建结算记录 |
+| GET | `/admin/supplier-settlement` | 结算历史 |
 
-> ⚠️ 见第 8 节「已知问题」：该控制器路径与全局上下文路径重复。
+完整 URL 前缀为全局 `context-path`：`/api`，即 `/api/admin/supplier-settlement`。
 
 ---
 
@@ -407,36 +407,20 @@ cd deploy; docker compose up -d         # 离线部署包，含 start.sh
 
 ---
 
-## 9. 已知问题
+## 9. 已知问题 / 部署注意
 
-以下为源码审查中发现、**尚未修复**的问题，请知悉：
+1. **限流与验证码为单实例内存实现**
+   `RateLimitService`、登录失败锁定、滑块挑战/凭证均使用进程内 `ConcurrentHashMap`。
+   多实例部署时各节点独立计数，实际限流阈值为「配置值 × 实例数」，挑战也无法跨节点核销。
+   横向扩展前需替换为 Redis 等集中式方案。
 
-1. **供应商结算接口路径重复 `/api`**
-   `SupplierSettlementController` 声明 `@RequestMapping("/api/admin/supplier-settlement")`，
-   而全局 `server.servlet.context-path` 已是 `/api`，实际路径变为 `/api/api/admin/supplier-settlement`。
-   前端 `frontend/src/api/supplierSettlement.ts` 中 `baseURL` 为 `/api`，请求路径又写了 `/api/admin/...`，
-   拼接后同样指向 `/api/api/...`，两侧"错得一致"因而可能在开发环境偶然可用。
-   但 `SecurityConfig` 中的 `/api/admin/**` 规则**永远无法匹配**，该接口实际落入
-   `anyRequest().authenticated()`，即**任何已登录用户**（含普通用户）都能调用，
-   与方法上的 `@PreAuthorize("hasRole('ADMIN')")` 形成双重保险但配置意图失效。
-   **建议**：将控制器路径改为 `/admin/supplier-settlement`，前端同步改为 `/admin/supplier-settlement`。
+2. **默认开发密钥**
+   `docker-compose.yml` 中 `JWT_SECRET` 与 `DB_PASSWORD` 提供了开发默认值，
+   生产部署必须通过环境变量覆盖（参见根目录 `.env.example`）。
 
-2. **限流为单实例内存实现**
-   `RateLimitService` 使用进程内 `ConcurrentHashMap` 滑动窗口，多实例部署时各实例独立计数，
-   实际限流阈值为「配置值 × 实例数」。横向扩展前需替换为 Redis 等集中式方案。
-
-3. **`init.sql` 内容陈旧且具破坏性**
-   脚本头部注释即写明仅覆盖 V1–V4，缺少 `user_quota`、`recharge_request`、
-   `supplier_settlement` 等后续表，且会 `DROP` 整个数据库不可恢复。
-   推荐始终使用「建空库 + Flyway 自动迁移」的方式，或将该脚本同步更新到最新版本号。
-
-4. **默认账号与示例密钥**
-   `docker-compose.yml` 中 `JWT_SECRET` 与 `DB_PASSWORD` 提供了可用的开发默认值，
-   生产部署必须通过环境变量覆盖。
-
-5. **仓库体积**
-   根目录 `invoice-backend.tar`（约 102MB）与 `invoice-frontend.tar`（约 26MB）为构建产物，
-   建议移出仓库或改用镜像仓库分发。
+3. **`init.sql` 具破坏性**
+   脚本会 `DROP` 整个库后重建（已覆盖至当前 Flyway 结构），仅用于全新安装或彻底重置。
+   日常推荐：「建空库 + Flyway 自动迁移」。
 
 ---
 
