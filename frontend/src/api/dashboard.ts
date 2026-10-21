@@ -56,6 +56,58 @@ export interface QuotaPoolStat {
   pendingRechargeCount: number
 }
 
+export interface ChannelStat {
+  channel: string
+  count: number
+  amount: number
+}
+
+export interface CategoryStat {
+  category: string
+  count: number
+  amount: number
+}
+
+export interface RedFlushStat {
+  redFlushedCount: number
+  redFlushedAmount: number
+  pendingRedFlushCount: number
+  redFlushRate: number
+}
+
+export interface FulfillmentStat {
+  under30Min: number
+  under2Hour: number
+  under6Hour: number
+  under24Hour: number
+  over24Hour: number
+  avgMinutes: number
+  fastCompletionRate: number
+}
+
+export interface DailyFundFlow {
+  date: string
+  rechargeAmount: number
+  deductAmount: number
+  netAmount: number
+}
+
+export interface FundFlowStat {
+  dailyFlows: DailyFundFlow[]
+  approvedRecharges: number
+  rejectedRecharges: number
+  pendingRecharges: number
+  approvedRechargeAmount: number
+  approvalRate: number
+}
+
+export interface SettlementTrendStat {
+  month: string
+  invoicedAmount: number
+  settledAmount: number
+  unsettledBalance: number
+}
+
 export interface DashboardStats {
   totalInvoices: number
   pendingInvoices: number
@@ -71,6 +123,12 @@ export interface DashboardStats {
   hourDistribution?: HourStat[]
   dailyTrend?: DailyTrendStat[]
   quotaPoolStats?: QuotaPoolStat
+  channelStats?: ChannelStat[]
+  categoryStats?: CategoryStat[]
+  redFlushStats?: RedFlushStat
+  fulfillmentStats?: FulfillmentStat
+  fundFlowStats?: FundFlowStat
+  settlementTrends?: SettlementTrendStat[]
 }
 
 export const dashboardApi = {

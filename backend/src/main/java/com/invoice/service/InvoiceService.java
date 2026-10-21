@@ -15,8 +15,10 @@ import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
 import com.invoice.mapper.InvoiceMapper;
 import com.invoice.mapper.RechargeRequestMapper;
+import com.invoice.mapper.SupplierSettlementMapper;
 import com.invoice.mapper.UserMapper;
 import com.invoice.mapper.UserQuotaMapper;
+import com.invoice.mapper.UserQuotaTransactionMapper;
 import com.invoice.service.SupplierSettlementService;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +48,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Iterator;
@@ -53,6 +56,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.UUID;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
@@ -80,6 +84,8 @@ public class InvoiceService {
     private final UserQuotaMapper userQuotaMapper;
     private final RechargeRequestMapper rechargeRequestMapper;
     private final SupplierSettlementService supplierSettlementService;
+    private final UserQuotaTransactionMapper userQuotaTransactionMapper;
+    private final SupplierSettlementMapper supplierSettlementMapper;
     private final Path uploadRoot;
 
     @Value("${file.image.max-width:8000}")
@@ -99,6 +105,18 @@ public class InvoiceService {
                           UserQuotaMapper userQuotaMapper, RechargeRequestMapper rechargeRequestMapper,
                           SupplierSettlementService supplierSettlementService,
                           @Value("${file.upload-path}") String uploadDirectory) {
+        this(invoiceMapper, invoiceBatchMapper, userQuotaService, userMapper, userQuotaMapper,
+                rechargeRequestMapper, supplierSettlementService, null, null, uploadDirectory);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public InvoiceService(InvoiceMapper invoiceMapper, InvoiceBatchMapper invoiceBatchMapper,
+                          UserQuotaService userQuotaService, UserMapper userMapper,
+                          UserQuotaMapper userQuotaMapper, RechargeRequestMapper rechargeRequestMapper,
+                          SupplierSettlementService supplierSettlementService,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false) UserQuotaTransactionMapper userQuotaTransactionMapper,
+                          @org.springframework.beans.factory.annotation.Autowired(required = false) SupplierSettlementMapper supplierSettlementMapper,
+                          @Value("${file.upload-path}") String uploadDirectory) {
         this.invoiceMapper = invoiceMapper;
         this.invoiceBatchMapper = invoiceBatchMapper;
         this.userQuotaService = userQuotaService;
@@ -106,6 +124,8 @@ public class InvoiceService {
         this.userQuotaMapper = userQuotaMapper;
         this.rechargeRequestMapper = rechargeRequestMapper;
         this.supplierSettlementService = supplierSettlementService;
+        this.userQuotaTransactionMapper = userQuotaTransactionMapper;
+        this.supplierSettlementMapper = supplierSettlementMapper;
         this.uploadRoot = Path.of(uploadDirectory).toAbsolutePath().normalize();
     }
 
@@ -1285,6 +1305,81 @@ public class InvoiceService {
         // 未结款项 = 累计已开金额 - 累计已结算金额。支持负数（提前给供应商结款时为负，后续开票自动抵扣）
         BigDecimal unsettledAmount = totalAmount.subtract(totalSettledAmount);
 
+        // 11. 渠道提交统计
+        List<InvoiceMapper.ChannelStat> dbChannelStats = invoiceMapper.selectChannelStats();
+        List<com.invoice.dto.DashboardStats.ChannelStat> channelStats = (dbChannelStats == null ? List.<InvoiceMapper.ChannelStat>of() : dbChannelStats).stream()
+                .map(c -> new com.invoice.dto.DashboardStats.ChannelStat(
+                        c.channel(),
+                        c.count(),
+                        c.amount()
+                ))
+                .toList();
+
+        // 12. 票种统计（增值税普票 vs 专票）
+        List<InvoiceMapper.CategoryStat> dbCategoryStats = invoiceMapper.selectInvoiceCategoryStats();
+        List<com.invoice.dto.DashboardStats.CategoryStat> categoryStats = (dbCategoryStats == null ? List.<InvoiceMapper.CategoryStat>of() : dbCategoryStats).stream()
+                .map(c -> new com.invoice.dto.DashboardStats.CategoryStat(
+                        c.category(),
+                        c.count(),
+                        c.amount()
+                ))
+                .toList();
+
+        // 13. 发票红冲与异常审计统计
+        InvoiceMapper.RedFlushSummary dbRedFlush = invoiceMapper.selectRedFlushSummary();
+        long redFlushedCount = dbRedFlush != null && dbRedFlush.redFlushedCount() != null ? dbRedFlush.redFlushedCount() : 0L;
+        BigDecimal redFlushedAmount = dbRedFlush != null && dbRedFlush.redFlushedAmount() != null ? dbRedFlush.redFlushedAmount() : BigDecimal.ZERO;
+        long pendingRedFlush = dbRedFlush != null && dbRedFlush.pendingRedFlushCount() != null ? dbRedFlush.pendingRedFlushCount() : 0L;
+        long completedInvoicesCount = overallStat != null && overallStat.completedInvoices() != null ? overallStat.completedInvoices() : 0L;
+        double redFlushRate = (completedInvoicesCount + redFlushedCount) > 0
+                ? Math.round((redFlushedCount * 100.0 / (completedInvoicesCount + redFlushedCount)) * 10.0) / 10.0
+                : 0.0;
+        com.invoice.dto.DashboardStats.RedFlushStat redFlushStats = new com.invoice.dto.DashboardStats.RedFlushStat(
+                redFlushedCount, redFlushedAmount, pendingRedFlush, redFlushRate
+        );
+
+        // 14. 开票履约服务时效统计 (SLA)
+        InvoiceMapper.FulfillmentSummary dbFulfillment = invoiceMapper.selectFulfillmentSummary();
+        long u30 = dbFulfillment != null && dbFulfillment.under30Min() != null ? dbFulfillment.under30Min() : 0L;
+        long u2h = dbFulfillment != null && dbFulfillment.under2Hour() != null ? dbFulfillment.under2Hour() : 0L;
+        long u6h = dbFulfillment != null && dbFulfillment.under6Hour() != null ? dbFulfillment.under6Hour() : 0L;
+        long u24h = dbFulfillment != null && dbFulfillment.under24Hour() != null ? dbFulfillment.under24Hour() : 0L;
+        long o24h = dbFulfillment != null && dbFulfillment.over24Hour() != null ? dbFulfillment.over24Hour() : 0L;
+        double avgMins = dbFulfillment != null && dbFulfillment.avgMinutes() != null ? Math.round(dbFulfillment.avgMinutes() * 10.0) / 10.0 : 0.0;
+        long totalFulfilled = u30 + u2h + u6h + u24h + o24h;
+        double fastRate = totalFulfilled > 0 ? Math.round(((u30 + u2h) * 100.0 / totalFulfilled) * 10.0) / 10.0 : 0.0;
+        com.invoice.dto.DashboardStats.FulfillmentStat fulfillmentStats = new com.invoice.dto.DashboardStats.FulfillmentStat(
+                u30, u2h, u6h, u24h, o24h, avgMins, fastRate
+        );
+
+        // 15. 资金与额度流动统计
+        List<com.invoice.dto.DashboardStats.DailyFundFlow> dailyFlows = new ArrayList<>();
+        if (userQuotaTransactionMapper != null) {
+            List<UserQuotaTransactionMapper.DailyQuotaFlowStat> dbFlows = userQuotaTransactionMapper.selectDailyQuotaFlowStats();
+            if (dbFlows != null) {
+                dailyFlows = dbFlows.stream()
+                        .map(f -> new com.invoice.dto.DashboardStats.DailyFundFlow(
+                                f.date(),
+                                f.rechargeAmount(),
+                                f.deductAmount(),
+                                f.rechargeAmount().subtract(f.deductAmount())
+                        ))
+                        .toList();
+            }
+        }
+        RechargeRequestMapper.RechargeAuditSummary dbAudit = rechargeRequestMapper != null ? rechargeRequestMapper.selectRechargeAuditSummary() : null;
+        long appCount = dbAudit != null && dbAudit.approvedCount() != null ? dbAudit.approvedCount() : 0L;
+        long rejCount = dbAudit != null && dbAudit.rejectedCount() != null ? dbAudit.rejectedCount() : 0L;
+        long pendCount = dbAudit != null && dbAudit.pendingCount() != null ? dbAudit.pendingCount() : 0L;
+        BigDecimal appAmount = dbAudit != null && dbAudit.approvedAmount() != null ? dbAudit.approvedAmount() : BigDecimal.ZERO;
+        double approvalRate = (appCount + rejCount) > 0 ? Math.round((appCount * 100.0 / (appCount + rejCount)) * 10.0) / 10.0 : 0.0;
+        com.invoice.dto.DashboardStats.FundFlowStat fundFlowStats = new com.invoice.dto.DashboardStats.FundFlowStat(
+                dailyFlows, appCount, rejCount, pendCount, appAmount, approvalRate
+        );
+
+        // 16. 供应商开票与结算月度对账走势
+        List<com.invoice.dto.DashboardStats.SettlementTrendStat> settlementTrends = buildSettlementTrends(totalAmount, totalSettledAmount);
+
         return new com.invoice.dto.DashboardStats(
                 overallStat != null && overallStat.totalInvoices() != null ? overallStat.totalInvoices() : 0L,
                 overallStat != null && overallStat.pendingInvoices() != null ? overallStat.pendingInvoices() : 0L,
@@ -1299,8 +1394,66 @@ public class InvoiceService {
                 amountRangeStats,
                 hourDistribution,
                 dailyTrend,
-                quotaPoolStats
+                quotaPoolStats,
+                channelStats,
+                categoryStats,
+                redFlushStats,
+                fulfillmentStats,
+                fundFlowStats,
+                settlementTrends
         );
+    }
+
+    private List<com.invoice.dto.DashboardStats.SettlementTrendStat> buildSettlementTrends(BigDecimal allTimeInvoiced, BigDecimal allTimeSettled) {
+        Map<String, BigDecimal> invoicedMap = new HashMap<>();
+        List<InvoiceMapper.MonthlyInvoicedStat> dbInvoiced = invoiceMapper.selectRecentMonthlyInvoicedStats();
+        if (dbInvoiced != null) {
+            for (InvoiceMapper.MonthlyInvoicedStat stat : dbInvoiced) {
+                if (stat.month() != null) {
+                    invoicedMap.put(stat.month(), stat.amount() != null ? stat.amount() : BigDecimal.ZERO);
+                }
+            }
+        }
+
+        Map<String, BigDecimal> settledMap = new HashMap<>();
+        if (supplierSettlementMapper != null) {
+            List<SupplierSettlementMapper.MonthlySettlementStat> dbSettled = supplierSettlementMapper.selectRecentMonthlySettlementStats();
+            if (dbSettled != null) {
+                for (SupplierSettlementMapper.MonthlySettlementStat stat : dbSettled) {
+                    if (stat.month() != null) {
+                        settledMap.put(stat.month(), stat.amount() != null ? stat.amount() : BigDecimal.ZERO);
+                    }
+                }
+            }
+        }
+
+        // 汇总所有涉及的月份并排序，至少包含近 6 个月连续月份
+        Set<String> allMonths = new TreeSet<>();
+        java.time.YearMonth currentMonth = java.time.YearMonth.now();
+        for (int i = 5; i >= 0; i--) {
+            allMonths.add(currentMonth.minusMonths(i).toString());
+        }
+        allMonths.addAll(invoicedMap.keySet());
+        allMonths.addAll(settledMap.keySet());
+
+        BigDecimal sumRecentInvoiced = invoicedMap.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal sumRecentSettled = settledMap.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal safeAllTimeInvoiced = allTimeInvoiced != null ? allTimeInvoiced : BigDecimal.ZERO;
+        BigDecimal safeAllTimeSettled = allTimeSettled != null ? allTimeSettled : BigDecimal.ZERO;
+        BigDecimal priorInvoiced = safeAllTimeInvoiced.subtract(sumRecentInvoiced);
+        BigDecimal priorSettled = safeAllTimeSettled.subtract(sumRecentSettled);
+        BigDecimal cumulativeBalance = priorInvoiced.subtract(priorSettled);
+
+        List<com.invoice.dto.DashboardStats.SettlementTrendStat> result = new ArrayList<>();
+        for (String month : allMonths) {
+            BigDecimal invoiced = invoicedMap.getOrDefault(month, BigDecimal.ZERO);
+            BigDecimal settled = settledMap.getOrDefault(month, BigDecimal.ZERO);
+            cumulativeBalance = cumulativeBalance.add(invoiced).subtract(settled);
+            result.add(new com.invoice.dto.DashboardStats.SettlementTrendStat(
+                    month, invoiced, settled, cumulativeBalance
+            ));
+        }
+        return result;
     }
 
     private List<com.invoice.dto.DashboardStats.AmountRangeStat> buildAmountRangeStats(InvoiceMapper.AmountRangeSummary summary) {

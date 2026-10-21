@@ -254,7 +254,7 @@
             <el-table-column prop="createdAt" label="创建时间" width="172">
               <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="186" align="center" fixed="right">
+            <el-table-column label="操作" width="280" align="center" fixed="right">
               <template #default="{ row }">
                 <div class="user-action-cell">
                   <el-tooltip v-if="row.role === 'USER'" content="OpenAPI 开发者密钥管理" placement="top">
@@ -281,6 +281,23 @@
                     >
                       重置密码
                     </el-button>
+                  </el-tooltip>
+                  <span class="action-divider" />
+                  <el-tooltip :disabled="!row.self" content="不能删除当前登录账号" placement="top">
+                    <span class="inline-control-wrap">
+                      <el-button
+                        type="danger"
+                        link
+                        class="user-action-btn delete-btn"
+                        :icon="Delete"
+                        :disabled="row.self || deleteLoadingId === row.id"
+                        :loading="deleteLoadingId === row.id"
+                        :aria-label="`删除 ${row.username}`"
+                        @click="confirmDeleteUser(row)"
+                      >
+                        删除
+                      </el-button>
+                    </span>
                   </el-tooltip>
                 </div>
               </template>
@@ -357,6 +374,19 @@
                 @click="openPasswordDialog(row)"
               >
                 重置密码
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                plain
+                :icon="Delete"
+                :disabled="row.self || deleteLoadingId === row.id"
+                :loading="deleteLoadingId === row.id"
+                :title="row.self ? '不能删除当前登录账号' : '删除该用户'"
+                :aria-label="`删除 ${row.username}`"
+                @click="confirmDeleteUser(row)"
+              >
+                删除
               </el-button>
             </div>
           </article>
@@ -596,6 +626,7 @@ import {
   CircleClose,
   Connection,
   CopyDocument,
+  Delete,
   EditPen,
   Key,
   Plus,
@@ -628,6 +659,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const roleLoadingId = ref<number | null>(null)
 const statusLoadingId = ref<number | null>(null)
+const deleteLoadingId = ref<number | null>(null)
 
 const filters = reactive<{ keyword: string; role: RoleFilter; status: StatusFilter }>({
   keyword: '',
@@ -986,6 +1018,36 @@ const submitPasswordReset = async () => {
   }
 }
 
+const confirmDeleteUser = async (user: ManagedUser) => {
+  if (user.self || deleteLoadingId.value !== null) return
+  const balanceWarning = user.quota && user.quota.balance > 0
+    ? `\n\n【注意】该用户当前账户仍有余额 ¥${Number(user.quota.balance).toFixed(2)}。`
+    : ''
+  try {
+    await ElMessageBox.confirm(
+      `确认删除用户“${user.username}”？${balanceWarning}\n删除后该用户将无法登录，其所有登录凭证与 API Key 将立即失效。此操作不可撤销。`,
+      '删除用户确认',
+      {
+        type: 'warning',
+        confirmButtonText: '确认删除',
+        cancelButtonText: '取消',
+        confirmButtonClass: 'el-button--danger'
+      }
+    )
+    deleteLoadingId.value = user.id
+    await userApi.deleteUser(user.id)
+    ElMessage.success('用户删除成功')
+    await loadUsers()
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== 'close') {
+      console.error('删除用户失败', error)
+      ElMessage.error(error?.message || '删除用户失败')
+    }
+  } finally {
+    deleteLoadingId.value = null
+  }
+}
+
 const formatDate = (value: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -1163,8 +1225,8 @@ onMounted(loadUsers)
 
 .user-table-scroll .el-table {
   /* Minimum width accounts for all columns:
-   * username(220) + role(160) + status(142) + quota(210) + createdAt(172) + action(186) = 1090px */
-  min-width: 1080px;
+   * username(220) + role(160) + status(142) + quota(210) + createdAt(172) + action(280) = 1184px */
+  min-width: 1190px;
 }
 
 .username-cell {
@@ -1439,7 +1501,7 @@ onMounted(loadUsers)
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 2px;
+  gap: 0;
   width: 100%;
   white-space: nowrap;
 }
@@ -1461,11 +1523,19 @@ onMounted(loadUsers)
   background: var(--color-primary-subtle, rgba(18, 113, 91, 0.08));
 }
 
+.user-action-btn.delete-btn {
+  color: var(--color-danger);
+}
+
+.user-action-btn.delete-btn:hover {
+  background: rgba(239, 68, 68, 0.08);
+}
+
 .action-divider {
   display: inline-block;
   width: 1px;
   height: 12px;
-  margin: 0 4px;
+  margin: 0 6px;
   background: var(--color-border);
   flex-shrink: 0;
 }
@@ -1584,15 +1654,15 @@ onMounted(loadUsers)
   }
 
   .user-card-actions {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
     padding-top: 10px;
     border-top: 1px dashed var(--color-border);
   }
 
   .user-card-actions .el-button {
-    width: 100%;
+    flex: 1 1 80px;
     margin-left: 0 !important;
     height: 34px;
     font-size: 12.5px;

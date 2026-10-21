@@ -76,8 +76,81 @@ public record DashboardStats(
         /**
          * 额度与资金池统计
          */
-        QuotaPoolStat quotaPoolStats
+        QuotaPoolStat quotaPoolStats,
+
+        /**
+         * 渠道提交统计（API调用 vs 手动申请）
+         */
+        List<ChannelStat> channelStats,
+
+        /**
+         * 发票票种统计（普票 vs 专票）
+         */
+        List<CategoryStat> categoryStats,
+
+        /**
+         * 发票红冲与异常审计统计
+         */
+        RedFlushStat redFlushStats,
+
+        /**
+         * 开票履约服务时效统计 (SLA)
+         */
+        FulfillmentStat fulfillmentStats,
+
+        /**
+         * 资金池收支流动与审批统计
+         */
+        FundFlowStat fundFlowStats,
+
+        /**
+         * 供应商开票与结算月度对账趋势
+         */
+        List<SettlementTrendStat> settlementTrends
 ) {
+
+    /**
+     * 向后兼容构造器（14参数版本），用于历史测试用例和扩展前的代码
+     */
+    public DashboardStats(
+            Long totalInvoices,
+            Long pendingInvoices,
+            Long completedInvoices,
+            BigDecimal totalAmount,
+            BigDecimal pendingAmount,
+            BigDecimal totalSettledAmount,
+            BigDecimal unsettledAmount,
+            List<UserInvoiceStats> userStats,
+            List<InvoiceTypeStat> typeStats,
+            List<CompanyStat> companyTopStats,
+            List<AmountRangeStat> amountRangeStats,
+            List<HourStat> hourDistribution,
+            List<DailyTrendStat> dailyTrend,
+            QuotaPoolStat quotaPoolStats
+    ) {
+        this(
+                totalInvoices,
+                pendingInvoices,
+                completedInvoices,
+                totalAmount,
+                pendingAmount,
+                totalSettledAmount,
+                unsettledAmount,
+                userStats,
+                typeStats,
+                companyTopStats,
+                amountRangeStats,
+                hourDistribution,
+                dailyTrend,
+                quotaPoolStats,
+                List.of(),
+                List.of(),
+                new RedFlushStat(0L, BigDecimal.ZERO, 0L, 0.0),
+                new FulfillmentStat(0L, 0L, 0L, 0L, 0L, 0.0, 0.0),
+                new FundFlowStat(List.of(), 0L, 0L, 0L, BigDecimal.ZERO, 0.0),
+                List.of()
+        );
+    }
 
     /**
      * 单个用户的发票统计
@@ -191,5 +264,78 @@ public record DashboardStats(
             BigDecimal totalRecharged,
             BigDecimal totalDeducted,
             Long pendingRechargeCount
+    ) {}
+
+    /**
+     * 渠道提交统计 (API自动化 vs 网页手动)
+     */
+    public record ChannelStat(
+            String channel,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    /**
+     * 发票票种统计 (普票 vs 专票)
+     */
+    public record CategoryStat(
+            String category,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    /**
+     * 发票红冲与异常审计统计
+     */
+    public record RedFlushStat(
+            Long redFlushedCount,
+            BigDecimal redFlushedAmount,
+            Long pendingRedFlushCount,
+            Double redFlushRate
+    ) {}
+
+    /**
+     * 开票履约服务时效统计 (SLA)
+     */
+    public record FulfillmentStat(
+            Long under30Min,
+            Long under2Hour,
+            Long under6Hour,
+            Long under24Hour,
+            Long over24Hour,
+            Double avgMinutes,
+            Double fastCompletionRate
+    ) {}
+
+    /**
+     * 资金池收支流动与审批统计
+     */
+    public record FundFlowStat(
+            List<DailyFundFlow> dailyFlows,
+            Long approvedRecharges,
+            Long rejectedRecharges,
+            Long pendingRecharges,
+            BigDecimal approvedRechargeAmount,
+            Double approvalRate
+    ) {}
+
+    /**
+     * 每日资金与额度流动
+     */
+    public record DailyFundFlow(
+            LocalDate date,
+            BigDecimal rechargeAmount,
+            BigDecimal deductAmount,
+            BigDecimal netAmount
+    ) {}
+
+    /**
+     * 供应商开票与结算月度对账趋势
+     */
+    public record SettlementTrendStat(
+            String month,
+            BigDecimal invoicedAmount,
+            BigDecimal settledAmount,
+            BigDecimal unsettledBalance
     ) {}
 }

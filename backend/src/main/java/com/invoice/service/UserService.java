@@ -5,8 +5,12 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.invoice.dto.AdminUserPageResponse;
 import com.invoice.dto.AdminUserResponse;
 import com.invoice.dto.AdminUserStats;
+import com.invoice.entity.Invoice;
+import com.invoice.entity.RechargeRequest;
 import com.invoice.entity.User;
 import com.invoice.exception.BusinessException;
+import com.invoice.mapper.InvoiceMapper;
+import com.invoice.mapper.RechargeRequestMapper;
 import com.invoice.mapper.UserMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -37,11 +41,22 @@ public class UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final UserQuotaService userQuotaService;
+    private final InvoiceMapper invoiceMapper;
+    private final RechargeRequestMapper rechargeRequestMapper;
 
     public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder, UserQuotaService userQuotaService) {
+        this(userMapper, passwordEncoder, userQuotaService, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder, UserQuotaService userQuotaService,
+                       @org.springframework.beans.factory.annotation.Autowired(required = false) InvoiceMapper invoiceMapper,
+                       @org.springframework.beans.factory.annotation.Autowired(required = false) RechargeRequestMapper rechargeRequestMapper) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.userQuotaService = userQuotaService;
+        this.invoiceMapper = invoiceMapper;
+        this.rechargeRequestMapper = rechargeRequestMapper;
     }
     
     /**
@@ -210,6 +225,65 @@ public class UserService {
         target.setAuthVersion(nextAuthVersion(target));
         userMapper.updateById(target);
         return buildResponseWithQuota(target, currentUserId);
+    }
+
+    @Transactional
+    public void deleteUser(Long targetUserId, Long currentUserId) {
+        User target = requireUserForUpdate(targetUserId);
+        if (targetUserId.equals(currentUserId)) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, 40302, "不能删除当前登录账号");
+        }
+        if ("ADMIN".equals(target.getRole())) {
+            List<Long> enabledAdminIds = userMapper.selectEnabledAdminIdsForUpdate();
+            if (Boolean.TRUE.equals(target.getEnabled()) && enabledAdminIds.size() <= 1) {
+                throw new BusinessException(HttpStatus.CONFLICT, 40903, "系统必须保留至少一个启用的管理员");
+            }
+            long totalAdmins = userMapper.selectCount(new LambdaQueryWrapper<User>().eq(User::getRole, "ADMIN"));
+            if (totalAdmins <= 1) {
+                throw new BusinessException(HttpStatus.CONFLICT, 40903, "系统必须保留至少一个管理员");
+            }
+        }
+
+        // 检查是否存在未办结的业务单据，防止产生孤儿待办或审批中断
+        if (invoiceMapper != null) {
+            long pendingInvoices = invoiceMapper.selectCount(new LambdaQueryWrapper<Invoice>()
+                    .eq(Invoice::getUserId, targetUserId)
+                    .eq(Invoice::getStatus, "PENDING"));
+            if (pendingInvoices > 0) {
+                throw new BusinessException(HttpStatus.CONFLICT, 40905, "该用户存在待处理的发票申请，请先处理或取消后再删除");
+            }
+            long pendingRedFlush = invoiceMapper.selectCount(new LambdaQueryWrapper<Invoice>()
+                    .eq(Invoice::getUserId, targetUserId)
+                    .eq(Invoice::getRedFlushStatus, "PENDING"));
+            if (pendingRedFlush > 0) {
+                throw new BusinessException(HttpStatus.CONFLICT, 40906, "该用户存在待处理的发票红冲申请，请先处理后再删除");
+            }
+        }
+        if (rechargeRequestMapper != null) {
+            long pendingRecharges = rechargeRequestMapper.selectCount(new LambdaQueryWrapper<RechargeRequest>()
+                    .eq(RechargeRequest::getUserId, targetUserId)
+                    .eq(RechargeRequest::getStatus, "PENDING"));
+            if (pendingRecharges > 0) {
+                throw new BusinessException(HttpStatus.CONFLICT, 40907, "该用户存在待审核的充值申请，请先处理后再删除");
+            }
+        }
+
+        target.setEnabled(false);
+        target.setApiKeyEnabled(false);
+        target.setApiKey(null);
+        target.setAuthVersion(nextAuthVersion(target));
+        String suffix = "#del_" + target.getId();
+        String base = target.getUsername();
+        if (!base.contains("#del_")) {
+            if (base.length() + suffix.length() > 50) {
+                base = base.substring(0, 50 - suffix.length());
+            }
+            target.setUsername(base + suffix);
+        }
+        userMapper.updateById(target);
+        userMapper.deleteById(target.getId());
+
+        logger.info("用户 [{}] (ID: {}) 已被管理员 (ID: {}) 成功删除", target.getUsername(), target.getId(), currentUserId);
     }
 
     @Transactional

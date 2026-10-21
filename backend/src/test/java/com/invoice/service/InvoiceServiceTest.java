@@ -459,6 +459,12 @@ class InvoiceServiceTest {
         assertThat(stats.amountRangeStats().get(1).amount()).isEqualByComparingTo("2000.75");
         assertThat(stats.quotaPoolStats().pendingRechargeCount()).isEqualTo(1L);
         assertThat(stats.quotaPoolStats().totalBalance()).isEqualByComparingTo("10000.00");
+        assertThat(stats.channelStats()).isNotNull();
+        assertThat(stats.categoryStats()).isNotNull();
+        assertThat(stats.redFlushStats()).isNotNull();
+        assertThat(stats.fulfillmentStats()).isNotNull();
+        assertThat(stats.fundFlowStats()).isNotNull();
+        assertThat(stats.settlementTrends()).isNotEmpty();
     }
 
     @Test

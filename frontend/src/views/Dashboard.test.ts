@@ -161,6 +161,8 @@ describe('Dashboard', () => {
       const chart = {
         setOption: vi.fn(),
         resize: vi.fn(),
+        on: vi.fn(),
+        off: vi.fn(),
         dispose: vi.fn().mockImplementation(() => {
           disposed = true
         }),
@@ -198,15 +200,15 @@ describe('Dashboard', () => {
     expect(page.text()).toContain('待开票 1 笔')
     expect(page.text()).toContain('待审充值 2 笔')
 
-    // 验证 6 个 ECharts 图表全部初始化
-    expect(chartMocks.init).toHaveBeenCalledTimes(6)
+    // 验证 9 个 ECharts 图表全部初始化 (含渠道票种画像、履约时效 SLA 与额度资金流动走势)
+    expect(chartMocks.init).toHaveBeenCalledTimes(9)
   })
 
   it('switches trend view mode and re-renders trend chart option', async () => {
     mockedApi.getStats.mockResolvedValue(populatedStats)
 
     const page = await mountPage()
-    expect(chartMocks.init).toHaveBeenCalledTimes(6)
+    expect(chartMocks.init).toHaveBeenCalledTimes(9)
 
     const trendChart = chartMocks.instances[0]
     expect(trendChart.setOption).toHaveBeenCalled()
@@ -350,6 +352,88 @@ describe('Dashboard', () => {
     expect(page.text()).toContain('供应商未结款项')
     expect(page.text()).toContain('-¥700.00')
     expect(page.text()).toContain('预结待抵扣')
+  })
+
+  it('switches category distribution to rank list mode and clearly renders category percentages', async () => {
+    const detailedTypeStats: DashboardStats = {
+      ...populatedStats,
+      typeStats: [
+        { invoiceType: '技术服务费', count: 93, amount: 93140 },
+        { invoiceType: 'AI订阅服务费', count: 6, amount: 5910 },
+        { invoiceType: '计算服务费', count: 1, amount: 700 },
+        { invoiceType: '研发和技术服务', count: 1, amount: 250 }
+      ]
+    }
+    mockedApi.getStats.mockResolvedValue(detailedTypeStats)
+
+    const page = await mountPage()
+
+    // 切换至「排行」列表模式
+    await page.find('input[value="rank"]').setValue()
+    await flushPromises()
+
+    expect(page.text()).toContain('技术服务费')
+    expect(page.text()).toContain('AI订阅服务费')
+    expect(page.text()).toContain('计算服务费')
+    expect(page.text()).toContain('研发和技术服务')
+    expect(page.text()).toContain('0.25%')
+    expect(page.text()).toContain('0.70%')
+    expect(page.text()).toContain('5.91%')
+    expect(page.text()).toContain('93.14%')
+  })
+
+  it('initializes new charts for channel/category, fulfillment SLA, and fund flow', async () => {
+    const fullSystemStats: DashboardStats = {
+      ...populatedStats,
+      channelStats: [
+        { channel: 'API', count: 18, amount: 18000 },
+        { channel: 'MANUAL', count: 2, amount: 2000 }
+      ],
+      categoryStats: [
+        { category: 'NORMAL', count: 15, amount: 15000 },
+        { category: 'VAT_SPECIAL', count: 5, amount: 5000 }
+      ],
+      redFlushStats: {
+        redFlushedCount: 1,
+        redFlushedAmount: 500,
+        pendingRedFlushCount: 0,
+        redFlushRate: 4.8
+      },
+      fulfillmentStats: {
+        under30Min: 12,
+        under2Hour: 6,
+        under6Hour: 2,
+        under24Hour: 0,
+        over24Hour: 0,
+        avgMinutes: 18.5,
+        fastCompletionRate: 90.0
+      },
+      fundFlowStats: {
+        dailyFlows: [
+          { date: '2026-08-18', rechargeAmount: 5000, deductAmount: 2000, netAmount: 3000 },
+          { date: '2026-08-19', rechargeAmount: 10000, deductAmount: 3500, netAmount: 6500 }
+        ],
+        approvedRecharges: 10,
+        rejectedRecharges: 1,
+        pendingRecharges: 1,
+        approvedRechargeAmount: 15000,
+        approvalRate: 90.9
+      }
+    }
+    mockedApi.getStats.mockResolvedValue(fullSystemStats)
+
+    const page = await mountPage()
+
+    // 验证新指标展示
+    expect(page.text()).toContain('API 渗透率: 90.0%')
+    expect(page.text()).toContain('红冲率: 4.8%')
+    expect(page.text()).toContain('2h 极速达成率: 90.0%')
+    expect(page.text()).toContain('平均耗时: 19 分钟')
+    expect(page.text()).toContain('审批通过率: 90.9%')
+    expect(page.text()).toContain('待审: 1 笔')
+
+    // 9 个图表成功挂载初始化
+    expect(chartMocks.init).toHaveBeenCalledTimes(9)
   })
 })
 

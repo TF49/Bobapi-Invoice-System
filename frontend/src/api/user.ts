@@ -82,6 +82,10 @@ export const userApi = {
     return request.put<any, ManagedUser>(`/users/admin/${id}/password`, { password })
   },
 
+  deleteUser(id: number) {
+    return request.delete<any, void>(`/users/admin/${id}`)
+  },
+
   generateApiKey(id: number) {
     return request.post<any, ApiKeyData>(`/users/admin/${id}/api-key/generate`)
   },

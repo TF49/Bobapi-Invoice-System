@@ -38,6 +38,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -165,6 +166,23 @@ class UserAdminControllerTest {
                         .with(authentication(auth("ADMIN")))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"remark\":\"" + longRemark + "\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001));
+    }
+
+    @Test
+    void allowsAdministratorToDeleteUser() throws Exception {
+        mockMvc.perform(delete("/users/admin/2")
+                        .with(authentication(auth("ADMIN"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.message").value("用户删除成功"));
+    }
+
+    @Test
+    void validatesDeleteUserId() throws Exception {
+        mockMvc.perform(delete("/users/admin/0")
+                        .with(authentication(auth("ADMIN"))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(40001));
     }

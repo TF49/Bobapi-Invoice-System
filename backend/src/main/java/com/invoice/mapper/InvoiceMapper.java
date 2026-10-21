@@ -245,4 +245,99 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
      */
     @Select("SELECT * FROM invoice WHERE batch_id = #{batchId} AND deleted = 0 ORDER BY batch_row_number ASC")
     List<Invoice> selectByBatchId(Long batchId);
+
+    /**
+     * 查询渠道提交统计（API自动化 vs 网页手动）
+     */
+    @Select("SELECT COALESCE(NULLIF(submission_type, ''), 'UNKNOWN') as channel, " +
+            "COUNT(*) as count, " +
+            "COALESCE(SUM(amount), 0) as amount " +
+            "FROM invoice " +
+            "WHERE deleted = 0 AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED') " +
+            "GROUP BY submission_type " +
+            "ORDER BY count DESC")
+    List<ChannelStat> selectChannelStats();
+
+    /**
+     * 查询发票票种统计（增值税普通发票 vs 专用发票）
+     */
+    @Select("SELECT COALESCE(NULLIF(invoice_category, ''), 'NORMAL') as category, " +
+            "COUNT(*) as count, " +
+            "COALESCE(SUM(amount), 0) as amount " +
+            "FROM invoice " +
+            "WHERE deleted = 0 AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED') " +
+            "GROUP BY invoice_category " +
+            "ORDER BY count DESC")
+    List<CategoryStat> selectInvoiceCategoryStats();
+
+    /**
+     * 查询发票红冲与异常审计汇总
+     */
+    @Select("SELECT " +
+            "COALESCE(SUM(CASE WHEN red_flush_status = 'COMPLETED' THEN 1 ELSE 0 END), 0) as redFlushedCount, " +
+            "COALESCE(SUM(CASE WHEN red_flush_status = 'COMPLETED' THEN amount ELSE 0 END), 0) as redFlushedAmount, " +
+            "COALESCE(SUM(CASE WHEN red_flush_status = 'PENDING' THEN 1 ELSE 0 END), 0) as pendingRedFlushCount " +
+            "FROM invoice " +
+            "WHERE deleted = 0")
+    RedFlushSummary selectRedFlushSummary();
+
+    /**
+     * 开票履约服务时效统计 (SLA)
+     */
+    @Select("SELECT " +
+            "COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) <= 30 THEN 1 ELSE 0 END), 0) as under30Min, " +
+            "COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) > 30 AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) <= 120 THEN 1 ELSE 0 END), 0) as under2Hour, " +
+            "COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) > 120 AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) <= 360 THEN 1 ELSE 0 END), 0) as under6Hour, " +
+            "COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) > 360 AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) <= 1440 THEN 1 ELSE 0 END), 0) as under24Hour, " +
+            "COALESCE(SUM(CASE WHEN completed_at IS NOT NULL AND TIMESTAMPDIFF(MINUTE, created_at, completed_at) > 1440 THEN 1 ELSE 0 END), 0) as over24Hour, " +
+            "COALESCE(AVG(CASE WHEN completed_at IS NOT NULL AND completed_at >= created_at THEN TIMESTAMPDIFF(MINUTE, created_at, completed_at) ELSE NULL END), 0) as avgMinutes " +
+            "FROM invoice " +
+            "WHERE deleted = 0 AND status = 'COMPLETED'")
+    FulfillmentSummary selectFulfillmentSummary();
+
+    /**
+     * 查询最近 6 个月已开票月度汇总（用于供应商对账走势）
+     */
+    @Select("SELECT DATE_FORMAT(created_at, '%Y-%m') as month, " +
+            "COALESCE(SUM(amount), 0) as amount, " +
+            "COUNT(*) as count " +
+            "FROM invoice " +
+            "WHERE deleted = 0 AND status = 'COMPLETED' AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED') " +
+            "  AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) " +
+            "GROUP BY DATE_FORMAT(created_at, '%Y-%m') " +
+            "ORDER BY month ASC")
+    List<MonthlyInvoicedStat> selectRecentMonthlyInvoicedStats();
+
+    record ChannelStat(
+            String channel,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    record CategoryStat(
+            String category,
+            Long count,
+            BigDecimal amount
+    ) {}
+
+    record RedFlushSummary(
+            Long redFlushedCount,
+            BigDecimal redFlushedAmount,
+            Long pendingRedFlushCount
+    ) {}
+
+    record FulfillmentSummary(
+            Long under30Min,
+            Long under2Hour,
+            Long under6Hour,
+            Long under24Hour,
+            Long over24Hour,
+            Double avgMinutes
+    ) {}
+
+    record MonthlyInvoicedStat(
+            String month,
+            BigDecimal amount,
+            Long count
+    ) {}
 }

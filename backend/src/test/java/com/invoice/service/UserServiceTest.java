@@ -43,11 +43,17 @@ class UserServiceTest {
     @Mock
     private UserQuotaService userQuotaService;
 
+    @Mock
+    private com.invoice.mapper.InvoiceMapper invoiceMapper;
+
+    @Mock
+    private com.invoice.mapper.RechargeRequestMapper rechargeRequestMapper;
+
     private UserService userService;
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userMapper, passwordEncoder, userQuotaService);
+        userService = new UserService(userMapper, passwordEncoder, userQuotaService, invoiceMapper, rechargeRequestMapper);
     }
 
     @Test
@@ -213,6 +219,76 @@ class UserServiceTest {
                 () -> userService.updateRole(404L, "USER", 1L));
 
         assertEquals(40403, exception.getCode());
+    }
+
+    @Test
+    void deletesUserAndInvalidatesCredentials() {
+        User target = user(2L, "alice", "USER", true, 3L);
+        target.setApiKey("test-api-key");
+        target.setApiKeyEnabled(true);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+
+        userService.deleteUser(2L, 1L);
+
+        assertEquals(Boolean.FALSE, target.getEnabled());
+        assertEquals(Boolean.FALSE, target.getApiKeyEnabled());
+        org.junit.jupiter.api.Assertions.assertNull(target.getApiKey());
+        assertEquals(4L, target.getAuthVersion());
+        assertTrue(target.getUsername().startsWith("alice#del_2"));
+        verify(userMapper).updateById(target);
+        verify(userMapper).deleteById(2L);
+    }
+
+    @Test
+    void rejectsDeletingSelf() {
+        User self = user(1L, "admin", "ADMIN", true, 0L);
+        when(userMapper.selectByIdForUpdate(1L)).thenReturn(self);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userService.deleteUser(1L, 1L));
+
+        assertEquals(40302, exception.getCode());
+        verify(userMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
+    void protectsTheLastAdministratorFromDeletion() {
+        User target = user(2L, "admin2", "ADMIN", true, 0L);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+        when(userMapper.selectEnabledAdminIdsForUpdate()).thenReturn(List.of(2L));
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userService.deleteUser(2L, 1L));
+
+        assertEquals(40903, exception.getCode());
+        verify(userMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
+    void rejectsDeletingUserWithPendingInvoices() {
+        User target = user(2L, "alice", "USER", true, 0L);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+        when(invoiceMapper.selectCount(any())).thenReturn(1L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userService.deleteUser(2L, 1L));
+
+        assertEquals(40905, exception.getCode());
+        verify(userMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
+    void rejectsDeletingUserWithPendingRechargeRequests() {
+        User target = user(2L, "alice", "USER", true, 0L);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+        when(invoiceMapper.selectCount(any())).thenReturn(0L, 0L);
+        when(rechargeRequestMapper.selectCount(any())).thenReturn(1L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userService.deleteUser(2L, 1L));
+
+        assertEquals(40907, exception.getCode());
+        verify(userMapper, never()).deleteById(any(java.io.Serializable.class));
     }
 
     private User user(Long id, String username, String role, boolean enabled, long authVersion) {

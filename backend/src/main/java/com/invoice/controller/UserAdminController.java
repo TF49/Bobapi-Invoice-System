@@ -26,6 +26,7 @@ import jakarta.validation.constraints.Size;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -121,6 +122,15 @@ public class UserAdminController {
         enforceRateLimit("password", principal.userId(), 10, 42905, "密码重置操作过于频繁，请稍后再试");
         return ApiResponse.success("密码重置成功",
                 userService.resetPassword(id, request.getPassword(), principal.userId()));
+    }
+
+    @DeleteMapping("/{id}")
+    public ApiResponse<Void> deleteUser(
+            @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        enforceRateLimit("write", principal.userId(), 30, 42904, "用户管理操作过于频繁，请稍后再试");
+        userService.deleteUser(id, principal.userId());
+        return ApiResponse.success("用户删除成功", null);
     }
 
     @PostMapping("/{id}/quota/recharge")

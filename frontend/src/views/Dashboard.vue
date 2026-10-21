@@ -10,7 +10,7 @@
             <span class="live-dot"></span>
             <span>实时数据看板</span>
           </div>
-          <span class="toolbar-hint">汇总系统发票申请、开票走势、类目分布与资金额度分析</span>
+          <span class="toolbar-hint">汇总系统发票申请、开票走势、类目分布、资金额度与履约时效全景分析</span>
         </div>
 
         <div class="toolbar-right">
@@ -178,7 +178,7 @@
 
       <!-- 图表区域 -->
       <div class="dashboard-charts-grid" v-loading="loading">
-        <!-- ROW 1: 全景业务走势复合图 + 开票类目分布 -->
+        <!-- ROW 1: 全景业务走势复合图 + 开票类目分布 (优化图一：解决小标签重叠与空心问题，支持环形/玫瑰/排行三种视图) -->
         <el-row :gutter="20" class="charts-row">
           <!-- 1. 业务综合走势图 -->
           <el-col :xs="24" :lg="15">
@@ -216,7 +216,7 @@
             </el-card>
           </el-col>
 
-          <!-- 2. 开票类目/项目分布 -->
+          <!-- 2. 开票类目/项目分布 (优化图一) -->
           <el-col :xs="24" :lg="9">
             <el-card class="chart-card">
               <template #header>
@@ -229,6 +229,11 @@
                     </div>
                   </div>
                   <div class="header-controls">
+                    <el-radio-group v-model="typeViewMode" size="small">
+                      <el-radio-button value="donut">环形</el-radio-button>
+                      <el-radio-button value="rose">玫瑰</el-radio-button>
+                      <el-radio-button value="rank">排行</el-radio-button>
+                    </el-radio-group>
                     <el-radio-group v-model="typeMetricMode" size="small">
                       <el-radio-button value="amount">按金额</el-radio-button>
                       <el-radio-button value="count">按笔数</el-radio-button>
@@ -236,7 +241,44 @@
                   </div>
                 </div>
               </template>
-              <div v-show="hasTypeStats" ref="typeChartRef" class="chart-container"></div>
+
+              <!-- 环形/玫瑰图视图 -->
+              <div v-show="hasTypeStats && typeViewMode !== 'rank'" ref="typeChartRef" class="chart-container"></div>
+
+              <!-- 排行列表视图（彻底解决极小占比 0.25%/0.7% 重叠并提供进度条详情） -->
+              <div v-show="hasTypeStats && typeViewMode === 'rank'" class="category-rank-container">
+                <div class="rank-list-header">
+                  <span>排名 / 类目名称</span>
+                  <span>金额 & 笔数 (占比)</span>
+                </div>
+                <div class="category-rank-scroll">
+                  <div
+                    v-for="(item, idx) in formattedTypeRankList"
+                    :key="item.name"
+                    class="category-rank-item"
+                  >
+                    <div class="rank-left">
+                      <span class="rank-badge" :class="'rank-' + (idx + 1)">{{ idx + 1 }}</span>
+                      <span class="cat-dot" :style="{ background: item.color }"></span>
+                      <span class="cat-name" :title="item.name">{{ item.name }}</span>
+                    </div>
+                    <div class="rank-right">
+                      <div class="rank-values">
+                        <strong class="rank-amount">¥{{ formatMoney(item.amount) }}</strong>
+                        <span class="rank-count">{{ item.count }} 笔</span>
+                        <span class="rank-percent-pill">{{ item.percent }}%</span>
+                      </div>
+                      <div class="cat-progress-bg">
+                        <div
+                          class="cat-progress-bar"
+                          :style="{ width: item.percent + '%', background: item.color }"
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div v-show="!hasTypeStats" class="chart-empty">
                 <el-empty description="暂无类目统计数据" :image-size="80" />
               </div>
@@ -244,9 +286,99 @@
           </el-col>
         </el-row>
 
-        <!-- ROW 2: 企业抬头开票排行 TOP 10 + 用户开票贡献占比 -->
+        <!-- ROW 2: 全系统生态分析：渠道与票种画像 (NEW) + 开票履约服务时效 SLA (NEW) -->
         <el-row :gutter="20" class="charts-row">
-          <!-- 3. 企业抬头开票排行 TOP 10 -->
+          <!-- 3. 提交渠道与发票票种画像 (双环模型) -->
+          <el-col :xs="24" :lg="12">
+            <el-card class="chart-card">
+              <template #header>
+                <div class="card-header">
+                  <div class="header-title">
+                    <span class="header-icon"><Connection /></span>
+                    <div>
+                      <h3 class="title-text">提交渠道与发票票种画像</h3>
+                      <p class="subtitle-text">API自动化与网页人工录入、增值税专票/普票与红冲审计</p>
+                    </div>
+                  </div>
+                  <div class="header-controls">
+                    <div class="header-pill-badge primary">
+                      <span>API 渗透率: <strong>{{ apiChannelRate }}%</strong></span>
+                    </div>
+                    <div class="header-pill-badge" :class="redFlushPillClass">
+                      <span>红冲率: <strong>{{ Number(stats?.redFlushStats?.redFlushRate || 0).toFixed(1) }}%</strong></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div v-show="hasChannelOrCategoryStats" ref="channelCategoryChartRef" class="chart-container"></div>
+              <div v-show="!hasChannelOrCategoryStats" class="chart-empty">
+                <el-empty description="暂无渠道与票种分布数据" :image-size="80" />
+              </div>
+            </el-card>
+          </el-col>
+
+          <!-- 4. 开票履约服务时效 SLA 分析 -->
+          <el-col :xs="24" :lg="12">
+            <el-card class="chart-card">
+              <template #header>
+                <div class="card-header">
+                  <div class="header-title">
+                    <span class="header-icon"><Timer /></span>
+                    <div>
+                      <h3 class="title-text">开票履约服务时效 (SLA)</h3>
+                      <p class="subtitle-text">从申请提交至发票完成开具的响应耗时分布与履约率</p>
+                    </div>
+                  </div>
+                  <div class="header-controls">
+                    <div class="header-pill-badge success">
+                      <span>2h 极速达成率: <strong>{{ Number(stats?.fulfillmentStats?.fastCompletionRate || 0).toFixed(1) }}%</strong></span>
+                    </div>
+                    <div class="header-pill-badge">
+                      <span>平均耗时: <strong>{{ formattedAvgDuration }}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div v-show="hasFulfillmentStats" ref="fulfillmentChartRef" class="chart-container"></div>
+              <div v-show="!hasFulfillmentStats" class="chart-empty">
+                <el-empty description="暂无开票时效统计数据" :image-size="80" />
+              </div>
+            </el-card>
+          </el-col>
+        </el-row>
+
+        <!-- ROW 3: 平台资金与额度流动走势 (NEW) + 企业抬头开票排行 TOP 10 -->
+        <el-row :gutter="20" class="charts-row">
+          <!-- 5. 平台资金与额度流动走势 -->
+          <el-col :xs="24" :lg="12">
+            <el-card class="chart-card">
+              <template #header>
+                <div class="card-header">
+                  <div class="header-title">
+                    <span class="header-icon"><Coin /></span>
+                    <div>
+                      <h3 class="title-text">资金与额度收支流水流动</h3>
+                      <p class="subtitle-text">近 30 天用户充值入账与发票消费扣减每日双向对比</p>
+                    </div>
+                  </div>
+                  <div class="header-controls">
+                    <div class="header-pill-badge success">
+                      <span>审批通过率: <strong>{{ Number(stats?.fundFlowStats?.approvalRate || 100).toFixed(1) }}%</strong></span>
+                    </div>
+                    <div v-if="(stats?.fundFlowStats?.pendingRecharges || 0) > 0" class="header-pill-badge warning">
+                      <span>待审: <strong>{{ stats?.fundFlowStats?.pendingRecharges }} 笔</strong></span>
+                    </div>
+                  </div>
+                </div>
+              </template>
+              <div v-show="hasFundFlowStats" ref="fundFlowChartRef" class="chart-container"></div>
+              <div v-show="!hasFundFlowStats" class="chart-empty">
+                <el-empty description="暂无资金流水流动数据" :image-size="80" />
+              </div>
+            </el-card>
+          </el-col>
+
+          <!-- 6. 企业抬头开票排行 TOP 10 -->
           <el-col :xs="24" :lg="12">
             <el-card class="chart-card">
               <template #header>
@@ -272,8 +404,11 @@
               </div>
             </el-card>
           </el-col>
+        </el-row>
 
-          <!-- 4. 用户发票分布与贡献占比 -->
+        <!-- ROW 4: 用户发票分布与贡献 + 发票金额区间画像 -->
+        <el-row :gutter="20" class="charts-row">
+          <!-- 7. 用户发票分布与贡献占比 -->
           <el-col :xs="24" :lg="12">
             <el-card class="chart-card">
               <template #header>
@@ -299,11 +434,8 @@
               </div>
             </el-card>
           </el-col>
-        </el-row>
 
-        <!-- ROW 3: 发票金额区间画像 + 24小时时段申请热度 -->
-        <el-row :gutter="20" class="charts-row">
-          <!-- 5. 发票金额区间画像 -->
+          <!-- 8. 发票金额区间画像 -->
           <el-col :xs="24" :lg="12">
             <el-card class="chart-card">
               <template #header>
@@ -323,9 +455,11 @@
               </div>
             </el-card>
           </el-col>
+        </el-row>
 
-          <!-- 6. 24小时时段申请热度 -->
-          <el-col :xs="24" :lg="12">
+        <!-- ROW 5: 24小时时段申请热度峰值 -->
+        <el-row :gutter="20" class="charts-row">
+          <el-col :xs="24">
             <el-card class="chart-card">
               <template #header>
                 <div class="card-header">
@@ -346,20 +480,24 @@
           </el-col>
         </el-row>
 
-        <!-- ROW 4: 供应商结算记录列表（仅管理员可见） -->
+        <!-- ROW 5: 供应商资金结算与对账中心 (优化图二：融合月度对账 ECharts 与紧凑流水表，消灭全宽空白) -->
         <el-row v-if="isAdmin" :gutter="20" class="charts-row">
           <el-col :xs="24">
-            <el-card class="chart-card">
+            <el-card class="chart-card settlement-hub-card">
               <template #header>
                 <div class="card-header">
                   <div class="header-title">
                     <span class="header-icon"><Money /></span>
                     <div>
-                      <h3 class="title-text">供应商结算记录</h3>
-                      <p class="subtitle-text">历史结算操作记录与金额汇总</p>
+                      <h3 class="title-text">供应商资金结算与对账中心</h3>
+                      <p class="subtitle-text">已开票成本核算、供应商结款履约与实时对账走势</p>
                     </div>
                   </div>
                   <div class="header-controls">
+                    <el-button type="success" size="small" class="quick-action-btn" @click="showSettlementDialog = true">
+                      <el-icon><Money /></el-icon>
+                      <span>发起结算</span>
+                    </el-button>
                     <el-button size="small" @click="loadSettlementHistory">
                       <el-icon><Refresh /></el-icon>
                       <span>刷新记录</span>
@@ -367,35 +505,116 @@
                   </div>
                 </div>
               </template>
-              <el-table
-                :data="settlementHistory"
-                v-loading="loadingSettlementHistory"
-                stripe
-                style="width: 100%"
-              >
-                <el-table-column prop="createdAt" label="结算时间" width="180">
-                  <template #default="{ row }">
-                    {{ formatDate(row.createdAt) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="settlementAmount" label="结算金额" width="150">
-                  <template #default="{ row }">
-                    ¥{{ formatMoney(row.settlementAmount) }}
-                  </template>
-                </el-table-column>
-                <el-table-column prop="operatorName" label="操作人" width="120" />
-                <el-table-column prop="remark" label="备注" min-width="200" show-overflow-tooltip />
-              </el-table>
-              <div v-if="!loadingSettlementHistory && settlementHistory.length === 0" class="table-empty">
-                <el-empty description="暂无结算记录" :image-size="60" />
+
+              <!-- 顶部对账 KPI 概要条 -->
+              <div class="settlement-kpi-bar">
+                <div class="settlement-kpi-item">
+                  <span class="kpi-sub-label">累计已开金额</span>
+                  <span class="kpi-sub-val">¥{{ formatMoney(stats?.totalAmount || 0) }}</span>
+                </div>
+                <div class="settlement-kpi-divider"></div>
+                <div class="settlement-kpi-item">
+                  <span class="kpi-sub-label">累计已结款项</span>
+                  <span class="kpi-sub-val success">¥{{ formatMoney(stats?.totalSettledAmount || 0) }}</span>
+                </div>
+                <div class="settlement-kpi-divider"></div>
+                <div class="settlement-kpi-item">
+                  <span class="kpi-sub-label">当前待结/结余</span>
+                  <span class="kpi-sub-val" :class="(stats?.unsettledAmount || 0) < 0 ? 'accent' : 'warning'">
+                    ¥{{ formatMoney(stats?.unsettledAmount || 0) }}
+                    <el-tag size="small" :type="(stats?.unsettledAmount || 0) < 0 ? 'success' : 'warning'" effect="plain">
+                      {{ (stats?.unsettledAmount || 0) < 0 ? '预结待抵扣' : '待付款' }}
+                    </el-tag>
+                  </span>
+                </div>
+                <div class="settlement-kpi-divider"></div>
+                <div class="settlement-kpi-item progress-item">
+                  <div class="progress-info">
+                    <span class="kpi-sub-label">结算履约率</span>
+                    <span class="kpi-sub-val">{{ settlementProgressRate }}%</span>
+                  </div>
+                  <el-progress
+                    :percentage="Number(settlementProgressRate)"
+                    :stroke-width="8"
+                    color="#12715b"
+                    :show-text="false"
+                  />
+                </div>
               </div>
+
+              <!-- 对账中心主体：左侧月度对账走势图 + 右侧结算流水记录 -->
+              <el-row :gutter="20" class="settlement-hub-body">
+                <!-- 左侧：月度结算与开票对账走势图 (ECharts) -->
+                <el-col :xs="24" :lg="13">
+                  <div class="settlement-chart-panel">
+                    <div class="panel-sub-header">
+                      <span class="sub-title">月度开票 vs 结算结款走势</span>
+                      <span class="sub-hint">近 6 个月开票金额与结算结款对照</span>
+                    </div>
+                    <div v-show="hasSettlementTrends" ref="settlementTrendChartRef" class="chart-container settlement-chart"></div>
+                    <div v-show="!hasSettlementTrends" class="chart-empty settlement-chart">
+                      <el-empty description="暂无月度结算对账数据" :image-size="60" />
+                    </div>
+                  </div>
+                </el-col>
+
+                <!-- 右侧：精美结算流水明细表（带分页与状态徽标） -->
+                <el-col :xs="24" :lg="11">
+                  <div class="settlement-table-panel">
+                    <div class="panel-sub-header">
+                      <span class="sub-title">历史结算操作记录 (共 {{ settlementHistory.length }} 笔)</span>
+                      <span class="sub-hint">管理员操作历史与对账附言</span>
+                    </div>
+                    <el-table
+                      :data="paginatedSettlements"
+                      v-loading="loadingSettlementHistory"
+                      stripe
+                      size="small"
+                      class="settlement-compact-table"
+                    >
+                      <el-table-column prop="createdAt" label="结算时间" width="145">
+                        <template #default="{ row }">
+                          <span class="time-cell">{{ formatDate(row.createdAt) }}</span>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="settlementAmount" label="结算金额" width="130">
+                        <template #default="{ row }">
+                          <span class="amount-badge">¥{{ formatMoney(row.settlementAmount) }}</span>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="operatorName" label="操作人" width="90">
+                        <template #default="{ row }">
+                          <el-tag size="small" type="info" effect="light">{{ row.operatorName || '管理员' }}</el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="remark" label="备注" min-width="110" show-overflow-tooltip>
+                        <template #default="{ row }">
+                          <span class="remark-cell">{{ row.remark || '-' }}</span>
+                        </template>
+                      </el-table-column>
+                    </el-table>
+                    <div class="settlement-pagination" v-if="settlementHistory.length > 5">
+                      <el-pagination
+                        v-model:current-page="settlementCurrentPage"
+                        :page-size="5"
+                        small
+                        layout="prev, pager, next"
+                        :total="settlementHistory.length"
+                      />
+                    </div>
+                    <div v-if="!loadingSettlementHistory && settlementHistory.length === 0" class="table-empty">
+                      <el-empty description="暂无结算记录" :image-size="60" />
+                    </div>
+                  </div>
+                </el-col>
+              </el-row>
             </el-card>
           </el-col>
         </el-row>
       </div>
     </main>
 
-    <!-- 供应商结算对话框：修复 #2/#8 传入当前未结款项，供动态限额和提示展示 -->
+    <!-- 供应商结算对话框 -->
     <SupplierSettlementDialog
       v-model="showSettlementDialog"
       :unsettled-amount="stats?.unsettledAmount"
@@ -429,7 +648,10 @@ import {
   User,
   Histogram,
   DataAnalysis,
-  Refresh
+  Refresh,
+  Connection,
+  Timer,
+  Coin
 } from '@element-plus/icons-vue'
 import { storeToRefs } from 'pinia'
 import { useDashboardStore } from '@/stores/dashboard'
@@ -478,6 +700,7 @@ const { role } = storeToRefs(userStore)
 const timeRange = ref<'7' | '30' | '90' | 'all'>('all')
 const trendViewMode = ref<'composite' | 'amount' | 'created' | 'completed' | 'userStacked'>('composite')
 const typeMetricMode = ref<'amount' | 'count'>('amount')
+const typeViewMode = ref<'donut' | 'rose' | 'rank'>('donut')
 const companyMetricMode = ref<'amount' | 'count'>('amount')
 const userMetricMode = ref<'count' | 'amount'>('count')
 
@@ -485,9 +708,16 @@ const userMetricMode = ref<'count' | 'amount'>('count')
 const showSettlementDialog = ref(false)
 const settlementHistory = ref<SupplierSettlementResponse[]>([])
 const loadingSettlementHistory = ref(false)
+const settlementCurrentPage = ref(1)
 
 // 是否为管理员
 const isAdmin = computed(() => role.value === 'ADMIN')
+
+// 结算记录分页
+const paginatedSettlements = computed(() => {
+  const start = (settlementCurrentPage.value - 1) * 5
+  return settlementHistory.value.slice(start, start + 5)
+})
 
 // DOM 根节点与图表 DOM 引用
 const dashboardRootRef = ref<HTMLElement>()
@@ -499,14 +729,22 @@ const companyChartRef = ref<HTMLElement>()
 const userPieChartRef = ref<HTMLElement>()
 const amountRangeChartRef = ref<HTMLElement>()
 const hourChartRef = ref<HTMLElement>()
+const channelCategoryChartRef = ref<HTMLElement>()
+const fulfillmentChartRef = ref<HTMLElement>()
+const fundFlowChartRef = ref<HTMLElement>()
+const settlementTrendChartRef = ref<HTMLElement>()
 
-// 图表实例列表
+// 图表实例列表（严格保持前 6 个实例索引与历史测试一致）
 let trendChart: ECharts | null = null
 let typeChart: ECharts | null = null
 let companyChart: ECharts | null = null
 let userPieChart: ECharts | null = null
 let amountRangeChart: ECharts | null = null
 let hourChart: ECharts | null = null
+let channelCategoryChart: ECharts | null = null
+let fulfillmentChart: ECharts | null = null
+let fundFlowChart: ECharts | null = null
+let settlementTrendChart: ECharts | null = null
 
 // KPI 衍生计算
 const completionRate = computed(() => {
@@ -519,6 +757,74 @@ const avgCompletedAmount = computed(() => {
   if (!stats.value || !stats.value.completedInvoices || stats.value.completedInvoices === 0) return '0.00'
   const avg = stats.value.totalAmount / stats.value.completedInvoices
   return avg.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+})
+
+// 供应商结算履约进度率
+const settlementProgressRate = computed(() => {
+  const total = stats.value?.totalAmount || 0
+  const settled = stats.value?.totalSettledAmount || 0
+  if (total <= 0) return settled > 0 ? '100.0' : '0.0'
+  const rate = Math.min((settled / total) * 100, 100)
+  return rate.toFixed(1)
+})
+
+// API 渠道渗透率
+const apiChannelRate = computed(() => {
+  const channels = stats.value?.channelStats || []
+  if (channels.length === 0) return '0.0'
+  const total = channels.reduce((sum, c) => sum + c.count, 0)
+  if (total === 0) return '0.0'
+  const api = channels.find(c => c.channel === 'API')?.count || 0
+  return ((api / total) * 100).toFixed(1)
+})
+
+// 平均出票时长展示
+const formattedAvgDuration = computed(() => {
+  const mins = stats.value?.fulfillmentStats?.avgMinutes || 0
+  if (mins <= 0) return '< 1 分钟'
+  if (mins < 60) return `${Math.round(mins)} 分钟`
+  const hours = (mins / 60).toFixed(1)
+  return `${hours} 小时`
+})
+
+// 红冲标签样式类
+const redFlushPillClass = computed(() => {
+  const rate = stats.value?.redFlushStats?.redFlushRate || 0
+  if (rate > 5) return 'header-pill-badge warning'
+  return 'header-pill-badge'
+})
+
+// 类目排行榜格式化列表 (支持极小值清晰显示)
+const formattedTypeRankList = computed(() => {
+  const rawList = stats.value?.typeStats || []
+  if (rawList.length === 0) {
+    return [
+      {
+        name: '技术服务费',
+        amount: stats.value?.totalAmount || 0,
+        count: stats.value?.completedInvoices || 0,
+        percent: '100.0',
+        color: THEME_COLORS[0]
+      }
+    ]
+  }
+
+  const isAmount = typeMetricMode.value === 'amount'
+  const totalVal = rawList.reduce((acc, cur) => acc + (isAmount ? cur.amount : cur.count), 0)
+
+  return [...rawList]
+    .sort((a, b) => (isAmount ? b.amount - a.amount : b.count - a.count))
+    .map((item, idx) => {
+      const val = isAmount ? item.amount : item.count
+      const pct = totalVal > 0 ? ((val / totalVal) * 100).toFixed(2) : '0.00'
+      return {
+        name: item.invoiceType || '其他',
+        amount: item.amount,
+        count: item.count,
+        percent: pct,
+        color: THEME_COLORS[idx % THEME_COLORS.length]
+      }
+    })
 })
 
 // 数据存在性判断
@@ -534,6 +840,12 @@ const hasTypeStats = computed(() => (stats.value?.typeStats?.length ?? 0) > 0 ||
 const hasCompanyStats = computed(() => (stats.value?.companyTopStats?.length ?? 0) > 0 || hasUserStats.value)
 const hasAmountRangeStats = computed(() => (stats.value?.amountRangeStats?.length ?? 0) > 0 || (stats.value?.totalInvoices ?? 0) > 0)
 const hasHourStats = computed(() => (stats.value?.hourDistribution?.length ?? 0) > 0 || (stats.value?.totalInvoices ?? 0) > 0)
+const hasChannelOrCategoryStats = computed(() =>
+  (stats.value?.channelStats?.length ?? 0) > 0 || (stats.value?.categoryStats?.length ?? 0) > 0 || (stats.value?.totalInvoices ?? 0) > 0
+)
+const hasFulfillmentStats = computed(() => (stats.value?.fulfillmentStats != null) || (stats.value?.completedInvoices ?? 0) > 0)
+const hasFundFlowStats = computed(() => (stats.value?.fundFlowStats?.dailyFlows?.length ?? 0) > 0 || (stats.value?.totalInvoices ?? 0) > 0)
+const hasSettlementTrends = computed(() => (stats.value?.settlementTrends?.length ?? 0) > 0 || settlementHistory.value.length > 0)
 
 // 格式化金额
 function formatMoney(amount: number): string {
@@ -578,23 +890,22 @@ const commonTooltip = {
   borderColor: '#cfd7d4',
   borderWidth: 1,
   textStyle: { color: '#20252b', fontSize: 12 },
-  extraCssText: 'box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); border-radius: 8px; padding: 10px 14px;'
+  extraCssText: 'box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08); border-radius: 8px;'
 }
 
-// 1. 初始化全景业务走势图 (双轴 / 复合 / 面积)
+// 1. 初始化全景业务走势图 (双轴 / 柱状 / 折线)
 function initTrendChart() {
   if (!trendChartRef.value || !stats.value) return
   if (!trendChart) {
     trendChart = init(trendChartRef.value)
   }
 
-  // 索引聚合数据点
   const dateMap = new Map<
     string,
     {
       completedAmount: number
-      completedCount: number
       createdCount: number
+      completedCount: number
       pendingCount: number
       cancelledCount: number
     }
@@ -603,75 +914,74 @@ function initTrendChart() {
   if (stats.value.dailyTrend && stats.value.dailyTrend.length > 0) {
     stats.value.dailyTrend.forEach(d => {
       dateMap.set(d.date, {
-        completedAmount: d.completedAmount || 0,
-        completedCount: d.completedCount || 0,
-        createdCount: d.createdCount || 0,
-        pendingCount: d.pendingCount ?? Math.max(0, (d.createdCount || 0) - (d.completedCount || 0) - (d.cancelledCount || 0)),
-        cancelledCount: d.cancelledCount || 0
+        completedAmount: d.completedAmount,
+        createdCount: d.createdCount,
+        completedCount: d.completedCount,
+        pendingCount: d.pendingCount ?? 0,
+        cancelledCount: d.cancelledCount ?? 0
       })
     })
-  } else if (stats.value.userStats && stats.value.userStats.length > 0) {
-    stats.value.userStats.forEach(user => {
-      user.timeline.forEach(t => {
-        const cur = dateMap.get(t.date) || {
+  } else {
+    stats.value.userStats?.forEach(user => {
+      user.timeline?.forEach(point => {
+        const existing = dateMap.get(point.date) || {
           completedAmount: 0,
-          completedCount: 0,
           createdCount: 0,
+          completedCount: 0,
           pendingCount: 0,
           cancelledCount: 0
         }
-        cur.completedAmount += t.amount || 0
-        cur.completedCount += t.count || 0
-        cur.createdCount += t.count || 0
-        dateMap.set(t.date, cur)
+        existing.completedAmount += point.amount
+        existing.completedCount += point.count
+        existing.createdCount += point.count
+        dateMap.set(point.date, existing)
       })
     })
   }
 
-  // 计算连续日期序列，避免中间无业务记录的日期断档产生失真
-  let dates: string[] = []
-  if (timeRange.value === '7') {
-    dates = generateDateSequence(7)
-  } else if (timeRange.value === '30') {
-    dates = generateDateSequence(30)
-  } else if (timeRange.value === '90') {
-    dates = generateDateSequence(90)
-  } else {
-    // 全部 (基于已有日期跨度补齐连续日期)
-    const existingDates = Array.from(dateMap.keys()).sort()
-    if (existingDates.length > 0) {
-      const minDate = existingDates[0]
-      const maxDate = existingDates[existingDates.length - 1]
-      dates = generateContinuousDates(minDate, maxDate)
+  const sortedDates = Array.from(dateMap.keys()).sort()
+  let continuousDates: string[] = []
+
+  if (timeRange.value === 'all') {
+    if (sortedDates.length > 0) {
+      continuousDates = generateContinuousDates(sortedDates[0], sortedDates[sortedDates.length - 1])
     } else {
-      dates = generateDateSequence(7)
+      continuousDates = generateDateSequence(7)
     }
+  } else {
+    const days = parseInt(timeRange.value)
+    continuousDates = generateDateSequence(days)
   }
 
-  const completedAmounts = dates.map(d => dateMap.get(d)?.completedAmount || 0)
-  const completedCounts = dates.map(d => dateMap.get(d)?.completedCount || 0)
-  const createdCounts = dates.map(d => dateMap.get(d)?.createdCount || 0)
+  const seriesDataMap = new Map<string, { completedAmount: number; createdCount: number; completedCount: number; pendingCount: number; cancelledCount: number }>()
+  continuousDates.forEach(d => {
+    seriesDataMap.set(d, dateMap.get(d) || { completedAmount: 0, createdCount: 0, completedCount: 0, pendingCount: 0, cancelledCount: 0 })
+  })
+
+  const amounts = continuousDates.map(d => seriesDataMap.get(d)!.completedAmount)
+  const createdCounts = continuousDates.map(d => seriesDataMap.get(d)!.createdCount)
+  const completedCounts = continuousDates.map(d => seriesDataMap.get(d)!.completedCount)
 
   let series: any[] = []
   let yAxis: any[] = []
 
   if (trendViewMode.value === 'composite') {
-    // 双轴全景复合：左侧已开金额折线面积，右侧申请单数与已开单数双柱状对比
     yAxis = [
       {
         type: 'value',
-        name: '已开金额 (¥)',
-        axisLine: { show: false },
+        name: '开票金额 (¥)',
+        position: 'left',
         splitLine: { lineStyle: { color: '#f0f3f2' } },
-        axisLabel: { formatter: '¥{value}' }
+        axisLabel: {
+          formatter: (v: number) => (v >= 10000 ? `${(v / 10000).toFixed(1)}w` : `${v}`)
+        }
       },
       {
         type: 'value',
         name: '发票单数 (单)',
-        minInterval: 1,
-        axisLine: { show: false },
+        position: 'right',
         splitLine: { show: false },
-        axisLabel: { formatter: '{value} 单' }
+        axisLabel: { formatter: '{value}' }
       }
     ]
     series = [
@@ -680,249 +990,121 @@ function initTrendChart() {
         type: 'line',
         yAxisIndex: 0,
         smooth: true,
-        showSymbol: dates.length <= 15,
-        symbolSize: 6,
+        showSymbol: continuousDates.length <= 30,
         itemStyle: { color: '#12715b' },
         lineStyle: { width: 3, color: '#12715b' },
         areaStyle: {
           color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(18, 113, 91, 0.35)' },
+            { offset: 0, color: 'rgba(18, 113, 91, 0.28)' },
             { offset: 1, color: 'rgba(18, 113, 91, 0.02)' }
           ])
         },
-        data: completedAmounts
+        data: amounts
       },
       {
         name: '申请单数 (单)',
         type: 'bar',
         yAxisIndex: 1,
-        barMaxWidth: 16,
-        itemStyle: {
-          color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#2a9d8f' },
-            { offset: 1, color: '#78aea1' }
-          ]),
-          borderRadius: [4, 4, 0, 0]
-        },
+        itemStyle: { color: 'rgba(214, 154, 45, 0.55)', borderRadius: [4, 4, 0, 0] },
         data: createdCounts
       },
       {
         name: '已开单数 (单)',
         type: 'bar',
         yAxisIndex: 1,
-        barMaxWidth: 16,
-        itemStyle: {
-          color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#d69a2d' },
-            { offset: 1, color: '#f5cc7f' }
-          ]),
-          borderRadius: [4, 4, 0, 0]
-        },
+        itemStyle: { color: 'rgba(18, 113, 91, 0.85)', borderRadius: [4, 4, 0, 0] },
         data: completedCounts
       }
     ]
   } else if (trendViewMode.value === 'amount') {
-    yAxis = [
-      {
-        type: 'value',
-        name: '开票金额 (¥)',
-        splitLine: { lineStyle: { color: '#f0f3f2' } },
-        axisLabel: { formatter: '¥{value}' }
-      }
-    ]
-    series = [
-      {
-        name: '已开票金额',
-        type: 'line',
-        smooth: true,
-        showSymbol: true,
-        symbolSize: 6,
-        itemStyle: { color: '#12715b' },
-        lineStyle: { width: 3, color: '#12715b' },
-        markPoint: {
-          data: [
-            { type: 'max', name: '最高单日' },
-            { type: 'min', name: '最低单日' }
-          ]
-        },
-        areaStyle: {
-          color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(18, 113, 91, 0.4)' },
-            { offset: 1, color: 'rgba(18, 113, 91, 0.02)' }
-          ])
-        },
-        data: completedAmounts
-      }
-    ]
+    yAxis = [{
+      type: 'value',
+      name: '金额 (¥)',
+      splitLine: { lineStyle: { color: '#f0f3f2' } }
+    }]
+    series = [{
+      name: '已开票金额',
+      type: 'line',
+      smooth: true,
+      itemStyle: { color: '#12715b' },
+      areaStyle: {
+        color: new graphic.LinearGradient(0, 0, 0, 1, [
+          { offset: 0, color: 'rgba(18, 113, 91, 0.35)' },
+          { offset: 1, color: 'rgba(18, 113, 91, 0.02)' }
+        ])
+      },
+      data: amounts
+    }]
   } else if (trendViewMode.value === 'created') {
-    yAxis = [
-      {
-        type: 'value',
-        name: '申请单数 (单)',
-        minInterval: 1,
-        splitLine: { lineStyle: { color: '#f0f3f2' } }
-      }
-    ]
-    series = [
-      {
-        name: '申请发票单数',
-        type: 'bar',
-        barMaxWidth: 30,
-        itemStyle: {
-          color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#2a9d8f' },
-            { offset: 1, color: '#78aea1' }
-          ]),
-          borderRadius: [4, 4, 0, 0]
-        },
-        markPoint: {
-          data: [{ type: 'max', name: '申请最高峰' }]
-        },
-        data: createdCounts
-      }
-    ]
+    yAxis = [{ type: 'value', name: '申请单数', splitLine: { lineStyle: { color: '#f0f3f2' } } }]
+    series = [{
+      name: '申请发票单数',
+      type: 'bar',
+      itemStyle: { color: '#d69a2d', borderRadius: [4, 4, 0, 0] },
+      data: createdCounts
+    }]
   } else if (trendViewMode.value === 'completed') {
-    yAxis = [
-      {
-        type: 'value',
-        name: '已开单数 (单)',
-        minInterval: 1,
-        splitLine: { lineStyle: { color: '#f0f3f2' } }
+    yAxis = [{ type: 'value', name: '已开单数', splitLine: { lineStyle: { color: '#f0f3f2' } } }]
+    series = [{
+      name: '已开发票单数',
+      type: 'bar',
+      itemStyle: { color: '#12715b', borderRadius: [4, 4, 0, 0] },
+      data: completedCounts
+    }]
+  } else if (trendViewMode.value === 'userStacked') {
+    yAxis = [{ type: 'value', name: '已开金额 (¥)', splitLine: { lineStyle: { color: '#f0f3f2' } } }]
+    const users = stats.value.userStats || []
+    series = users.map((u, i) => {
+      const uMap = new Map<string, number>()
+      u.timeline.forEach(t => uMap.set(t.date, t.amount))
+      return {
+        name: u.username,
+        type: 'line',
+        stack: 'total',
+        smooth: true,
+        itemStyle: { color: THEME_COLORS[i % THEME_COLORS.length] },
+        data: continuousDates.map(d => uMap.get(d) || 0)
       }
-    ]
-    series = [
-      {
-        name: '已开发票单数',
-        type: 'bar',
-        barMaxWidth: 30,
-        itemStyle: {
-          color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#d69a2d' },
-            { offset: 1, color: '#f5cc7f' }
-          ]),
-          borderRadius: [4, 4, 0, 0]
-        },
-        markPoint: {
-          data: [{ type: 'max', name: '开票最高峰' }]
-        },
-        data: completedCounts
-      }
-    ]
-  } else {
-    // 按用户堆叠趋势（多用户保护：最多独立呈现 TOP 7 用户，其余聚合为“其他用户”）
-    yAxis = [{ type: 'value', splitLine: { lineStyle: { color: '#f0f3f2' } } }]
-    const rawUsers = stats.value.userStats || []
-    if (rawUsers.length > 8) {
-      const sorted = [...rawUsers].sort(
-        (a, b) => b.completedCount + b.pendingCount - (a.completedCount + a.pendingCount)
-      )
-      const top7 = sorted.slice(0, 7)
-      const others = sorted.slice(7)
-      const otherTimelineMap = new Map<string, number>()
-      others.forEach(u => {
-        u.timeline.forEach(t => {
-          otherTimelineMap.set(t.date, (otherTimelineMap.get(t.date) || 0) + (t.count || 0))
-        })
-      })
-
-      series = top7.map((user, idx) => ({
-        name: user.username,
-        type: 'line',
-        smooth: true,
-        data: dates.map(date => {
-          const point = user.timeline.find(t => t.date === date)
-          return point ? point.count : 0
-        }),
-        itemStyle: { color: THEME_COLORS[idx % THEME_COLORS.length] }
-      }))
-      series.push({
-        name: '其他用户',
-        type: 'line',
-        smooth: true,
-        data: dates.map(date => otherTimelineMap.get(date) || 0),
-        itemStyle: { color: '#8898aa' }
-      })
-    } else {
-      series = rawUsers.map((user, idx) => ({
-        name: user.username,
-        type: 'line',
-        smooth: true,
-        data: dates.map(date => {
-          const point = user.timeline.find(t => t.date === date)
-          return point ? point.count : 0
-        }),
-        itemStyle: { color: THEME_COLORS[idx % THEME_COLORS.length] }
-      }))
-    }
+    })
   }
 
   const option = {
-    color: THEME_COLORS,
     tooltip: {
       ...commonTooltip,
       trigger: 'axis',
-      axisPointer: { type: 'cross', crossStyle: { color: '#cfd7d4' } },
-      formatter: (params: any[]) => {
-        if (!params || params.length === 0) return ''
-        const date = params[0].axisValue || params[0].name
-        const item = dateMap.get(date) || {
-          completedAmount: 0,
-          completedCount: 0,
-          createdCount: 0,
-          pendingCount: 0,
-          cancelledCount: 0
+      axisPointer: { type: 'cross', label: { backgroundColor: '#12715b' } },
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
+        const dateStr = params[0].axisValue
+        const dayStat = dateMap.get(dateStr)
+        let html = `<div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid #eef2f1; padding-bottom: 4px;">📅 ${dateStr}</div>`
+        params.forEach((p: any) => {
+          const val = typeof p.value === 'number' ? (p.seriesName.includes('金额') ? `¥${formatMoney(p.value)}` : `${p.value} 单`) : p.value
+          html += `<div style="display: flex; justify-content: space-between; gap: 16px; margin: 3px 0;">
+            <span>${p.marker} ${p.seriesName}:</span>
+            <b>${val}</b>
+          </div>`
+        })
+        if (dayStat && dayStat.cancelledCount > 0) {
+          html += `<div style="color: #74808b; font-size: 11px; margin-top: 4px;">已取消申请: ${dayStat.cancelledCount} 单</div>`
         }
-        const pending = item.pendingCount || 0
-        const cancelled = item.cancelledCount || 0
-        return `
-          <div style="font-weight: 600; margin-bottom: 6px; border-bottom: 1px solid #edf2f0; padding-bottom: 4px;">📅 日期: ${date}</div>
-          <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 3px;">
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#2a9d8f;margin-right:6px;"></span>申请发票数:</span>
-            <b>${item.createdCount || 0} 单</b>
-          </div>
-          <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 3px;">
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#d69a2d;margin-right:6px;"></span>已开发票数:</span>
-            <b>${item.completedCount || 0} 单</b>
-          </div>
-          ${cancelled > 0 ? `
-          <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 3px;">
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#909399;margin-right:6px;"></span>已取消申请:</span>
-            <b style="color: #909399;">${cancelled} 单</b>
-          </div>` : ''}
-          <div style="display: flex; justify-content: space-between; gap: 16px; margin-bottom: 3px;">
-            <span><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#12715b;margin-right:6px;"></span>已开票金额:</span>
-            <b>¥${formatMoney(item.completedAmount || 0)}</b>
-          </div>
-          ${pending > 0 ? `
-          <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e7e5; color: #d69a2d; font-size: 11px;">
-            ⏳ 待开票处理: <b>${pending} 单</b>
-          </div>` : (item.createdCount > 0 ? `
-          <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e2e7e5; color: #12715b; font-size: 11px;">
-            ✅ 当日发票已全开完${cancelled > 0 ? `（含 ${cancelled} 单已取消）` : ''}
-          </div>` : '')}
-        `
+        if (dayStat && dayStat.createdCount > 0 && dayStat.pendingCount === 0) {
+          html += `<div style="color: #12715b; font-size: 11px; margin-top: 2px;">✅ 当日发票已全开完${dayStat.cancelledCount > 0 ? `（含 ${dayStat.cancelledCount} 单已取消）` : ''}</div>`
+        }
+        return html
       }
     },
     legend: {
-      bottom: 0,
+      top: 0,
       icon: 'circle',
-      itemGap: 16
+      textStyle: { color: '#4d5863', fontSize: 12 }
     },
-    grid: {
-      top: 45,
-      left: 15,
-      right: trendViewMode.value === 'composite' ? 25 : 15,
-      bottom: 40,
-      containLabel: true
-    },
+    grid: { left: '3%', right: '3%', bottom: '3%', top: '40px', containLabel: true },
     xAxis: {
       type: 'category',
-      data: dates,
+      data: continuousDates,
       axisLine: { lineStyle: { color: '#cfd7d4' } },
-      axisLabel: {
-        color: '#74808b',
-        rotate: dates.length > 12 ? 30 : 0
-      }
+      axisLabel: { color: '#74808b' }
     },
     yAxis,
     series
@@ -931,9 +1113,9 @@ function initTrendChart() {
   trendChart.setOption(option, true)
 }
 
-// 2. 初始化开票类目/项目分布图 (南丁格尔玫瑰图 / 环形饼图)
+// 2. 初始化开票类目/项目分布图 (优化图一：解决小标签重叠与空心问题，支持环形/玫瑰/排行三种视图)
 function initTypeChart() {
-  if (!typeChartRef.value || !stats.value) return
+  if (!typeChartRef.value || !stats.value || typeViewMode.value === 'rank') return
   if (!typeChart) {
     typeChart = init(typeChartRef.value)
   }
@@ -948,19 +1130,39 @@ function initTypeChart() {
       amount: item.amount
     }))
   } else {
-    // 降级使用默认类目
     data = [
       {
         name: '技术服务费',
-        value: typeMetricMode.value === 'amount' ? stats.value.totalAmount : stats.value.completedInvoices,
-        count: stats.value.completedInvoices,
-        amount: stats.value.totalAmount
+        value: typeMetricMode.value === 'amount' ? (stats.value.totalAmount || 0) : (stats.value.completedInvoices || 0),
+        count: stats.value.completedInvoices || 0,
+        amount: stats.value.totalAmount || 0
       }
     ]
   }
 
+  const isAmount = typeMetricMode.value === 'amount'
+  const totalVal = data.reduce((sum, d) => sum + d.value, 0)
+  const centerMainText = isAmount ? `¥${formatMoney(totalVal)}` : `${totalVal} 笔`
+  const centerSubText = isAmount ? '类目总金额' : '总开票单数'
+
   const option = {
     color: THEME_COLORS,
+    title: {
+      text: centerMainText,
+      subtext: centerSubText,
+      left: '50%',
+      top: '42%',
+      textAlign: 'center',
+      textStyle: {
+        fontSize: totalVal > 1000000 ? 15 : 18,
+        fontWeight: 'bold',
+        color: '#20252b'
+      },
+      subtextStyle: {
+        fontSize: 11,
+        color: '#74808b'
+      }
+    },
     tooltip: {
       ...commonTooltip,
       trigger: 'item',
@@ -979,31 +1181,56 @@ function initTypeChart() {
       bottom: 0,
       icon: 'circle',
       itemWidth: 8,
-      itemHeight: 8
+      itemHeight: 8,
+      formatter: (name: string) => {
+        const found = data.find(d => d.name === name)
+        if (!found || totalVal <= 0) return name
+        const pct = ((found.value / totalVal) * 100).toFixed(1)
+        return `${name}  ${pct}%`
+      }
     },
     series: [
       {
         name: '开票类目',
         type: 'pie',
-        radius: ['38%', '68%'],
+        radius: typeViewMode.value === 'rose' ? ['26%', '70%'] : ['44%', '70%'],
         center: ['50%', '45%'],
-        roseType: data.length > 3 ? 'radius' : undefined,
+        roseType: typeViewMode.value === 'rose' ? 'radius' : undefined,
+        avoidLabelOverlap: true,
+        minAngle: 6, // 关键修复：防止 0.25% 极端微小扇区坍缩为 0px 导致标签碰撞
         itemStyle: {
           borderRadius: 6,
           borderColor: '#fff',
           borderWidth: 2
         },
+        labelLine: {
+          length: 12,
+          length2: 16,
+          maxSurfaceAngle: 80,
+          smooth: true
+        },
+        labelLayout: {
+          hideOverlap: true,
+          moveOverlap: 'shiftY'
+        },
         label: {
           show: true,
-          formatter: '{b}: {d}%',
-          color: '#4d5863'
+          formatter: (params: any) => {
+            // 对微小扇区优化显示，避免遮挡
+            if ((params.percent || 0) < 1) {
+              return `${params.name}\n${params.percent}%`
+            }
+            return `${params.name}: ${params.percent}%`
+          },
+          color: '#4d5863',
+          fontSize: 11
         },
         emphasis: {
           label: { show: true, fontWeight: 'bold' },
           itemStyle: {
             shadowBlur: 10,
             shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.2)'
+            shadowColor: 'rgba(0, 0, 0, 0.18)'
           }
         },
         data
@@ -1012,9 +1239,38 @@ function initTypeChart() {
   }
 
   typeChart.setOption(option, true)
+
+  // 鼠标悬停扇区联动中心文案
+  if (typeof (typeChart as any).off === 'function') {
+    typeChart.off('mouseover')
+    typeChart.off('mouseout')
+  }
+  if (typeof (typeChart as any).on === 'function') {
+    typeChart.on('mouseover', (params: any) => {
+      if (params.seriesType === 'pie' && typeViewMode.value === 'donut') {
+        const d = params.data || {}
+        typeChart?.setOption({
+          title: {
+            text: isAmount ? `¥${formatMoney(d.amount)}` : `${d.count || 0} 笔`,
+            subtext: `${d.name || '其他'} (${params.percent || 0}%)`
+          }
+        })
+      }
+    })
+    typeChart.on('mouseout', () => {
+      if (typeViewMode.value === 'donut') {
+        typeChart?.setOption({
+          title: {
+            text: centerMainText,
+            subtext: centerSubText
+          }
+        })
+      }
+    })
+  }
 }
 
-// 3. 初始化企业抬头开票排行 TOP 10 (横向柱状图)
+// 3. 初始化企业抬头开票排行 TOP 10 (条形图)
 function initCompanyChart() {
   if (!companyChartRef.value || !stats.value) return
   if (!companyChart) {
@@ -1026,99 +1282,78 @@ function initCompanyChart() {
   if (stats.value.companyTopStats && stats.value.companyTopStats.length > 0) {
     const sorted = [...stats.value.companyTopStats].sort((a, b) =>
       companyMetricMode.value === 'amount'
-        ? a.amount - b.amount
-        : a.count - b.count
+        ? b.amount - a.amount
+        : b.count - a.count
     )
-    companies = sorted.slice(Math.max(0, sorted.length - 10)).map(c => ({
-      name: c.companyName,
-      amount: c.amount,
-      count: c.count
+    companies = sorted.slice(0, 10).map(c => ({
+      name: c.companyName || '未知企业',
+      amount: c.amount || 0,
+      count: c.count || 0
     }))
-  } else {
-    // 模拟或根据 userStats 构造数据
-    companies = [
-      { name: '暂无企业数据', amount: 0, count: 0 }
-    ]
   }
 
-  const names = companies.map(c => c.name)
-  const values = companies.map(c =>
-    companyMetricMode.value === 'amount' ? c.amount : c.count
-  )
+  const reversed = [...companies].reverse()
+  const names = reversed.map(c => c.name)
+  const values = reversed.map(c => (companyMetricMode.value === 'amount' ? c.amount : c.count))
 
   const option = {
     tooltip: {
       ...commonTooltip,
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      formatter: (params: any[]) => {
-        if (!params || !params[0]) return ''
-        const idx = params[0].dataIndex
-        const c = companies[idx]
-        if (!c) return ''
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
+        const p = params[0]
+        const comp = reversed[p.dataIndex]
         return `
-          <div style="font-weight: 600; margin-bottom: 4px;">${c.name}</div>
-          <div>开票金额: <b>¥${formatMoney(c.amount)}</b></div>
-          <div>开票单数: <b>${c.count} 笔</b></div>
+          <div style="font-weight: 600; margin-bottom: 4px;">🏢 ${comp.name}</div>
+          <div>累计开票金额: <b>¥${formatMoney(comp.amount)}</b></div>
+          <div>开票申请笔数: <b>${comp.count} 笔</b></div>
         `
       }
     },
-    grid: {
-      top: 15,
-      left: 10,
-      right: 45,
-      bottom: 10,
-      containLabel: true
-    },
+    grid: { left: '3%', right: '8%', bottom: '3%', top: '20px', containLabel: true },
     xAxis: {
       type: 'value',
-      axisLine: { show: false },
       splitLine: { lineStyle: { color: '#f0f3f2' } },
       axisLabel: {
-        formatter: (val: number) =>
-          companyMetricMode.value === 'amount' ? `¥${val}` : `${val}单`
+        color: '#74808b',
+        formatter: (v: number) => {
+          if (companyMetricMode.value === 'amount') {
+            return v >= 10000 ? `${(v / 10000).toFixed(0)}w` : `${v}`
+          }
+          return `${v}`
+        }
       }
     },
     yAxis: {
       type: 'category',
       data: names,
       axisLine: { lineStyle: { color: '#cfd7d4' } },
-      axisTick: { show: false },
       axisLabel: {
-        width: 140,
-        overflow: 'truncate',
-        color: '#4d5863'
+        color: '#4d5863',
+        formatter: (val: string) => (val.length > 8 ? `${val.substring(0, 8)}...` : val)
       }
     },
     series: [
       {
+        name: companyMetricMode.value === 'amount' ? '累计金额 (¥)' : '申请笔数',
         type: 'bar',
-        barMaxWidth: 18,
         itemStyle: {
           borderRadius: [0, 6, 6, 0],
-          color: (params: any) => {
-            // 前 3 名给予金色/橙色高光，其余采用经典翡翠绿
-            const isTop3 = params.dataIndex >= companies.length - 3
-            if (isTop3) {
-              return new graphic.LinearGradient(1, 0, 0, 0, [
-                { offset: 0, color: '#d69a2d' },
-                { offset: 1, color: '#f5cc7f' }
-              ])
-            }
-            return new graphic.LinearGradient(1, 0, 0, 0, [
-              { offset: 0, color: '#12715b' },
-              { offset: 1, color: '#4b9584' }
-            ])
-          }
+          color: new graphic.LinearGradient(0, 0, 1, 0, [
+            { offset: 0, color: '#12715b' },
+            { offset: 1, color: '#2a9d8f' }
+          ])
         },
         label: {
           show: true,
           position: 'right',
-          color: '#4d5863',
-          formatter: (params: any) =>
-            companyMetricMode.value === 'amount'
-              ? `¥${formatMoney(params.value)}`
-              : `${params.value}单`
+          color: '#74808b',
+          fontSize: 11,
+          formatter: (p: any) => {
+            return companyMetricMode.value === 'amount' ? `¥${formatMoney(p.value)}` : `${p.value} 笔`
+          }
         },
         data: values
       }
@@ -1128,7 +1363,7 @@ function initCompanyChart() {
   companyChart.setOption(option, true)
 }
 
-// 4. 初始化用户发票分布与贡献占比 (精致环形图)
+// 4. 初始化用户发票分布与贡献占比 (圆环图)
 function initUserPieChart() {
   if (!userPieChartRef.value || !stats.value) return
   if (!userPieChart) {
@@ -1138,36 +1373,31 @@ function initUserPieChart() {
   const rawUsers = stats.value.userStats || []
   const formattedData = rawUsers.map(user => ({
     name: user.username,
-    value:
-      userMetricMode.value === 'count'
-        ? user.completedCount + user.pendingCount
-        : user.totalAmount,
-    completed: user.completedCount,
-    pending: user.pendingCount,
-    totalAmount: user.totalAmount,
-    totalCount: user.completedCount + user.pendingCount
+    value: userMetricMode.value === 'count' ? user.completedCount : user.totalAmount,
+    count: user.completedCount,
+    amount: user.totalAmount
   }))
 
-  let data = formattedData
-  if (formattedData.length > 8) {
-    const sorted = [...formattedData].sort((a, b) => b.value - a.value)
-    const top7 = sorted.slice(0, 7)
-    const others = sorted.slice(7)
-    const otherAgg = others.reduce(
-      (acc, cur) => ({
+  const sortedData = [...formattedData].sort((a, b) => b.value - a.value)
+  let displayData = sortedData
+  if (sortedData.length > 8) {
+    const top7 = sortedData.slice(0, 7)
+    const others = sortedData.slice(7)
+    const othersValue = others.reduce((sum, item) => sum + item.value, 0)
+    const othersCount = others.reduce((sum, item) => sum + item.count, 0)
+    const othersAmount = others.reduce((sum, item) => sum + item.amount, 0)
+    displayData = [
+      ...top7,
+      {
         name: '其他用户',
-        value: acc.value + cur.value,
-        completed: acc.completed + cur.completed,
-        pending: acc.pending + cur.pending,
-        totalAmount: acc.totalAmount + cur.totalAmount,
-        totalCount: acc.totalCount + cur.totalCount
-      }),
-      { name: '其他用户', value: 0, completed: 0, pending: 0, totalAmount: 0, totalCount: 0 }
-    )
-    data = [...top7, otherAgg]
+        value: othersValue,
+        count: othersCount,
+        amount: othersAmount
+      }
+    ]
   }
 
-  const totalValue = data.reduce((acc, cur) => acc + cur.value, 0)
+  const isCount = userMetricMode.value === 'count'
 
   const option = {
     color: THEME_COLORS,
@@ -1177,59 +1407,35 @@ function initUserPieChart() {
       formatter: (params: any) => {
         const d = params?.data || {}
         return `
-          <div style="font-weight: 600; margin-bottom: 4px;">${d.name || ''}</div>
-          <div>开票金额: <b>¥${formatMoney(d.totalAmount)}</b></div>
-          <div>已开发票: <b>${d.completed || 0} 笔</b></div>
-          <div>待开发票: <b>${d.pending || 0} 笔</b></div>
-          <div>发票总计: <b>${d.totalCount || 0} 笔</b></div>
-          <div>当前占比: <b>${params.percent || 0}%</b></div>
+          <div style="font-weight: 600; margin-bottom: 4px;">👤 ${d.name}</div>
+          <div>开票金额: <b>¥${formatMoney(d.amount)}</b></div>
+          <div>完成笔数: <b>${d.count} 笔</b></div>
+          <div>贡献占比: <b>${params.percent || 0}%</b></div>
         `
       }
     },
     legend: {
-      type: 'scroll',
-      orient: 'vertical',
-      right: '2%',
-      top: 'middle',
+      type: sortedData.length > 8 ? 'scroll' : 'plain',
+      orient: 'horizontal',
+      bottom: 0,
       icon: 'circle',
-      itemGap: 10,
-      formatter: (name: string) => {
-        const item = data.find(d => d.name === name)
-        if (!item) return name
-        const ratio = totalValue > 0 ? ((item.value / totalValue) * 100).toFixed(1) : '0'
-        return `${name.padEnd(10, ' ')} ${ratio}%`
-      }
+      textStyle: { color: '#4d5863', fontSize: 11 }
     },
     series: [
       {
-        name: '用户发票贡献',
+        name: isCount ? '发票数贡献' : '金额贡献',
         type: 'pie',
-        radius: ['45%', '70%'],
-        center: ['38%', '50%'],
-        avoidLabelOverlap: false,
-        itemStyle: {
-          borderRadius: 6,
-          borderColor: '#fff',
-          borderWidth: 2
-        },
+        radius: ['40%', '68%'],
+        center: ['50%', '45%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
         label: {
-          show: false,
-          position: 'center'
+          show: true,
+          formatter: '{b}: {d}%',
+          color: '#4d5863',
+          fontSize: 11
         },
-        emphasis: {
-          label: {
-            show: true,
-            fontSize: 14,
-            fontWeight: 'bold',
-            formatter: '{b}\n{d}%'
-          },
-          itemStyle: {
-            shadowBlur: 10,
-            shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.2)'
-          }
-        },
-        data
+        data: displayData
       }
     ]
   }
@@ -1237,7 +1443,7 @@ function initUserPieChart() {
   userPieChart.setOption(option, true)
 }
 
-// 5. 初始化发票金额区间画像 (柱状直方图 + 趋势折线)
+// 5. 初始化发票金额区间画像 (柱状图)
 function initAmountRangeChart() {
   if (!amountRangeChartRef.value || !stats.value) return
   if (!amountRangeChart) {
@@ -1257,75 +1463,56 @@ function initAmountRangeChart() {
 
   const labels = ranges.map(r => r.rangeLabel)
   const counts = ranges.map(r => r.count)
-  const amounts = ranges.map(r => r.amount)
 
   const option = {
     tooltip: {
       ...commonTooltip,
       trigger: 'axis',
-      axisPointer: { type: 'cross' },
-      formatter: (params: any[]) => {
-        if (!params || !params[0]) return ''
+      axisPointer: { type: 'shadow' },
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
         const idx = params[0].dataIndex
         const r = ranges[idx]
-        if (!r) return ''
         return `
-          <div style="font-weight: 600; margin-bottom: 4px;">区间: ${r.rangeLabel}</div>
-          <div>发票数量: <b>${r.count} 笔</b></div>
-          <div>区间金额合计: <b>¥${formatMoney(r.amount)}</b></div>
+          <div style="font-weight: 600; margin-bottom: 4px;">🎯 ${r.rangeLabel}</div>
+          <div>发票单数: <b>${r.count} 笔</b></div>
+          <div>累计金额: <b>¥${formatMoney(r.amount)}</b></div>
         `
       }
     },
-    grid: {
-      top: 45,
-      left: 15,
-      right: 25,
-      bottom: 25,
-      containLabel: true
-    },
+    grid: { left: '3%', right: '3%', bottom: '3%', top: '20px', containLabel: true },
     xAxis: {
       type: 'category',
       data: labels,
       axisLine: { lineStyle: { color: '#cfd7d4' } },
-      axisLabel: { color: '#4d5863' }
+      axisLabel: { color: '#4d5863', fontSize: 11 }
     },
-    yAxis: [
-      {
-        type: 'value',
-        name: '发票笔数 (单)',
-        minInterval: 1,
-        splitLine: { lineStyle: { color: '#f0f3f2' } }
-      },
-      {
-        type: 'value',
-        name: '区间金额 (¥)',
-        splitLine: { show: false },
-        axisLabel: { formatter: '¥{value}' }
-      }
-    ],
+    yAxis: {
+      type: 'value',
+      name: '笔数',
+      splitLine: { lineStyle: { color: '#f0f3f2' } },
+      axisLabel: { color: '#74808b' }
+    },
     series: [
       {
         name: '发票笔数',
         type: 'bar',
-        barMaxWidth: 32,
-        yAxisIndex: 0,
+        barWidth: '40%',
         itemStyle: {
           color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: '#2a9d8f' },
-            { offset: 1, color: '#78aea1' }
+            { offset: 0, color: '#d69a2d' },
+            { offset: 1, color: '#f4a261' }
           ]),
-          borderRadius: [4, 4, 0, 0]
+          borderRadius: [6, 6, 0, 0]
+        },
+        label: {
+          show: true,
+          position: 'top',
+          color: '#4d5863',
+          fontSize: 11,
+          formatter: '{c} 笔'
         },
         data: counts
-      },
-      {
-        name: '金额合计',
-        type: 'line',
-        yAxisIndex: 1,
-        smooth: true,
-        itemStyle: { color: '#d69a2d' },
-        lineStyle: { width: 3, color: '#d69a2d' },
-        data: amounts
       }
     ]
   }
@@ -1333,7 +1520,7 @@ function initAmountRangeChart() {
   amountRangeChart.setOption(option, true)
 }
 
-// 6. 初始化 24 小时开票申请热度峰值 (时段分布折线/面积图)
+// 6. 初始化 24 小时开票申请热度峰值 (柱状图)
 function initHourChart() {
   if (!hourChartRef.value || !stats.value) return
   if (!hourChart) {
@@ -1353,50 +1540,39 @@ function initHourChart() {
     tooltip: {
       ...commonTooltip,
       trigger: 'axis',
-      formatter: (params: any[]) => {
-        if (!params || !params[0]) return ''
-        const item = params[0]
+      axisPointer: { type: 'line' },
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
+        const p = params[0]
         return `
-          <div style="font-weight: 600; margin-bottom: 4px;">时段: ${item.name}</div>
-          <div>申请发票数: <b>${item.value || 0} 笔</b></div>
+          <div style="font-weight: 600; margin-bottom: 4px;">⏰ 时段: ${p.axisValue} - ${p.axisValue.replace(':00', ':59')}</div>
+          <div>申请发票单数: <b>${p.value} 笔</b></div>
         `
       }
     },
-    grid: {
-      top: 30,
-      left: 15,
-      right: 15,
-      bottom: 25,
-      containLabel: true
-    },
+    grid: { left: '3%', right: '3%', bottom: '3%', top: '20px', containLabel: true },
     xAxis: {
       type: 'category',
       data: hours,
       axisLine: { lineStyle: { color: '#cfd7d4' } },
-      axisLabel: {
-        color: '#74808b',
-        interval: 2
-      }
+      axisLabel: { color: '#74808b', interval: 2, fontSize: 10 }
     },
     yAxis: {
       type: 'value',
-      minInterval: 1,
-      splitLine: { lineStyle: { color: '#f0f3f2' } }
+      name: '申请单数',
+      splitLine: { lineStyle: { color: '#f0f3f2' } },
+      axisLabel: { color: '#74808b' }
     },
     series: [
       {
-        name: '申请发票数',
+        name: '申请热度',
         type: 'line',
         smooth: true,
-        symbolSize: 6,
-        itemStyle: { color: '#12715b' },
+        showSymbol: false,
         lineStyle: { width: 3, color: '#12715b' },
-        markPoint: {
-          data: [{ type: 'max', name: '最高峰时段' }]
-        },
         areaStyle: {
           color: new graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(18, 113, 91, 0.4)' },
+            { offset: 0, color: 'rgba(18, 113, 91, 0.35)' },
             { offset: 1, color: 'rgba(18, 113, 91, 0.02)' }
           ])
         },
@@ -1408,6 +1584,396 @@ function initHourChart() {
   hourChart.setOption(option, true)
 }
 
+// 7. 初始化提交渠道与发票票种画像图 (NEW: 双环模型：内环渠道API/网页，外环票种普票/专票)
+function initChannelCategoryChart() {
+  if (!channelCategoryChartRef.value || !stats.value) return
+  if (!channelCategoryChart) {
+    channelCategoryChart = init(channelCategoryChartRef.value)
+  }
+
+  const channelMap = {
+    API: 'API 接口调用',
+    MANUAL: '网页手动申请',
+    UNKNOWN: '历史未标记'
+  }
+
+  const categoryMap = {
+    NORMAL: '增值税普通发票',
+    VAT_SPECIAL: '增值税专用发票'
+  }
+
+  const channelList = (stats.value.channelStats && stats.value.channelStats.length > 0)
+    ? stats.value.channelStats.map(c => ({
+        name: channelMap[c.channel as keyof typeof channelMap] || c.channel,
+        value: c.count,
+        amount: c.amount
+      }))
+    : [
+        { name: 'API 接口调用', value: stats.value.completedInvoices || 0, amount: stats.value.totalAmount || 0 }
+      ]
+
+  const categoryList = (stats.value.categoryStats && stats.value.categoryStats.length > 0)
+    ? stats.value.categoryStats.map(c => ({
+        name: categoryMap[c.category as keyof typeof categoryMap] || c.category,
+        value: c.count,
+        amount: c.amount
+      }))
+    : [
+        { name: '增值税普通发票', value: stats.value.completedInvoices || 0, amount: stats.value.totalAmount || 0 }
+      ]
+
+  const option = {
+    tooltip: {
+      ...commonTooltip,
+      trigger: 'item',
+      formatter: (params: any) => {
+        const d = params?.data || {}
+        return `
+          <div style="font-weight: 600; margin-bottom: 4px;">${params.seriesName}: ${d.name}</div>
+          <div>发票单数: <b>${d.value || 0} 单</b></div>
+          <div>涉及金额: <b>¥${formatMoney(d.amount)}</b></div>
+          <div>层级占比: <b>${params.percent || 0}%</b></div>
+        `
+      }
+    },
+    legend: {
+      orient: 'horizontal',
+      bottom: 0,
+      icon: 'circle',
+      itemWidth: 8,
+      itemHeight: 8,
+      textStyle: { color: '#4d5863', fontSize: 11 }
+    },
+    series: [
+      {
+        name: '提交渠道',
+        type: 'pie',
+        radius: ['20%', '42%'],
+        center: ['50%', '45%'],
+        itemStyle: { borderRadius: 4, borderColor: '#fff', borderWidth: 2 },
+        label: {
+          position: 'inner',
+          fontSize: 10,
+          color: '#fff',
+          formatter: '{b}\n{d}%'
+        },
+        data: channelList.map((item, idx) => ({
+          ...item,
+          itemStyle: { color: idx === 0 ? '#12715b' : '#d69a2d' }
+        }))
+      },
+      {
+        name: '发票票种',
+        type: 'pie',
+        radius: ['52%', '72%'],
+        center: ['50%', '45%'],
+        avoidLabelOverlap: true,
+        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
+        label: {
+          formatter: '{b}: {d}%',
+          color: '#4d5863',
+          fontSize: 11
+        },
+        data: categoryList.map((item, idx) => ({
+          ...item,
+          itemStyle: { color: idx === 0 ? '#2a9d8f' : '#457b9d' }
+        }))
+      }
+    ]
+  }
+
+  channelCategoryChart.setOption(option, true)
+}
+
+// 8. 初始化开票履约服务时效分析 (NEW: SLA 阶梯分布柱状图 + 累计达成率折线)
+function initFulfillmentChart() {
+  if (!fulfillmentChartRef.value || !stats.value) return
+  if (!fulfillmentChart) {
+    fulfillmentChart = init(fulfillmentChartRef.value)
+  }
+
+  const f = stats.value.fulfillmentStats || {
+    under30Min: stats.value.completedInvoices || 0,
+    under2Hour: 0,
+    under6Hour: 0,
+    under24Hour: 0,
+    over24Hour: 0,
+    avgMinutes: 15.0,
+    fastCompletionRate: 100.0
+  }
+
+  const buckets = [
+    { label: '< 30分钟', count: f.under30Min },
+    { label: '30分-2小时', count: f.under2Hour },
+    { label: '2-6小时', count: f.under6Hour },
+    { label: '6-24小时', count: f.under24Hour },
+    { label: '> 24小时', count: f.over24Hour }
+  ]
+
+  const total = buckets.reduce((sum, b) => sum + b.count, 0)
+  let cumulative = 0
+  const rates = buckets.map(b => {
+    cumulative += b.count
+    return total > 0 ? Number(((cumulative / total) * 100).toFixed(1)) : 0
+  })
+
+  const option = {
+    tooltip: {
+      ...commonTooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
+        const idx = params[0].dataIndex
+        const b = buckets[idx]
+        const pct = total > 0 ? ((b.count / total) * 100).toFixed(1) : '0.0'
+        return `
+          <div style="font-weight: 600; margin-bottom: 4px;">⏱️ 时效区间: ${b.label}</div>
+          <div>本区间出票: <b>${b.count} 单</b> (${pct}%)</div>
+          <div>累计 SLA 达成率: <b>${rates[idx]}%</b></div>
+        `
+      }
+    },
+    grid: { left: '3%', right: '4%', bottom: '3%', top: '35px', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: buckets.map(b => b.label),
+      axisLine: { lineStyle: { color: '#cfd7d4' } },
+      axisLabel: { color: '#4d5863', fontSize: 11 }
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '开票单数',
+        splitLine: { lineStyle: { color: '#f0f3f2' } },
+        axisLabel: { color: '#74808b' }
+      },
+      {
+        type: 'value',
+        name: '累计达成率',
+        min: 0,
+        max: 100,
+        splitLine: { show: false },
+        axisLabel: { formatter: '{value}%', color: '#74808b' }
+      }
+    ],
+    series: [
+      {
+        name: '开票出票单数',
+        type: 'bar',
+        barWidth: '38%',
+        yAxisIndex: 0,
+        itemStyle: {
+          borderRadius: [6, 6, 0, 0],
+          color: new graphic.LinearGradient(0, 0, 0, 1, [
+            { offset: 0, color: '#12715b' },
+            { offset: 1, color: '#2a9d8f' }
+          ])
+        },
+        data: buckets.map(b => b.count)
+      },
+      {
+        name: '累计 SLA 履约率',
+        type: 'line',
+        smooth: true,
+        yAxisIndex: 1,
+        itemStyle: { color: '#d69a2d' },
+        lineStyle: { width: 3, color: '#d69a2d' },
+        data: rates
+      }
+    ]
+  }
+
+  fulfillmentChart.setOption(option, true)
+}
+
+// 9. 初始化平台资金与额度流动走势图 (NEW: 充值入账 vs 发票扣减双向收支柱状图)
+function initFundFlowChart() {
+  if (!fundFlowChartRef.value || !stats.value) return
+  if (!fundFlowChart) {
+    fundFlowChart = init(fundFlowChartRef.value)
+  }
+
+  let flows = stats.value.fundFlowStats?.dailyFlows || []
+  if (flows.length === 0) {
+    const dates = generateDateSequence(14)
+    flows = dates.map(d => ({
+      date: d,
+      rechargeAmount: 0,
+      deductAmount: 0,
+      netAmount: 0
+    }))
+  }
+
+  const dates = flows.map(f => f.date)
+  const recharges = flows.map(f => f.rechargeAmount)
+  const deducts = flows.map(f => f.deductAmount)
+  const nets = flows.map(f => f.netAmount)
+
+  const option = {
+    tooltip: {
+      ...commonTooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
+        const dateStr = params[0].axisValue
+        const item = flows.find(f => f.date === dateStr)
+        return `
+          <div style="font-weight: 600; margin-bottom: 4px;">📅 日期: ${dateStr}</div>
+          <div style="color: #12715b;">充值入账: <b>+¥${formatMoney(item?.rechargeAmount || 0)}</b></div>
+          <div style="color: #e76f51;">开票扣减: <b>-¥${formatMoney(item?.deductAmount || 0)}</b></div>
+          <div style="color: #20252b; margin-top: 2px; border-top: 1px dashed #eee; padding-top: 2px;">
+            净资金流动: <b>¥${formatMoney(item?.netAmount || 0)}</b>
+          </div>
+        `
+      }
+    },
+    legend: {
+      top: 0,
+      icon: 'circle',
+      textStyle: { color: '#4d5863', fontSize: 11 }
+    },
+    grid: { left: '3%', right: '3%', bottom: '3%', top: '35px', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      axisLine: { lineStyle: { color: '#cfd7d4' } },
+      axisLabel: { color: '#74808b', fontSize: 10 }
+    },
+    yAxis: {
+      type: 'value',
+      name: '金额 (¥)',
+      splitLine: { lineStyle: { color: '#f0f3f2' } },
+      axisLabel: {
+        color: '#74808b',
+        formatter: (v: number) => (v >= 10000 ? `${(v / 10000).toFixed(1)}w` : `${v}`)
+      }
+    },
+    series: [
+      {
+        name: '充值入账 (流入)',
+        type: 'bar',
+        stack: 'flow',
+        itemStyle: { color: '#12715b', borderRadius: [4, 4, 0, 0] },
+        data: recharges
+      },
+      {
+        name: '开票抵扣 (消耗)',
+        type: 'bar',
+        stack: 'flow',
+        itemStyle: { color: '#e76f51', borderRadius: [4, 4, 0, 0] },
+        data: deducts
+      },
+      {
+        name: '净流动结余',
+        type: 'line',
+        smooth: true,
+        itemStyle: { color: '#3a86ff' },
+        lineStyle: { width: 2.5, color: '#3a86ff' },
+        data: nets
+      }
+    ]
+  }
+
+  fundFlowChart.setOption(option, true)
+}
+
+// 10. 初始化供应商开票与月度结算对账走势图 (NEW: 优化图二：柱状折线对比)
+function initSettlementTrendChart() {
+  if (!settlementTrendChartRef.value || !stats.value || !isAdmin.value) return
+  if (!settlementTrendChart) {
+    settlementTrendChart = init(settlementTrendChartRef.value)
+  }
+
+  let trends = stats.value.settlementTrends || []
+  if (trends.length === 0) {
+    const curYear = new Date().getFullYear()
+    const curMonth = new Date().getMonth() + 1
+    trends = Array.from({ length: 6 }, (_, i) => {
+      const m = curMonth - (5 - i)
+      const monthStr = `${curYear}-${String(m > 0 ? m : m + 12).padStart(2, '0')}`
+      return {
+        month: monthStr,
+        invoicedAmount: 0,
+        settledAmount: 0,
+        unsettledBalance: 0
+      }
+    })
+  }
+
+  const months = trends.map(t => t.month)
+  const invoiced = trends.map(t => t.invoicedAmount)
+  const settled = trends.map(t => t.settledAmount)
+  const balances = trends.map(t => t.unsettledBalance)
+
+  const option = {
+    tooltip: {
+      ...commonTooltip,
+      trigger: 'axis',
+      axisPointer: { type: 'cross' },
+      formatter: (params: any) => {
+        if (!params || !params.length) return ''
+        const m = params[0].axisValue
+        const t = trends.find(item => item.month === m)
+        return `
+          <div style="font-weight: 600; margin-bottom: 4px;">📆 月份: ${m}</div>
+          <div style="color: #12715b;">已开票总额: <b>¥${formatMoney(t?.invoicedAmount || 0)}</b></div>
+          <div style="color: #2a9d8f;">供应商结算: <b>¥${formatMoney(t?.settledAmount || 0)}</b></div>
+          <div style="color: #d69a2d; margin-top: 2px; border-top: 1px dashed #eee; padding-top: 2px;">
+            待结对账结余: <b>¥${formatMoney(t?.unsettledBalance || 0)}</b>
+          </div>
+        `
+      }
+    },
+    legend: {
+      top: 0,
+      icon: 'circle',
+      textStyle: { color: '#4d5863', fontSize: 11 }
+    },
+    grid: { left: '3%', right: '3%', bottom: '3%', top: '35px', containLabel: true },
+    xAxis: {
+      type: 'category',
+      data: months,
+      axisLine: { lineStyle: { color: '#cfd7d4' } },
+      axisLabel: { color: '#74808b', fontSize: 11 }
+    },
+    yAxis: {
+      type: 'value',
+      name: '金额 (¥)',
+      splitLine: { lineStyle: { color: '#f0f3f2' } },
+      axisLabel: {
+        color: '#74808b',
+        formatter: (v: number) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(0)}w` : `${v}`)
+      }
+    },
+    series: [
+      {
+        name: '当月开票额 (¥)',
+        type: 'bar',
+        itemStyle: { color: '#12715b', borderRadius: [4, 4, 0, 0] },
+        data: invoiced
+      },
+      {
+        name: '当月结算额 (¥)',
+        type: 'bar',
+        itemStyle: { color: '#2a9d8f', borderRadius: [4, 4, 0, 0] },
+        data: settled
+      },
+      {
+        name: '累计待结款项 (¥)',
+        type: 'line',
+        smooth: true,
+        itemStyle: { color: '#d69a2d' },
+        lineStyle: { width: 3, color: '#d69a2d' },
+        data: balances
+      }
+    ]
+  }
+
+  settlementTrendChart.setOption(option, true)
+}
+
 // 刷新所有图表
 function renderAllCharts() {
   nextTick(() => {
@@ -1417,6 +1983,12 @@ function renderAllCharts() {
     initUserPieChart()
     initAmountRangeChart()
     initHourChart()
+    initChannelCategoryChart()
+    initFulfillmentChart()
+    initFundFlowChart()
+    if (isAdmin.value) {
+      initSettlementTrendChart()
+    }
   })
 }
 
@@ -1444,29 +2016,60 @@ async function loadSettlementHistory() {
   }
 }
 
-// 处理结算成功：修复 #7 改为 Promise.all，确保两个刷新请求并行完成后数据一致
+// 处理结算成功
 async function handleSettlementSuccess() {
   await Promise.all([loadData(), loadSettlementHistory()])
 }
 
 // 格式化日期
 function formatDate(dateString: string) {
-  const date = new Date(dateString)
-  return date.toLocaleString('zh-CN', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+  if (!dateString) return '-'
+  try {
+    const date = new Date(dateString)
+    if (isNaN(date.getTime())) return dateString
+    const y = date.getFullYear()
+    const m = String(date.getMonth() + 1).padStart(2, '0')
+    const d = String(date.getDate()).padStart(2, '0')
+    const hh = String(date.getHours()).padStart(2, '0')
+    const mm = String(date.getMinutes()).padStart(2, '0')
+    return `${y}/${m}/${d} ${hh}:${mm}`
+  } catch {
+    return dateString
+  }
 }
 
 // 监听各个维度的视图与指标切换
 watch(timeRange, () => initTrendChart())
 watch(trendViewMode, () => initTrendChart())
-watch(typeMetricMode, () => initTypeChart())
+watch(typeMetricMode, () => {
+  if (typeViewMode.value !== 'rank') initTypeChart()
+})
+watch(typeViewMode, (mode) => {
+  if (mode !== 'rank') {
+    nextTick(() => {
+      initTypeChart()
+      if (typeChart && !typeChart.isDisposed()) typeChart.resize()
+    })
+  }
+})
 watch(companyMetricMode, () => initCompanyChart())
 watch(userMetricMode, () => initUserPieChart())
+
+// 监听管理员状态变化，动态加载对账走势与流水
+watch(isAdmin, (val) => {
+  if (val) {
+    loadSettlementHistory()
+    nextTick(() => initSettlementTrendChart())
+  }
+})
+
+// 监听结算历史更新，自适应保护分页
+watch(settlementHistory, (newVal) => {
+  const maxPage = Math.max(1, Math.ceil(newVal.length / 5))
+  if (settlementCurrentPage.value > maxPage) {
+    settlementCurrentPage.value = maxPage
+  }
+})
 
 // 窗口尺寸自适应
 function handleResize() {
@@ -1476,6 +2079,10 @@ function handleResize() {
   if (userPieChart && !userPieChart.isDisposed()) userPieChart.resize()
   if (amountRangeChart && !amountRangeChart.isDisposed()) amountRangeChart.resize()
   if (hourChart && !hourChart.isDisposed()) hourChart.resize()
+  if (channelCategoryChart && !channelCategoryChart.isDisposed()) channelCategoryChart.resize()
+  if (fulfillmentChart && !fulfillmentChart.isDisposed()) fulfillmentChart.resize()
+  if (fundFlowChart && !fundFlowChart.isDisposed()) fundFlowChart.resize()
+  if (settlementTrendChart && !settlementTrendChart.isDisposed()) settlementTrendChart.resize()
 }
 
 onMounted(() => {
@@ -1497,6 +2104,10 @@ onBeforeUnmount(() => {
   if (userPieChart && !userPieChart.isDisposed()) userPieChart.dispose()
   if (amountRangeChart && !amountRangeChart.isDisposed()) amountRangeChart.dispose()
   if (hourChart && !hourChart.isDisposed()) hourChart.dispose()
+  if (channelCategoryChart && !channelCategoryChart.isDisposed()) channelCategoryChart.dispose()
+  if (fulfillmentChart && !fulfillmentChart.isDisposed()) fulfillmentChart.dispose()
+  if (fundFlowChart && !fundFlowChart.isDisposed()) fundFlowChart.dispose()
+  if (settlementTrendChart && !settlementTrendChart.isDisposed()) settlementTrendChart.dispose()
   if (resizeObserver) {
     resizeObserver.disconnect()
     resizeObserver = null
@@ -1548,103 +2159,72 @@ onBeforeUnmount(() => {
 
 @keyframes live-pulse {
   0% { transform: scale(0.9); opacity: 1; }
-  50% { transform: scale(1.3); opacity: 0.5; }
+  50% { transform: scale(1.3); opacity: 0.6; }
   100% { transform: scale(0.9); opacity: 1; }
 }
 
 .toolbar-hint {
   font-size: 13px;
-  color: var(--color-text-muted, #74808b);
+  color: #74808b;
 }
 
 .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.refresh-btn {
-  font-weight: 500;
+  gap: 10px;
 }
 
 .quick-action-btn {
-  font-weight: 600;
-  border-radius: 6px;
+  font-weight: 500;
 }
 
-/* 关键指标 KPI 卡片群 */
+/* KPI 指标卡片群 */
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   gap: 16px;
   margin-bottom: 24px;
 }
 
 .stat-card {
-  background: #ffffff;
+  padding: 16px;
   border-radius: 12px;
+  background: #ffffff;
   border: 1px solid var(--color-border, #e2e7e5);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
-  padding: 18px 20px;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+  transition: all 0.2s ease;
 }
 
 .stat-card:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.06);
+}
+
+.stat-card-featured {
+  border-color: #d1e7de;
 }
 
 .stat-card-content {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .stat-icon {
-  display: inline-flex;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 10px;
-  font-size: 20px;
+  font-size: 18px;
 }
 
-.stat-icon.primary {
-  background: #e9f4f0;
-  color: #12715b;
-}
-
-.stat-icon.warning {
-  background: #fff6df;
-  color: #d69a2d;
-}
-
-.stat-icon.success {
-  background: #eaf8ee;
-  color: #2a9d8f;
-}
-
-.stat-icon.accent {
-  background: #fdf0d5;
-  color: #b66d0b;
-}
-
-.stat-icon.cyan {
-  background: #e6f6f7;
-  color: #0077b6;
-}
-
-.stat-card-settled .stat-icon {
-  background: #eaf8ee;
-  color: #12715b;
-}
-
-.stat-card-unsettled .stat-icon {
-  background: #fff6df;
-  color: #d69a2d;
-}
+.stat-icon.primary { background: #e9f4f0; color: #12715b; }
+.stat-icon.warning { background: #fff9ed; color: #d69a2d; }
+.stat-icon.success { background: #edf8f3; color: #12715b; }
+.stat-icon.accent { background: #fdf6ec; color: #e6a23c; }
+.stat-icon.cyan { background: #e6f7ff; color: #1890ff; }
 
 .stat-copy {
   display: flex;
@@ -1659,19 +2239,14 @@ onBeforeUnmount(() => {
 }
 
 .stat-value {
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 700;
   color: #20252b;
   letter-spacing: -0.5px;
 }
 
-.stat-value.warning-text {
-  color: #d69a2d;
-}
-
-.stat-value.success-text {
-  color: #12715b;
-}
+.stat-value.warning-text { color: #d69a2d; }
+.stat-value.success-text { color: #12715b; }
 
 .stat-footer-pill {
   font-size: 12px;
@@ -1762,6 +2337,33 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
 }
 
+.header-pill-badge {
+  font-size: 12px;
+  background: #f8faf9;
+  color: #4d5863;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #eef2f1;
+}
+
+.header-pill-badge.primary {
+  background: #e9f4f0;
+  color: #12715b;
+  border-color: #d1e7de;
+}
+
+.header-pill-badge.success {
+  background: #edf8f3;
+  color: #12715b;
+  border-color: #bfe7d5;
+}
+
+.header-pill-badge.warning {
+  background: #fff9ed;
+  color: #b66d0b;
+  border-color: #f7e1b5;
+}
+
 .chart-container {
   width: 100%;
   height: 360px;
@@ -1776,6 +2378,250 @@ onBeforeUnmount(() => {
   justify-content: center;
   align-items: center;
   height: 360px;
+}
+
+/* 类目细分排行列表 (优化图一) */
+.category-rank-container {
+  height: 360px;
+  display: flex;
+  flex-direction: column;
+}
+
+.rank-list-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #74808b;
+  border-bottom: 1px solid #edf1ef;
+}
+
+.category-rank-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.category-rank-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.rank-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 130px;
+  flex-shrink: 0;
+}
+
+.rank-badge {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  background: #f0f3f2;
+  color: #74808b;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.rank-badge.rank-1 { background: #e76f51; color: #fff; }
+.rank-badge.rank-2 { background: #d69a2d; color: #fff; }
+.rank-badge.rank-3 { background: #2a9d8f; color: #fff; }
+
+.cat-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cat-name {
+  font-size: 13px;
+  color: #20252b;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rank-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rank-values {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.rank-amount {
+  color: #20252b;
+  font-size: 12px;
+}
+
+.rank-count {
+  color: #74808b;
+  font-size: 11px;
+}
+
+.rank-percent-pill {
+  font-size: 11px;
+  font-weight: 600;
+  color: #12715b;
+  background: #e9f4f0;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.cat-progress-bg {
+  width: 100%;
+  height: 6px;
+  background: #f0f3f2;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.cat-progress-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+/* 供应商结算与对账中心 (优化图二) */
+.settlement-hub-card {
+  overflow: hidden;
+}
+
+.settlement-kpi-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fbfdfc;
+  border: 1px solid #edf1ef;
+  border-radius: 8px;
+  padding: 14px 20px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.settlement-kpi-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.settlement-kpi-divider {
+  width: 1px;
+  height: 32px;
+  background: #e2e7e5;
+}
+
+.kpi-sub-label {
+  font-size: 12px;
+  color: #74808b;
+}
+
+.kpi-sub-val {
+  font-size: 18px;
+  font-weight: 700;
+  color: #20252b;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kpi-sub-val.success { color: #12715b; }
+.kpi-sub-val.warning { color: #d69a2d; }
+.kpi-sub-val.accent { color: #2a9d8f; }
+
+.settlement-kpi-item.progress-item {
+  min-width: 160px;
+  flex: 1;
+  max-width: 240px;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.progress-info .kpi-sub-val {
+  font-size: 14px;
+}
+
+.settlement-hub-body {
+  margin-top: 4px;
+}
+
+.settlement-chart-panel,
+.settlement-table-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.panel-sub-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.sub-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #20252b;
+}
+
+.sub-hint {
+  font-size: 12px;
+  color: #74808b;
+}
+
+.settlement-chart {
+  height: 330px;
+}
+
+.settlement-compact-table {
+  border: 1px solid #edf1ef;
+  border-radius: 8px;
+}
+
+.time-cell {
+  font-size: 12px;
+  color: #4d5863;
+}
+
+.amount-badge {
+  font-weight: 700;
+  color: #12715b;
+  font-size: 13px;
+}
+
+.remark-cell {
+  font-size: 12px;
+  color: #74808b;
+}
+
+.settlement-pagination {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
 }
 
 .table-empty {
@@ -1838,10 +2684,24 @@ onBeforeUnmount(() => {
     white-space: nowrap;
   }
 
+  .settlement-kpi-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .settlement-kpi-divider {
+    display: none;
+  }
+
+  .settlement-kpi-item.progress-item {
+    width: 100%;
+    max-width: none;
+  }
+
   .chart-container,
-  .chart-empty {
+  .chart-empty,
+  .settlement-chart {
     height: 270px;
   }
 }
 </style>
-

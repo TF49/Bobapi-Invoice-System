@@ -16,7 +16,8 @@ vi.mock('@/api/user', () => ({
     updateRole: vi.fn(),
     updateStatus: vi.fn(),
     updateRemark: vi.fn(),
-    resetPassword: vi.fn()
+    resetPassword: vi.fn(),
+    deleteUser: vi.fn()
   }
 }))
 
@@ -129,6 +130,7 @@ describe('AdminUsers', () => {
     mockedApi.updateStatus.mockResolvedValue({ ...alice, enabled: false })
     mockedApi.updateRemark.mockResolvedValue({ ...alice, remark: 'VIP 客户' })
     mockedApi.resetPassword.mockResolvedValue(admin)
+    mockedApi.deleteUser.mockResolvedValue(undefined)
     vi.spyOn(ElMessage, 'success').mockImplementation(() => undefined as never)
   })
 
@@ -265,5 +267,27 @@ describe('AdminUsers', () => {
     expect(mockedApi.updateRemark).toHaveBeenCalledWith(2, 'VIP 客户')
     expect(ElMessage.success).toHaveBeenCalledWith('备注更新成功')
     expect(page.find('.inline-remark-editor').exists()).toBe(false)
+  })
+
+  it('disables delete button for self and confirms before deleting another user', async () => {
+    const confirm = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue(undefined as never)
+    const page = await mountPage()
+
+    const adminDeleteBtn = page.find('[aria-label="删除 admin"]')
+    expect(adminDeleteBtn.classes()).toContain('is-disabled')
+
+    const aliceDeleteBtn = page.find('[aria-label="删除 alice"]')
+    expect(aliceDeleteBtn.classes()).not.toContain('is-disabled')
+
+    await aliceDeleteBtn.trigger('click')
+    await flushPromises()
+
+    expect(confirm).toHaveBeenCalledWith(
+      expect.stringContaining('确认删除用户“alice”？'),
+      '删除用户确认',
+      expect.objectContaining({ type: 'warning' })
+    )
+    expect(mockedApi.deleteUser).toHaveBeenCalledWith(2)
+    expect(ElMessage.success).toHaveBeenCalledWith('用户删除成功')
   })
 })
