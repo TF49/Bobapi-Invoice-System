@@ -120,6 +120,14 @@
               </el-select>
             </div>
 
+            <el-button
+              class="guide-help-button"
+              :icon="QuestionFilled"
+              link
+              @click="openGuide('quota')"
+            >
+              充值说明
+            </el-button>
             <el-button v-if="activeTab !== 'api'" type="primary" :icon="Plus" class="recharge-action-btn" @click="showRechargeDialog = true">
               申请充值
             </el-button>
@@ -712,7 +720,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Coin, Connection, CopyDocument, Filter, List, Plus, Remove, Tickets, Wallet } from '@element-plus/icons-vue'
+import { Coin, Connection, CopyDocument, Filter, List, Plus, QuestionFilled, Remove, Tickets, Wallet } from '@element-plus/icons-vue'
 import { quotaApi, type QuotaTransaction, type UserQuota } from '@/api/quota'
 import { rechargeRequestApi, type RechargeRequest } from '@/api/rechargeRequest'
 import { userApi, type ApiKeyData } from '@/api/user'
@@ -722,6 +730,10 @@ import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import RechargeRequestDialog from '@/components/RechargeRequestDialog.vue'
+
+const openGuide = (tab: 'quota' | 'invoice' | 'faq' = 'quota') => {
+  window.dispatchEvent(new CustomEvent('open-user-guide', { detail: { tab } }))
+}
 
 const activeTab = ref<'transactions' | 'requests' | 'api'>('transactions')
 const loading = ref(false)
@@ -1301,6 +1313,18 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
+}
+
+.guide-help-button {
+  font-size: 13px;
+  color: var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.guide-help-button:hover {
+  color: var(--color-primary-hover);
 }
 
 .recharge-action-btn {

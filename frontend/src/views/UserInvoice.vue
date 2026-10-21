@@ -140,6 +140,14 @@
             <div class="action-buttons-wrap">
               <span class="result-count"><i></i>{{ filteredInvoices.length }} 条记录</span>
               <el-button
+                class="guide-help-button"
+                :icon="QuestionFilled"
+                link
+                @click="openGuide('invoice')"
+              >
+                开票指引
+              </el-button>
+              <el-button
                 type="primary"
                 :icon="Plus"
                 class="submit-action-button"
@@ -1061,6 +1069,7 @@ import {
   OfficeBuilding,
   PictureRounded,
   Plus,
+  QuestionFilled,
   Postcard,
   Promotion,
   RefreshRight,
@@ -1082,6 +1091,10 @@ import { saveBlobResponse } from '@/utils/download'
 import { copyImageToClipboard } from '@/utils/clipboard'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import { ApiRequestError } from '@/utils/request'
+
+const openGuide = (tab: 'quota' | 'invoice' | 'faq' = 'invoice') => {
+  window.dispatchEvent(new CustomEvent('open-user-guide', { detail: { tab } }))
+}
 
 const formRef = ref<FormInstance>()
 const loading = ref(false)
@@ -2035,6 +2048,19 @@ onBeforeUnmount(() => {
 .category-select {
   width: 110px !important;
   flex-shrink: 0 !important;
+}
+
+.guide-help-button {
+  font-size: 13px;
+  color: var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 4px;
+}
+
+.guide-help-button:hover {
+  color: var(--color-primary-hover);
 }
 
 .action-buttons-wrap {

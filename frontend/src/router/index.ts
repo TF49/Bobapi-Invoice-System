@@ -49,6 +49,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, role: 'ADMIN' }
   },
   {
+    path: '/guide',
+    name: 'UserGuide',
+    component: () => import('@/views/UserGuide.vue'),
+    meta: { requiresAuth: true, role: ['USER', 'ADMIN', 'INVOICE_CLERK'] }
+  },
+  {
     path: '/',
     redirect: '/login'
   }

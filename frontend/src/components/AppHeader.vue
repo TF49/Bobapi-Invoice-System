@@ -43,8 +43,25 @@
         <Wallet />
         <span>我的额度</span>
       </router-link>
+      <router-link to="/guide" exact-active-class="is-active">
+        <Reading />
+        <span>使用说明</span>
+      </router-link>
     </nav>
     <div class="header-actions">
+      <div class="guide-action-wrapper">
+        <el-tooltip content="查看系统使用说明（弹窗）" placement="bottom" :show-after="300">
+          <el-button
+            class="header-guide-btn"
+            plain
+            :icon="QuestionFilled"
+            aria-label="查看使用说明"
+            @click="handleOpenGuide('quota')"
+          >
+            使用说明
+          </el-button>
+        </el-tooltip>
+      </div>
       <div v-if="userStore.role === 'ADMIN' || userStore.role === 'INVOICE_CLERK'" class="notification-bell-wrapper">
         <el-tooltip :content="bellTooltipContent" placement="bottom" :show-after="300">
           <div class="notification-bell" role="button" :aria-label="bellTooltipContent" @click="handleBellClick">
@@ -63,6 +80,7 @@
       </div>
       <el-button :icon="SwitchButton" plain aria-label="退出登录" @click="handleLogout">退出登录</el-button>
     </div>
+    <UserGuideDialog v-model="showGuideDialog" :initial-tab="guideInitialTab" />
   </header>
 </template>
 
@@ -70,10 +88,21 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElNotification } from 'element-plus'
-import { Bell, DataAnalysis, Files, SwitchButton, Tickets, UserFilled, Wallet } from '@element-plus/icons-vue'
+import {
+  Bell,
+  DataAnalysis,
+  Files,
+  QuestionFilled,
+  Reading,
+  SwitchButton,
+  Tickets,
+  UserFilled,
+  Wallet
+} from '@element-plus/icons-vue'
 import { useUserStore } from '@/stores/user'
 import { rechargeRequestApi } from '@/api/rechargeRequest'
 import { invoiceApi } from '@/api/invoice'
+import UserGuideDialog from '@/components/UserGuideDialog.vue'
 
 defineProps<{ title: string }>()
 
@@ -90,6 +119,20 @@ const roleLabel = computed(() => {
   if (userStore.role === 'INVOICE_CLERK') return '开票员'
   return '普通用户'
 })
+
+const showGuideDialog = ref(false)
+const guideInitialTab = ref<'quota' | 'invoice' | 'faq'>('quota')
+
+const handleOpenGuide = (tab: 'quota' | 'invoice' | 'faq' = 'quota') => {
+  guideInitialTab.value = tab
+  showGuideDialog.value = true
+}
+
+const handleOpenUserGuideEvent = (e: Event) => {
+  const customEvent = e as CustomEvent<{ tab?: 'quota' | 'invoice' | 'faq' }>
+  const targetTab = customEvent.detail?.tab || 'quota'
+  handleOpenGuide(targetTab)
+}
 
 const userInitial = computed(() => userStore.username.trim().slice(0, 1).toUpperCase() || 'U')
 
@@ -218,6 +261,7 @@ onMounted(() => {
   window.addEventListener('recharge-reviewed', handleRefreshAll)
   window.addEventListener('invoice-red-flush-applied', handleRedFlushAppliedEvent)
   window.addEventListener('invoice-red-flush-processed', handleRefreshAll)
+  window.addEventListener('open-user-guide', handleOpenUserGuideEvent)
 })
 
 onBeforeUnmount(() => {
@@ -239,6 +283,7 @@ onBeforeUnmount(() => {
   window.removeEventListener('recharge-reviewed', handleRefreshAll)
   window.removeEventListener('invoice-red-flush-applied', handleRedFlushAppliedEvent)
   window.removeEventListener('invoice-red-flush-processed', handleRefreshAll)
+  window.removeEventListener('open-user-guide', handleOpenUserGuideEvent)
 })
 </script>
 
@@ -329,6 +374,23 @@ h1 {
   letter-spacing: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.guide-action-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.header-guide-btn {
+  font-size: 12.5px;
+  color: var(--color-primary);
+  border-color: var(--color-border);
+}
+
+.header-guide-btn:hover {
+  color: var(--color-primary-hover);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
 }
 
 .notification-bell-wrapper {

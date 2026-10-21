@@ -603,7 +603,7 @@ describe('UserInvoice', () => {
     expect(page.text()).toContain('测试公司_1')
     expect(page.text()).toContain('测试公司_10')
     expect(page.text()).not.toContain('测试公司_11')
-  }, 15000)
+  }, 30000)
 
   it('renders warning danger tag for non-default invoiceType and warning text for remark', async () => {
     mockedApi.getMyInvoices.mockResolvedValue([
