@@ -105,6 +105,20 @@
               </el-select>
             </div>
 
+            <div class="filter-control">
+              <span class="filter-label"><Tickets /> 充值业务</span>
+              <el-select
+                v-model="filterType"
+                placeholder="全部业务"
+                class="status-select"
+                style="width: 130px;"
+              >
+                <el-option label="全部业务" value="ALL" />
+                <el-option label="发票额度" value="INVOICE" />
+                <el-option label="盖章钱包" value="SEAL" />
+              </el-select>
+            </div>
+
             <el-tooltip content="刷新数据" placement="top">
               <el-button
                 class="refresh-button"
@@ -216,16 +230,24 @@
               <template #default="{ row }">
                 <div v-if="row.feeAmount != null" class="fee-cell">
                   <span class="money-cell fee-amount">{{ formatCurrency(row.feeAmount) }}</span>
-                  <span class="fee-rate-tag">{{ getFeeRate(row.feeAmount, row.amount) }}</span>
+                  <span class="fee-rate-tag">{{ getFeeRate(row.feeAmount, row.amount, row.requestType) }}</span>
                 </div>
                 <el-tag v-else size="small" type="info" effect="plain" class="history-tag">历史记录</el-tag>
               </template>
             </el-table-column>
 
-            <el-table-column prop="amount" label="申请额度" width="150" align="right">
+            <el-table-column prop="amount" label="到账额度 / 类型" width="165" align="right">
               <template #default="{ row }">
                 <div class="quota-cell">
                   <span class="money-cell amount-positive">+{{ formatCurrency(row.amount) }}</span>
+                  <div style="margin-top: 2px;">
+                    <el-tag v-if="row.requestType === 'SEAL'" size="small" type="warning" effect="dark" round>
+                      盖章钱包
+                    </el-tag>
+                    <el-tag v-else size="small" type="info" effect="plain" round>
+                      发票额度
+                    </el-tag>
+                  </div>
                 </div>
               </template>
             </el-table-column>
@@ -775,6 +797,7 @@ const route = useRoute()
 const loading = ref(false)
 const allRequests = ref<RechargeRequest[]>([])
 const filterStatus = ref('ALL')
+const filterType = ref('ALL')
 const searchKeyword = ref('')
 
 const page = ref(1)
@@ -834,6 +857,12 @@ const filteredRequests = computed(() => {
       if (req.status !== filterStatus.value) return false
     }
 
+    // 业务类型筛选
+    if (filterType.value && filterType.value !== 'ALL') {
+      const type = req.requestType || 'INVOICE'
+      if (type !== filterType.value) return false
+    }
+
     // 关键词筛选
     const kw = searchKeyword.value.trim().toLowerCase()
     if (kw) {
@@ -881,11 +910,12 @@ const emptyDescription = computed(() => {
 // 重置筛选
 const resetFilters = () => {
   filterStatus.value = 'ALL'
+  filterType.value = 'ALL'
   searchKeyword.value = ''
   page.value = 1
 }
 
-watch([filterStatus, searchKeyword], () => {
+watch([filterStatus, filterType, searchKeyword], () => {
   page.value = 1
 })
 
@@ -963,7 +993,8 @@ const formatCurrency = (amount: number) =>
     minimumFractionDigits: 2
   }).format(Number(amount))
 
-const getFeeRate = (fee?: number | null, amount?: number | null) => {
+const getFeeRate = (fee?: number | null, amount?: number | null, requestType?: string) => {
+  if (requestType === 'SEAL') return '1:1'
   if (fee == null || !amount || amount <= 0) return '3%'
   const percent = (Number(fee) / Number(amount)) * 100
   return `${Number(percent.toFixed(1))}%`

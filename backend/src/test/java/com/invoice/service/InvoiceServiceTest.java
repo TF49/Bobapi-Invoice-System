@@ -465,6 +465,9 @@ class InvoiceServiceTest {
         assertThat(stats.fulfillmentStats()).isNotNull();
         assertThat(stats.fundFlowStats()).isNotNull();
         assertThat(stats.settlementTrends()).isNotEmpty();
+        assertThat(stats.sellerCategoryStats()).hasSize(4);
+        assertThat(stats.sellerCategoryStats()).extracting(com.invoice.dto.DashboardStats.SellerCategoryStat::key)
+                .containsExactly("default_normal", "default_special", "tech_normal", "tech_special");
     }
 
     @Test
@@ -1040,6 +1043,83 @@ class InvoiceServiceTest {
     }
 
     @Test
+    void techCompanyNormalInvoiceDeducts4PercentQuota() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(601L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-tech-normal", "测试公司", "91110000MA00000003",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "TECH", "科技公司普票备注"
+        );
+
+        assertThat(response.invoiceCategory()).isEqualTo("NORMAL");
+        assertThat(response.sellerCompany()).isEqualTo("TECH");
+        assertThat(response.feeRate()).isEqualByComparingTo(new BigDecimal("0.0400"));
+        // 科技公司普票扣除额度：100.00 * 4 / 3 = 133.33
+        assertThat(response.deductedQuota()).isEqualByComparingTo(new BigDecimal("133.33"));
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("133.33"), 601L, "开票扣除 (科技公司普票, 费率4%)");
+    }
+
+    @Test
+    void techCompanySpecialVatInvoiceDeducts10PercentQuota() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(602L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-tech-special", "测试公司", "91110000MA00000004",
+                new BigDecimal("100.00"), "技术服务费", "VAT_SPECIAL", "TECH", "科技公司专票备注"
+        );
+
+        assertThat(response.invoiceCategory()).isEqualTo("VAT_SPECIAL");
+        assertThat(response.sellerCompany()).isEqualTo("TECH");
+        assertThat(response.feeRate()).isEqualByComparingTo(new BigDecimal("0.1000"));
+        // 科技公司专票扣除额度：100.00 * 10 / 3 = 333.33
+        assertThat(response.deductedQuota()).isEqualByComparingTo(new BigDecimal("333.33"));
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("333.33"), 602L, "开票扣除 (科技公司专票, 费率10%)");
+    }
+
+    @Test
+    void cancellingTechCompanyInvoiceRefundsExactDeductedQuota() {
+        Invoice invoice = invoice(603L, 8L, "PENDING");
+        invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceCategory("VAT_SPECIAL");
+        invoice.setSellerCompany("TECH");
+        invoice.setDeductedQuota(new BigDecimal("333.33"));
+        when(invoiceMapper.selectById(603L)).thenReturn(invoice);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        service.cancelInvoice(603L, 8L);
+
+        // 取消科技专票精确退还原扣除额度：333.33
+        verify(userQuotaService).refundQuota(8L, new BigDecimal("333.33"), 603L, "取消发票申请");
+    }
+
+    @Test
+    void confirmingRedFlushOnTechCompanyInvoiceRefundsExactDeductedQuota() {
+        Invoice invoice = invoice(604L, 8L, "COMPLETED");
+        invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceCategory("NORMAL");
+        invoice.setSellerCompany("TECH");
+        invoice.setDeductedQuota(new BigDecimal("133.33"));
+        invoice.setRedFlushStatus("PENDING");
+        when(invoiceMapper.selectById(604L)).thenReturn(invoice);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        service.confirmRedFlush(604L, 1L, "冲红完成");
+
+        // 红冲科技普票精确退还原扣除额度：133.33
+        verify(userQuotaService).refundQuota(eq(8L), eq(new BigDecimal("133.33")), eq(604L), any(), eq(1L), eq("ADMIN"));
+    }
+
+    @Test
     void adminUpdatingCategoryFromNormalToSpecialAdjustsQuotaDiff() {
         Invoice invoice = invoice(505L, 8L, "PENDING");
         invoice.setAmount(new BigDecimal("100.00"));
@@ -1161,5 +1241,84 @@ class InvoiceServiceTest {
         verify(userQuotaService).adjustQuotaForInvoiceAmountChange(
                 8L, new BigDecimal("100.00"), 702L, 1L);
     }
-}
 
+    @Test
+    void batchInvoiceCreation_withTechCompany_deductsAccurateBatchQuotaAndSetsFields() {
+        doAnswer(invocation -> {
+            InvoiceBatch batch = invocation.getArgument(0);
+            batch.setId(88L);
+            return 1;
+        }).when(invoiceBatchMapper).insert(any(InvoiceBatch.class));
+        when(invoiceMapper.insertBatch(anyList())).thenReturn(2);
+        Invoice inv1 = batchInvoice(801L, 88L, 1, "科技公司A", "91110000MA00000088", "100.00");
+        inv1.setInvoiceCategory("NORMAL");
+        inv1.setSellerCompany("TECH");
+        inv1.setFeeRate(new BigDecimal("0.0400"));
+        inv1.setDeductedQuota(new BigDecimal("133.33"));
+
+        Invoice inv2 = batchInvoice(802L, 88L, 2, "科技公司B", "91110000MA00000089", "100.00");
+        inv2.setInvoiceCategory("VAT_SPECIAL");
+        inv2.setSellerCompany("TECH");
+        inv2.setFeeRate(new BigDecimal("0.1000"));
+        inv2.setDeductedQuota(new BigDecimal("333.33"));
+        when(invoiceMapper.selectByBatchId(88L)).thenReturn(List.of(inv1, inv2));
+
+        BatchInvoiceItemRequest item1 = batchItem(1, "科技公司A", "91110000MA00000088", "100.00");
+        item1.setSellerCompany("科技主体");
+        item1.setInvoiceCategory("NORMAL");
+
+        BatchInvoiceItemRequest item2 = batchItem(2, "科技公司B", "91110000MA00000089", "100.00");
+        item2.setSellerCompany("TECH");
+        item2.setInvoiceCategory("VAT_SPECIAL");
+
+        service.createInvoicesBatch(8L, "batch-tech-01", List.of(item1, item2));
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<List<Invoice>> captor = org.mockito.ArgumentCaptor.forClass(List.class);
+        verify(invoiceMapper).insertBatch(captor.capture());
+        List<Invoice> captured = captor.getValue();
+        assertThat(captured).hasSize(2);
+
+        // 第 1 笔：科技普票 100 * 4/3 = 133.33
+        assertThat(captured.get(0).getSellerCompany()).isEqualTo("TECH");
+        assertThat(captured.get(0).getFeeRate()).isEqualByComparingTo("0.0400");
+        assertThat(captured.get(0).getDeductedQuota()).isEqualByComparingTo("133.33");
+
+        // 第 2 笔：科技专票 100 * 10/3 = 333.33
+        assertThat(captured.get(1).getSellerCompany()).isEqualTo("TECH");
+        assertThat(captured.get(1).getFeeRate()).isEqualByComparingTo("0.1000");
+        assertThat(captured.get(1).getDeductedQuota()).isEqualByComparingTo("333.33");
+
+        // 批量总额度扣除：133.33 + 333.33 = 466.66
+        verify(userQuotaService).deductBatchQuota(8L, new BigDecimal("466.66"), 88L);
+    }
+
+    @Test
+    void normalizeSellerCompany_supportsChineseAliases() {
+        assertThat(service.normalizeSellerCompany("普通主体")).isEqualTo("DEFAULT");
+        assertThat(service.normalizeSellerCompany("普通公司")).isEqualTo("DEFAULT");
+        assertThat(service.normalizeSellerCompany("科技主体")).isEqualTo("TECH");
+        assertThat(service.normalizeSellerCompany("科技公司")).isEqualTo("TECH");
+        assertThat(service.normalizeSellerCompany("DEFAULT")).isEqualTo("DEFAULT");
+        assertThat(service.normalizeSellerCompany("TECH")).isEqualTo("TECH");
+    }
+
+    @Test
+    void invoiceResponseFrom_fallsBackToTechRateWhenFieldsNull() {
+        Invoice invoice = new Invoice();
+        invoice.setId(901L);
+        invoice.setCompanyName("测试");
+        invoice.setTaxNumber("91110000MA00000001");
+        invoice.setAmount(new BigDecimal("100.00"));
+        invoice.setInvoiceType("技术服务费");
+        invoice.setInvoiceCategory("VAT_SPECIAL");
+        invoice.setSellerCompany("TECH");
+        invoice.setFeeRate(null);
+        invoice.setDeductedQuota(null);
+        invoice.setStatus("PENDING");
+
+        InvoiceResponse response = InvoiceResponse.from(invoice);
+        assertThat(response.feeRate()).isEqualByComparingTo(new BigDecimal("0.1000"));
+        assertThat(response.deductedQuota()).isEqualByComparingTo(new BigDecimal("333.33"));
+    }
+}

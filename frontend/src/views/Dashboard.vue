@@ -31,7 +31,7 @@
             type="success"
             size="small"
             class="quick-action-btn"
-            @click="showSettlementDialog = true"
+            @click="openGeneralSettlement"
           >
             <el-icon><Money /></el-icon>
             <span>供应商结算</span>
@@ -494,7 +494,7 @@
                     </div>
                   </div>
                   <div class="header-controls">
-                    <el-button type="success" size="small" class="quick-action-btn" @click="showSettlementDialog = true">
+                    <el-button type="success" size="small" class="quick-action-btn" @click="openGeneralSettlement">
                       <el-icon><Money /></el-icon>
                       <span>发起结算</span>
                     </el-button>
@@ -539,6 +539,68 @@
                     color="#12715b"
                     :show-text="false"
                   />
+                </div>
+              </div>
+
+              <!-- 四大出票通道已开额度明细（供结款核对参考） -->
+              <div class="settlement-channel-matrix">
+                <div class="matrix-header">
+                  <span class="matrix-title">出票主体与票种已开额度明细 (上游结款依据)</span>
+                  <span class="matrix-hint">按出票主体公司与发票票种分类统计的已开具票面金额与参考费率</span>
+                </div>
+                <div class="channel-card-grid">
+                  <div
+                    v-for="item in sellerCategoryStatsList"
+                    :key="item.key"
+                    class="channel-stat-subcard"
+                    :class="[item.key, (item.sellerCompany || '').toLowerCase()]"
+                  >
+                    <div class="subcard-header">
+                      <div class="subcard-title-group">
+                        <span class="company-tag" :class="item.sellerCompany === 'TECH' ? 'tech-tag' : 'default-tag'">
+                          {{ item.sellerCompanyName }}
+                        </span>
+                        <span class="category-name">{{ item.categoryName }}</span>
+                      </div>
+                      <div class="subcard-right-group">
+                        <el-tag size="small" effect="plain" class="rate-badge">
+                          费率 {{ (item.feeRate * 100).toFixed(0) }}%
+                        </el-tag>
+                        <el-button
+                          type="primary"
+                          link
+                          size="small"
+                          class="channel-settle-btn"
+                          title="针对该通道已开额度发起结算"
+                          @click.stop="triggerChannelSettlement(item)"
+                        >
+                          结算
+                        </el-button>
+                      </div>
+                    </div>
+
+                    <div class="subcard-amount-box">
+                      <span class="currency">¥</span>
+                      <strong class="amount-val">{{ formatMoney(item.completedAmount) }}</strong>
+                    </div>
+
+                    <div class="subcard-meta-row">
+                      <span class="meta-cell">单数: <b>{{ item.completedCount }} 笔</b></span>
+                      <span class="meta-dot">/</span>
+                      <span class="meta-cell">占比: <b>{{ Number(item.amountRatio || 0).toFixed(1) }}%</b></span>
+                      <span class="meta-dot">/</span>
+                      <span class="meta-cell" :title="'扣除额度: ¥' + formatMoney(item.deductedQuota)">
+                        扣额: <b>¥{{ formatMoney(item.deductedQuota) }}</b>
+                      </span>
+                    </div>
+
+                    <div class="subcard-progress-track">
+                      <div
+                        class="subcard-progress-bar"
+                        :style="{ width: `${Math.max(item.completedAmount > 0 ? 2 : 0, Math.min(item.amountRatio || 0, 100))}%` }"
+                      ></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -618,6 +680,9 @@
     <SupplierSettlementDialog
       v-model="showSettlementDialog"
       :unsettled-amount="stats?.unsettledAmount"
+      :channels="sellerCategoryStatsList"
+      :initial-remark="quickSettlementRemark"
+      :initial-amount="quickSettlementAmount"
       @success="handleSettlementSuccess"
     />
   </div>
@@ -706,9 +771,23 @@ const userMetricMode = ref<'count' | 'amount'>('count')
 
 // 供应商结算相关状态
 const showSettlementDialog = ref(false)
+const quickSettlementRemark = ref('')
+const quickSettlementAmount = ref<number | undefined>(undefined)
 const settlementHistory = ref<SupplierSettlementResponse[]>([])
 const loadingSettlementHistory = ref(false)
 const settlementCurrentPage = ref(1)
+
+function openGeneralSettlement() {
+  quickSettlementRemark.value = ''
+  quickSettlementAmount.value = undefined
+  showSettlementDialog.value = true
+}
+
+function triggerChannelSettlement(item: any) {
+  quickSettlementRemark.value = `[${item.label}] 款项结算`
+  quickSettlementAmount.value = item.completedAmount > 0 ? item.completedAmount : undefined
+  showSettlementDialog.value = true
+}
 
 // 是否为管理员
 const isAdmin = computed(() => role.value === 'ADMIN')
@@ -766,6 +845,68 @@ const settlementProgressRate = computed(() => {
   if (total <= 0) return settled > 0 ? '100.0' : '0.0'
   const rate = Math.min((settled / total) * 100, 100)
   return rate.toFixed(1)
+})
+
+// 供应商四大出票通道已开额度细分统计列表（普通公司普票/专票、科技公司普票/专票）
+const sellerCategoryStatsList = computed(() => {
+  const list = stats.value?.sellerCategoryStats
+  if (list && list.length > 0) {
+    return list
+  }
+  return [
+    {
+      key: 'default_normal',
+      label: '普通公司·普票',
+      sellerCompany: 'DEFAULT',
+      sellerCompanyName: '普通公司',
+      invoiceCategory: 'NORMAL',
+      categoryName: '普通发票',
+      completedAmount: 0,
+      completedCount: 0,
+      deductedQuota: 0,
+      feeRate: 0.03,
+      amountRatio: 0
+    },
+    {
+      key: 'default_special',
+      label: '普通公司·专票',
+      sellerCompany: 'DEFAULT',
+      sellerCompanyName: '普通公司',
+      invoiceCategory: 'VAT_SPECIAL',
+      categoryName: '增值税专用发票',
+      completedAmount: 0,
+      completedCount: 0,
+      deductedQuota: 0,
+      feeRate: 0.09,
+      amountRatio: 0
+    },
+    {
+      key: 'tech_normal',
+      label: '科技公司·普票',
+      sellerCompany: 'TECH',
+      sellerCompanyName: '科技公司',
+      invoiceCategory: 'NORMAL',
+      categoryName: '普通发票',
+      completedAmount: 0,
+      completedCount: 0,
+      deductedQuota: 0,
+      feeRate: 0.04,
+      amountRatio: 0
+    },
+    {
+      key: 'tech_special',
+      label: '科技公司·专票',
+      sellerCompany: 'TECH',
+      sellerCompanyName: '科技公司',
+      invoiceCategory: 'VAT_SPECIAL',
+      categoryName: '增值税专用发票',
+      completedAmount: 0,
+      completedCount: 0,
+      deductedQuota: 0,
+      feeRate: 0.1,
+      amountRatio: 0
+    }
+  ]
 })
 
 // API 渠道渗透率
@@ -2564,6 +2705,191 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 
+/* 供应商四大出票通道已开额度明细矩阵 */
+.settlement-channel-matrix {
+  margin-bottom: 20px;
+  background: #fbfdfc;
+  border: 1px solid #edf1ef;
+  border-radius: 8px;
+  padding: 14px 18px;
+}
+
+.matrix-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.matrix-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #20252b;
+}
+
+.matrix-hint {
+  font-size: 12px;
+  color: #74808b;
+}
+
+.channel-card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.channel-stat-subcard {
+  background: #ffffff;
+  border: 1px solid #e5eae8;
+  border-radius: 8px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.25s ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.channel-stat-subcard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(18, 113, 91, 0.08);
+  border-color: #b9ddd3;
+}
+
+.subcard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.subcard-title-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.company-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.company-tag.default-tag {
+  background: #f0f7f5;
+  color: #12715b;
+  border: 1px solid #d2eae2;
+}
+
+.company-tag.tech-tag {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1px solid #dbeafe;
+}
+
+.category-name {
+  font-size: 12px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.rate-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 0 6px;
+  height: 20px;
+  line-height: 18px;
+}
+
+.subcard-right-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.channel-settle-btn {
+  font-size: 11px;
+  padding: 0 2px;
+  height: 20px;
+  color: #12715b;
+  font-weight: 500;
+}
+
+.channel-settle-btn:hover {
+  color: #0c4d3e;
+  text-decoration: underline;
+}
+
+.subcard-amount-box {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.subcard-amount-box .currency {
+  font-size: 14px;
+  font-weight: 600;
+  color: #64748b;
+}
+
+.subcard-amount-box .amount-val {
+  font-size: 19px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+}
+
+.subcard-meta-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  font-size: 11px;
+  color: #64748b;
+  margin-bottom: 8px;
+}
+
+.subcard-meta-row .meta-cell b {
+  color: #1e293b;
+  font-weight: 600;
+}
+
+.meta-dot {
+  color: #cbd5e1;
+}
+
+.subcard-progress-track {
+  height: 4px;
+  background: #f1f5f4;
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.subcard-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.4s ease;
+}
+
+/* 4个不同维度的色彩区分 */
+.channel-stat-subcard.default_normal .subcard-progress-bar {
+  background: #12715b;
+}
+.channel-stat-subcard.default_special .subcard-progress-bar {
+  background: #0284c7;
+}
+.channel-stat-subcard.tech_normal .subcard-progress-bar {
+  background: #6366f1;
+}
+.channel-stat-subcard.tech_special .subcard-progress-bar {
+  background: #e76f51;
+}
+
 .settlement-hub-body {
   margin-top: 4px;
 }
@@ -2698,10 +3024,20 @@ onBeforeUnmount(() => {
     max-width: none;
   }
 
+  .channel-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
   .chart-container,
   .chart-empty,
   .settlement-chart {
     height: 270px;
+  }
+}
+
+@media (max-width: 540px) {
+  .channel-card-grid {
+    grid-template-columns: 1fr;
   }
 }
 </style>

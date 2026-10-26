@@ -19,6 +19,12 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true, role: 'USER' }
   },
   {
+    path: '/user/documents',
+    name: 'UserDocument',
+    component: () => import('@/views/UserDocument.vue'),
+    meta: { requiresAuth: true, role: 'USER' }
+  },
+  {
     path: '/user/quota',
     name: 'UserQuota',
     component: () => import('@/views/UserQuota.vue'),
@@ -28,6 +34,12 @@ const routes: RouteRecordRaw[] = [
     path: '/admin',
     name: 'Admin',
     component: () => import('@/views/AdminInvoice.vue'),
+    meta: { requiresAuth: true, role: ['ADMIN', 'INVOICE_CLERK'] }
+  },
+  {
+    path: '/admin/documents',
+    name: 'AdminDocument',
+    component: () => import('@/views/AdminDocument.vue'),
     meta: { requiresAuth: true, role: ['ADMIN', 'INVOICE_CLERK'] }
   },
   {

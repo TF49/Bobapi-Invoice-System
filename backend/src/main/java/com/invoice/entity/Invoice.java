@@ -41,6 +41,21 @@ public class Invoice {
     private String invoiceCategory;
 
     /**
+     * 出票主体公司：DEFAULT-普通公司，TECH-科技公司
+     */
+    private String sellerCompany;
+
+    /**
+     * 实际执行费率：普通普票0.03/专票0.09，科技普票0.04/专票0.10
+     */
+    private BigDecimal feeRate;
+
+    /**
+     * 实际扣除额度（用于发票取消或红冲时精准原样退还）
+     */
+    private BigDecimal deductedQuota;
+
+    /**
      * 备注
      */
     private String remark;

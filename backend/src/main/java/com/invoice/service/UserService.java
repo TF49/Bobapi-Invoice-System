@@ -7,10 +7,12 @@ import com.invoice.dto.AdminUserResponse;
 import com.invoice.dto.AdminUserStats;
 import com.invoice.entity.Invoice;
 import com.invoice.entity.RechargeRequest;
+import com.invoice.entity.SealDocument;
 import com.invoice.entity.User;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceMapper;
 import com.invoice.mapper.RechargeRequestMapper;
+import com.invoice.mapper.SealDocumentMapper;
 import com.invoice.mapper.UserMapper;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -41,22 +43,33 @@ public class UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final UserQuotaService userQuotaService;
+    private final UserSealQuotaService userSealQuotaService;
     private final InvoiceMapper invoiceMapper;
     private final RechargeRequestMapper rechargeRequestMapper;
+    private final SealDocumentMapper sealDocumentMapper;
 
     public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder, UserQuotaService userQuotaService) {
-        this(userMapper, passwordEncoder, userQuotaService, null, null);
+        this(userMapper, passwordEncoder, userQuotaService, null, null, null, null);
+    }
+
+    public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder, UserQuotaService userQuotaService,
+                       InvoiceMapper invoiceMapper, RechargeRequestMapper rechargeRequestMapper) {
+        this(userMapper, passwordEncoder, userQuotaService, invoiceMapper, rechargeRequestMapper, null, null);
     }
 
     @org.springframework.beans.factory.annotation.Autowired
     public UserService(UserMapper userMapper, PasswordEncoder passwordEncoder, UserQuotaService userQuotaService,
                        @org.springframework.beans.factory.annotation.Autowired(required = false) InvoiceMapper invoiceMapper,
-                       @org.springframework.beans.factory.annotation.Autowired(required = false) RechargeRequestMapper rechargeRequestMapper) {
+                       @org.springframework.beans.factory.annotation.Autowired(required = false) RechargeRequestMapper rechargeRequestMapper,
+                       @org.springframework.beans.factory.annotation.Autowired(required = false) UserSealQuotaService userSealQuotaService,
+                       @org.springframework.beans.factory.annotation.Autowired(required = false) SealDocumentMapper sealDocumentMapper) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.userQuotaService = userQuotaService;
         this.invoiceMapper = invoiceMapper;
         this.rechargeRequestMapper = rechargeRequestMapper;
+        this.userSealQuotaService = userSealQuotaService;
+        this.sealDocumentMapper = sealDocumentMapper;
     }
     
     /**
@@ -96,6 +109,9 @@ public class UserService {
             userMapper.insert(user);
             // 为新用户创建初始额度记录
             userQuotaService.createInitialQuota(user.getId());
+            if (userSealQuotaService != null) {
+                userSealQuotaService.createInitialQuota(user.getId());
+            }
         } catch (DuplicateKeyException exception) {
             throw new BusinessException(HttpStatus.CONFLICT, 40901, "用户名已存在");
         }
@@ -126,6 +142,7 @@ public class UserService {
                 .toList();
 
         java.util.Map<Long, com.invoice.entity.UserQuota> quotaMap = java.util.Collections.emptyMap();
+        java.util.Map<Long, com.invoice.entity.UserSealQuota> sealQuotaMap = java.util.Collections.emptyMap();
         if (!userRoleIds.isEmpty()) {
             quotaMap = userQuotaService.getQuotasByUserIds(userRoleIds).stream()
                     .collect(java.util.stream.Collectors.toMap(
@@ -133,12 +150,19 @@ public class UserService {
                             q -> q,
                             (q1, q2) -> q2
                     ));
+            sealQuotaMap = userQuotaService.getSealQuotasByUserIds(userRoleIds).stream()
+                    .collect(java.util.stream.Collectors.toMap(
+                            com.invoice.entity.UserSealQuota::getUserId,
+                            sq -> sq,
+                            (sq1, sq2) -> sq2
+                    ));
         }
 
         final java.util.Map<Long, com.invoice.entity.UserQuota> finalQuotaMap = quotaMap;
+        final java.util.Map<Long, com.invoice.entity.UserSealQuota> finalSealQuotaMap = sealQuotaMap;
         List<AdminUserResponse> users = result.getRecords().stream()
                 .map(user -> "USER".equals(user.getRole())
-                        ? AdminUserResponse.from(user, currentUserId, finalQuotaMap.get(user.getId()))
+                        ? AdminUserResponse.from(user, currentUserId, finalQuotaMap.get(user.getId()), finalSealQuotaMap.get(user.getId()))
                         : AdminUserResponse.from(user, currentUserId))
                 .toList();
 
@@ -162,7 +186,8 @@ public class UserService {
         // the correct balance immediately without waiting for a full page reload.
         if ("USER".equals(role)) {
             com.invoice.entity.UserQuota quota = userQuotaService.getUserQuota(user.getId());
-            return AdminUserResponse.from(user, currentUserId, quota);
+            com.invoice.entity.UserSealQuota sealQuota = userQuotaService.getUserSealQuota(user.getId());
+            return AdminUserResponse.from(user, currentUserId, quota, sealQuota);
         }
         return AdminUserResponse.from(user, currentUserId);
     }
@@ -267,6 +292,14 @@ public class UserService {
                 throw new BusinessException(HttpStatus.CONFLICT, 40907, "该用户存在待审核的充值申请，请先处理后再删除");
             }
         }
+        if (sealDocumentMapper != null) {
+            long pendingDocs = sealDocumentMapper.selectCount(new LambdaQueryWrapper<SealDocument>()
+                    .eq(SealDocument::getUserId, targetUserId)
+                    .eq(SealDocument::getStatus, "PENDING"));
+            if (pendingDocs > 0) {
+                throw new BusinessException(HttpStatus.CONFLICT, 40908, "该用户存在待盖章的文件申请，请先处理后再删除");
+            }
+        }
 
         target.setEnabled(false);
         target.setApiKeyEnabled(false);
@@ -325,7 +358,8 @@ public class UserService {
     private AdminUserResponse buildResponseWithQuota(User user, Long currentUserId) {
         if ("USER".equals(user.getRole())) {
             com.invoice.entity.UserQuota quota = userQuotaService.getUserQuota(user.getId());
-            return AdminUserResponse.from(user, currentUserId, quota);
+            com.invoice.entity.UserSealQuota sealQuota = userQuotaService.getUserSealQuota(user.getId());
+            return AdminUserResponse.from(user, currentUserId, quota, sealQuota);
         }
         return AdminUserResponse.from(user, currentUserId);
     }

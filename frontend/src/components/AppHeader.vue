@@ -17,6 +17,11 @@
         <span>发票管理</span>
         <el-badge v-if="pendingRedFlushCount > 0" :value="pendingRedFlushCount" :max="99" class="nav-item-badge" />
       </router-link>
+      <router-link to="/admin/documents" exact-active-class="is-active" class="nav-with-badge">
+        <DocumentChecked />
+        <span>文件管理</span>
+        <el-badge v-if="pendingDocCount > 0" :value="pendingDocCount" :max="99" class="nav-item-badge" />
+      </router-link>
       <router-link to="/admin/recharge-requests" exact-active-class="is-active" class="nav-with-badge">
         <Tickets />
         <span>充值审核</span>
@@ -33,11 +38,20 @@
         <span>发票管理</span>
         <el-badge v-if="pendingRedFlushCount > 0" :value="pendingRedFlushCount" :max="99" class="nav-item-badge" />
       </router-link>
+      <router-link to="/admin/documents" exact-active-class="is-active" class="nav-with-badge">
+        <DocumentChecked />
+        <span>文件管理</span>
+        <el-badge v-if="pendingDocCount > 0" :value="pendingDocCount" :max="99" class="nav-item-badge" />
+      </router-link>
     </nav>
     <nav v-else class="user-nav" aria-label="用户功能导航">
       <router-link to="/user" exact-active-class="is-active">
         <Files />
         <span>我的发票</span>
+      </router-link>
+      <router-link to="/user/documents" exact-active-class="is-active">
+        <DocumentChecked />
+        <span>文件管理</span>
       </router-link>
       <router-link to="/user/quota" exact-active-class="is-active">
         <Wallet />
@@ -91,6 +105,7 @@ import { ElMessage, ElNotification } from 'element-plus'
 import {
   Bell,
   DataAnalysis,
+  DocumentChecked,
   Files,
   QuestionFilled,
   Reading,
@@ -102,6 +117,7 @@ import {
 import { useUserStore } from '@/stores/user'
 import { rechargeRequestApi } from '@/api/rechargeRequest'
 import { invoiceApi } from '@/api/invoice'
+import { sealDocumentApi } from '@/api/sealDocument'
 import UserGuideDialog from '@/components/UserGuideDialog.vue'
 
 defineProps<{ title: string }>()
@@ -110,9 +126,11 @@ const router = useRouter()
 const userStore = useUserStore()
 const pendingCount = ref(0)
 const pendingRedFlushCount = ref(0)
+const pendingDocCount = ref(0)
 let timer: number | null = null
 let rechargeBroadcastChannel: BroadcastChannel | null = null
 let invoiceBroadcastChannel: BroadcastChannel | null = null
+let documentBroadcastChannel: BroadcastChannel | null = null
 
 const roleLabel = computed(() => {
   if (userStore.role === 'ADMIN') return '管理员'
@@ -138,10 +156,10 @@ const userInitial = computed(() => userStore.username.trim().slice(0, 1).toUpper
 
 const totalPendingCount = computed(() => {
   if (userStore.role === 'ADMIN') {
-    return pendingCount.value + pendingRedFlushCount.value
+    return pendingCount.value + pendingRedFlushCount.value + pendingDocCount.value
   }
   if (userStore.role === 'INVOICE_CLERK') {
-    return pendingRedFlushCount.value
+    return pendingRedFlushCount.value + pendingDocCount.value
   }
   return 0
 })
@@ -151,10 +169,14 @@ const bellTooltipContent = computed(() => {
     const parts: string[] = []
     if (pendingCount.value > 0) parts.push(`充值待审核: ${pendingCount.value}`)
     if (pendingRedFlushCount.value > 0) parts.push(`红冲待处理: ${pendingRedFlushCount.value}`)
+    if (pendingDocCount.value > 0) parts.push(`文件待盖章: ${pendingDocCount.value}`)
     return parts.length > 0 ? parts.join('，') : '暂无待办通知'
   }
   if (userStore.role === 'INVOICE_CLERK') {
-    return pendingRedFlushCount.value > 0 ? `红冲待处理: ${pendingRedFlushCount.value}` : '暂无待处理红冲'
+    const parts: string[] = []
+    if (pendingRedFlushCount.value > 0) parts.push(`红冲待处理: ${pendingRedFlushCount.value}`)
+    if (pendingDocCount.value > 0) parts.push(`文件待盖章: ${pendingDocCount.value}`)
+    return parts.length > 0 ? parts.join('，') : '暂无待办通知'
   }
   return '通知'
 })
@@ -171,11 +193,17 @@ const handleLogout = async () => {
 
 const handleBellClick = () => {
   if (userStore.role === 'INVOICE_CLERK') {
-    router.push({ path: '/admin', query: { status: 'RED_FLUSH_PENDING' } })
+    if (pendingDocCount.value > 0 && pendingRedFlushCount.value === 0) {
+      router.push('/admin/documents')
+    } else {
+      router.push({ path: '/admin', query: { status: 'RED_FLUSH_PENDING' } })
+    }
     return
   }
   if (userStore.role === 'ADMIN') {
-    if (pendingRedFlushCount.value > 0 && pendingCount.value === 0) {
+    if (pendingDocCount.value > 0 && pendingCount.value === 0 && pendingRedFlushCount.value === 0) {
+      router.push('/admin/documents')
+    } else if (pendingRedFlushCount.value > 0 && pendingCount.value === 0) {
       router.push({ path: '/admin', query: { status: 'RED_FLUSH_PENDING' } })
     } else {
       router.push('/admin/recharge-requests')
@@ -218,13 +246,43 @@ const loadPendingRedFlushCount = async (notifyNew = false) => {
   }
 }
 
+const loadPendingDocCount = async (notifyNew = false) => {
+  if ((userStore.role === 'ADMIN' || userStore.role === 'INVOICE_CLERK') && userStore.token) {
+    try {
+      const prevCount = pendingDocCount.value
+      const count = await sealDocumentApi.getPendingCount()
+      const newCount = Number(count) || 0
+      pendingDocCount.value = newCount
+      if (notifyNew && newCount > prevCount) {
+        ElNotification({
+          title: '文件盖章待处理提醒',
+          message: `收到新的证明文件盖章申请（当前共有 ${newCount} 笔待处理），点击可前往交付`,
+          type: 'warning',
+          duration: 6000,
+          onClick: () => {
+            router.push('/admin/documents')
+          }
+        })
+      }
+    } catch (_) {
+      // 忽略错误
+    }
+  }
+}
+
 const handleRefreshAll = () => {
   loadPendingCount()
   loadPendingRedFlushCount(false)
+  loadPendingDocCount(false)
 }
 
 const handleRedFlushAppliedEvent = () => {
   loadPendingRedFlushCount(true)
+}
+
+const handleDocumentUpdatedEvent = (e: Event) => {
+  const customEvent = e as CustomEvent<{ type?: string }>
+  loadPendingDocCount(customEvent.detail?.type === 'document-uploaded')
 }
 
 onMounted(() => {
@@ -252,6 +310,13 @@ onMounted(() => {
         }
       }
     } catch (_) {}
+
+    try {
+      documentBroadcastChannel = new BroadcastChannel('bobapi-document-events')
+      documentBroadcastChannel.onmessage = (event) => {
+        loadPendingDocCount(event.data?.type === 'document-uploaded')
+      }
+    } catch (_) {}
   }
 
   // 3. 标签页激活 / 窗口聚焦 / 自定义事件即时拉取
@@ -261,6 +326,7 @@ onMounted(() => {
   window.addEventListener('recharge-reviewed', handleRefreshAll)
   window.addEventListener('invoice-red-flush-applied', handleRedFlushAppliedEvent)
   window.addEventListener('invoice-red-flush-processed', handleRefreshAll)
+  window.addEventListener('document-updated', handleDocumentUpdatedEvent)
   window.addEventListener('open-user-guide', handleOpenUserGuideEvent)
 })
 
@@ -277,12 +343,17 @@ onBeforeUnmount(() => {
     invoiceBroadcastChannel.close()
     invoiceBroadcastChannel = null
   }
+  if (documentBroadcastChannel) {
+    documentBroadcastChannel.close()
+    documentBroadcastChannel = null
+  }
   window.removeEventListener('visibilitychange', handleRefreshAll)
   window.removeEventListener('focus', handleRefreshAll)
   window.removeEventListener('recharge-created', handleRefreshAll)
   window.removeEventListener('recharge-reviewed', handleRefreshAll)
   window.removeEventListener('invoice-red-flush-applied', handleRedFlushAppliedEvent)
   window.removeEventListener('invoice-red-flush-processed', handleRefreshAll)
+  window.removeEventListener('document-updated', handleDocumentUpdatedEvent)
   window.removeEventListener('open-user-guide', handleOpenUserGuideEvent)
 })
 </script>

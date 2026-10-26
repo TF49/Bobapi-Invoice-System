@@ -331,7 +331,7 @@ describe('AdminInvoice', () => {
     const normalInvoice: Invoice = {
       ...pendingInvoice,
       id: 502,
-      companyName: '普通公司',
+      companyName: '普通企业',
       invoiceCategory: 'NORMAL'
     }
     const vatSpecialInvoice: Invoice = {
@@ -348,7 +348,7 @@ describe('AdminInvoice', () => {
     await flushPromises()
 
     expect(page.text()).toContain('专票企业A')
-    expect(page.text()).not.toContain('普通公司')
+    expect(page.text()).not.toContain('普通企业')
   })
 
   it('includes invoiceCategory when submitting edit form', async () => {

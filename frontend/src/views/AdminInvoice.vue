@@ -112,6 +112,14 @@
               </el-select>
             </div>
             <div class="filter-control">
+              <span class="filter-label"><OfficeBuilding />主体</span>
+              <el-select v-model="sellerCompanyFilter" aria-label="筛选出票主体" class="category-select" style="width: 110px">
+                <el-option label="全部主体" value="ALL" />
+                <el-option label="普通公司" value="DEFAULT" />
+                <el-option label="科技公司" value="TECH" />
+              </el-select>
+            </div>
+            <div class="filter-control">
               <span class="filter-label"><User />用户</span>
               <el-select
                 v-model="userFilter"
@@ -150,11 +158,23 @@
         </div>
         <div v-else class="table-scroll desktop-records">
           <el-table :data="paginatedInvoices" v-loading="loading" class="records-table">
-            <el-table-column prop="companyName" label="公司名称" min-width="180" show-overflow-tooltip>
+            <el-table-column prop="companyName" label="公司名称" min-width="210" show-overflow-tooltip>
               <template #default="{ row }">
                 <div class="company-cell">
                   <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
                   <strong class="company-name">{{ row.companyName }}</strong>
+                  <el-tooltip content="复制公司名称" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :loading="copyingField === `company-${row.id}`"
+                      @click.stop="handleCopyField(row.companyName, `company-${row.id}`, '公司名称')"
+                    >
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
                 </div>
               </template>
             </el-table-column>
@@ -170,45 +190,120 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="taxNumber" label="税号" min-width="170" show-overflow-tooltip>
+            <el-table-column prop="taxNumber" label="税号" min-width="180" show-overflow-tooltip>
               <template #default="{ row }">
-                <span class="tax-number-cell">{{ row.taxNumber || '-' }}</span>
+                <div class="tax-cell-box">
+                  <span class="tax-number-cell">{{ row.taxNumber || '-' }}</span>
+                  <el-tooltip v-if="row.taxNumber" content="复制税号" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :loading="copyingField === `tax-${row.id}`"
+                      @click.stop="handleCopyField(row.taxNumber, `tax-${row.id}`, '税号')"
+                    >
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column prop="amount" label="金额" width="115" align="right">
+            <el-table-column prop="amount" label="金额" width="155" align="right">
               <template #default="{ row }">
-                <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
+                <div class="amount-cell-box">
+                  <div class="amount-value-row">
+                    <span class="money-cell">{{ formatCurrency(row.amount) }}</span>
+                    <el-tooltip content="复制金额" placement="top">
+                      <el-button
+                        link
+                        type="primary"
+                        size="small"
+                        class="inline-copy-btn"
+                        :loading="copyingField === `amount-${row.id}`"
+                        @click.stop="handleCopyField(Number(row.amount).toFixed(2), `amount-${row.id}`, '金额')"
+                      >
+                        <el-icon><DocumentCopy /></el-icon>
+                      </el-button>
+                    </el-tooltip>
+                  </div>
+                  <span
+                    v-if="row.deductedQuota != null && Number(row.deductedQuota) > 0 && Math.abs(Number(row.deductedQuota) - Number(row.amount)) > 0.001"
+                    class="deducted-quota-sub"
+                    :title="`实际扣除额度: ¥${Number(row.deductedQuota).toFixed(2)}`"
+                  >
+                    扣: ¥{{ Number(row.deductedQuota).toFixed(2) }}
+                  </span>
+                </div>
               </template>
             </el-table-column>
-            <el-table-column prop="invoiceType" label="开票类型" width="165">
+            <el-table-column prop="sellerCompany" label="出票主体" width="105" align="center">
               <template #default="{ row }">
-                <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
-                  <el-icon class="vat-special-ico"><Tickets /></el-icon>
-                  <span>专票</span>
-                </span>
-                <span v-else class="normal-badge" title="增值税普通发票（普票）">
-                  <el-icon class="normal-ico"><Document /></el-icon>
-                  <span>普票</span>
-                </span>
                 <el-tag
-                  v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
-                  size="small"
-                  type="danger"
+                  v-if="row.sellerCompany === 'TECH'"
+                  type="warning"
                   effect="plain"
-                  class="type-tag warning-type-tag"
+                  size="small"
+                  class="seller-tech-tag"
+                  title="科技公司（普4%/专10%）"
                 >
-                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
-                  <span>{{ row.invoiceType }}</span>
+                  科技公司
                 </el-tag>
                 <el-tag
                   v-else
-                  size="small"
                   type="info"
                   effect="plain"
-                  class="type-tag"
+                  size="small"
+                  class="seller-default-tag"
+                  title="普通公司（普3%/专9%）"
                 >
-                  {{ row.invoiceType || '技术服务费' }}
+                  普通公司
                 </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="invoiceType" label="开票类型" width="195">
+              <template #default="{ row }">
+                <div class="invoice-type-cell">
+                  <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" :title="row.sellerCompany === 'TECH' ? '增值税专用发票（科技公司），额度按 3.33 倍扣除' : '增值税专用发票（普通公司），额度按 3 倍扣除'">
+                    <el-icon class="vat-special-ico"><Tickets /></el-icon>
+                    <span>专票</span>
+                  </span>
+                  <span v-else class="normal-badge" :title="row.sellerCompany === 'TECH' ? '增值税普通发票（科技公司），额度按 1.33 倍扣除' : '增值税普通发票（普通公司），额度按 1 倍扣除'">
+                    <el-icon class="normal-ico"><Document /></el-icon>
+                    <span>普票</span>
+                  </span>
+                  <el-tag
+                    v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'"
+                    size="small"
+                    type="danger"
+                    effect="plain"
+                    class="type-tag warning-type-tag"
+                  >
+                    <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                    <span>{{ row.invoiceType }}</span>
+                  </el-tag>
+                  <el-tag
+                    v-else
+                    size="small"
+                    type="info"
+                    effect="plain"
+                    class="type-tag"
+                  >
+                    {{ row.invoiceType || '技术服务费' }}
+                  </el-tag>
+                  <el-tooltip content="复制开票类型" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :loading="copyingField === `invoiceType-${row.id}`"
+                      @click.stop="handleCopyField(row.invoiceType || '技术服务费', `invoiceType-${row.id}`, '开票类型')"
+                    >
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
               </template>
             </el-table-column>
             <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
@@ -470,6 +565,18 @@
               <div class="company-cell">
                 <span class="company-avatar">{{ getCompanyInitial(row.companyName) }}</span>
                 <strong class="company-name">{{ row.companyName }}</strong>
+                <el-tooltip content="复制公司名称" placement="top">
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `company-${row.id}`"
+                    @click.stop="handleCopyField(row.companyName, `company-${row.id}`, '公司名称')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </el-tooltip>
               </div>
               <el-tag class="status-tag" :class="getStatusClass(row)">
                 <i class="status-dot"></i>
@@ -500,15 +607,51 @@
                   </el-tag>
                 </dd>
               </div>
-              <div>
+              <div class="mobile-detail-with-copy">
                 <dt>税号</dt>
-                <dd class="tax-number-cell">{{ row.taxNumber || '-' }}</dd>
+                <dd class="tax-number-cell">
+                  <span>{{ row.taxNumber || '-' }}</span>
+                  <el-button
+                    v-if="row.taxNumber"
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `tax-${row.id}`"
+                    @click.stop="handleCopyField(row.taxNumber, `tax-${row.id}`, '税号')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </dd>
               </div>
-              <div>
+              <div class="mobile-detail-with-copy">
                 <dt>金额</dt>
-                <dd class="money-cell">{{ formatCurrency(row.amount) }}</dd>
+                <dd class="money-cell">
+                  {{ formatCurrency(row.amount) }}
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `amount-${row.id}`"
+                    @click.stop="handleCopyField(Number(row.amount).toFixed(2), `amount-${row.id}`, '金额')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </dd>
               </div>
               <div>
+                <dt>出票主体</dt>
+                <dd>
+                  <el-tag :type="row.sellerCompany === 'TECH' ? 'warning' : 'info'" size="small">
+                    {{ row.sellerCompany === 'TECH' ? '科技公司' : '普通公司' }}
+                  </el-tag>
+                  <span v-if="row.deductedQuota != null && Number(row.deductedQuota) > 0 && Math.abs(Number(row.deductedQuota) - Number(row.amount)) > 0.001" class="mobile-deducted-hint">
+                    (扣额度 ¥{{ Number(row.deductedQuota).toFixed(2) }})
+                  </span>
+                </dd>
+              </div>
+              <div class="mobile-detail-with-copy">
                 <dt>开票类型</dt>
                 <dd :class="{ 'warning-invoice-type-text': (row.invoiceType?.trim() || '技术服务费') !== '技术服务费' }">
                   <span v-if="row.invoiceCategory === 'VAT_SPECIAL'" class="vat-special-badge" title="增值税专用发票（专票），额度按 3 倍扣除">
@@ -521,6 +664,16 @@
                   </span>
                   <el-icon v-if="(row.invoiceType?.trim() || '技术服务费') !== '技术服务费'" class="warning-icon-inline"><Warning /></el-icon>
                   {{ row.invoiceType || '技术服务费' }}
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `invoiceType-${row.id}`"
+                    @click.stop="handleCopyField(row.invoiceType || '技术服务费', `invoiceType-${row.id}`, '开票类型')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
                 </dd>
               </div>
               <div v-if="row.remark?.trim()">
@@ -729,6 +882,18 @@
             class="amount-input"
           />
         </el-form-item>
+        <el-form-item label="出票主体" prop="sellerCompany">
+          <el-radio-group v-model="editForm.sellerCompany" class="invoice-category-group">
+            <el-radio value="DEFAULT">
+              <span class="category-label normal-label"><el-icon><OfficeBuilding /></el-icon>普通公司</span>
+              <span class="category-desc" style="font-size:12px;color:#6b7280;margin-left:4px">（普 3% / 专 9%）</span>
+            </el-radio>
+            <el-radio value="TECH">
+              <span class="category-label tech-label"><el-icon><OfficeBuilding /></el-icon>科技公司</span>
+              <span class="category-desc" style="font-size:12px;color:#d97706;margin-left:4px">（普 4% / 专 10%）</span>
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="开票类型" prop="invoiceType">
           <el-select v-model="editForm.invoiceType" placeholder="请选择开票类型" class="type-select">
             <el-option label="技术服务费" value="技术服务费" />
@@ -840,9 +1005,7 @@
           show-icon
           class="red-flush-alert"
           :title="targetRedFlushRow.redFlushStatus === 'PENDING' ? '红冲标记确认' : '主动冲红作废确认'"
-          :description="targetRedFlushRow.invoiceCategory === 'VAT_SPECIAL'
-            ? '该发票为【专票】，确认标记红冲后将正式作废，系统将自动按 3 倍额度退还 ¥' + (Number(targetRedFlushRow.amount) * 3).toFixed(2) + ' 至用户额度账户！'
-            : (targetRedFlushRow.redFlushStatus === 'PENDING' ? '确认标记红冲后，该张发票将正式作废冲红，系统将自动把该发票金额全额退还至用户的开票额度账户中！' : '该操作将直接作废冲红该张已开票发票，系统将自动把发票金额全额退还至用户的开票额度账户中！')"
+          :description="`确认标记红冲后将正式作废，系统将自动退还已扣开票额度 ¥${(targetRedFlushRow.deductedQuota != null && Number(targetRedFlushRow.deductedQuota) > 0 ? Number(targetRedFlushRow.deductedQuota) : (Number(targetRedFlushRow.amount) * (targetRedFlushRow.invoiceCategory === 'VAT_SPECIAL' ? 3 : 1))).toFixed(2)} 至用户额度账户！`"
         />
         <div class="target-invoice-summary">
           <div class="summary-item">
@@ -877,6 +1040,18 @@
           <div class="summary-item">
             <span class="summary-label">发票金额：</span>
             <span class="money-cell">{{ formatCurrency(targetRedFlushRow.amount) }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">出票主体：</span>
+            <el-tag size="small" :type="targetRedFlushRow.sellerCompany === 'TECH' ? 'warning' : 'info'">
+              {{ targetRedFlushRow.sellerCompany === 'TECH' ? '科技公司' : '普通公司' }}
+            </el-tag>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">退还额度：</span>
+            <span class="money-cell" style="color: #059669; font-weight: bold;">
+              ¥{{ (targetRedFlushRow.deductedQuota != null && Number(targetRedFlushRow.deductedQuota) > 0 ? Number(targetRedFlushRow.deductedQuota) : calculateSingleQuotaDeduct(Number(targetRedFlushRow.amount || 0), targetRedFlushRow.invoiceCategory, targetRedFlushRow.sellerCompany)).toFixed(2) }}
+            </span>
           </div>
           <div v-if="targetRedFlushRow.redFlushStatus === 'PENDING'" class="summary-item full-width">
             <span class="summary-label">用户红冲原因：</span>
@@ -932,6 +1107,18 @@
           <div class="summary-item">
             <span class="summary-label">发票金额：</span>
             <span class="money-cell">{{ formatCurrency(targetRedFlushRow.amount) }}</span>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">出票主体：</span>
+            <el-tag size="small" :type="targetRedFlushRow.sellerCompany === 'TECH' ? 'warning' : 'info'">
+              {{ targetRedFlushRow.sellerCompany === 'TECH' ? '科技公司' : '普通公司' }}
+            </el-tag>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">退还额度：</span>
+            <span class="money-cell" style="color: #059669; font-weight: bold;">
+              ¥{{ (targetRedFlushRow.deductedQuota != null && Number(targetRedFlushRow.deductedQuota) > 0 ? Number(targetRedFlushRow.deductedQuota) : calculateSingleQuotaDeduct(Number(targetRedFlushRow.amount || 0), targetRedFlushRow.invoiceCategory, targetRedFlushRow.sellerCompany)).toFixed(2) }}
+            </span>
           </div>
           <div class="summary-item full-width">
             <span class="summary-label">用户红冲原因：</span>
@@ -1116,6 +1303,18 @@
             <span>针对相同抬头和金额开具多张发票（1 ~ 100 张）</span>
           </div>
         </el-form-item>
+        <el-form-item label="出票主体" prop="sellerCompany">
+          <el-radio-group v-model="submitForm.sellerCompany" class="invoice-category-group seller-company-group">
+            <el-radio value="DEFAULT">
+              <span class="category-label normal-label"><el-icon><OfficeBuilding /></el-icon>普通公司</span>
+              <span class="category-desc" style="font-size:12px;color:#6b7280;margin-left:4px">（普 3% / 专 9%）</span>
+            </el-radio>
+            <el-radio value="TECH">
+              <span class="category-label tech-label"><el-icon><OfficeBuilding /></el-icon>科技公司</span>
+              <span class="category-desc" style="font-size:12px;color:#d97706;margin-left:4px">（普 4% / 专 10%）</span>
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="开票类型" prop="invoiceType">
           <el-select v-model="submitForm.invoiceType" placeholder="请选择开票类型" class="type-select">
             <el-option label="技术服务费" value="技术服务费" />
@@ -1128,9 +1327,11 @@
           <el-radio-group v-model="submitForm.invoiceCategory" class="invoice-category-group">
             <el-radio value="NORMAL">
               <span class="normal-badge" style="margin-right:4px"><el-icon class="normal-ico"><Document /></el-icon><span>普票</span></span>
+              <span style="font-size:12px;color:#6b7280;">({{ submitForm.sellerCompany === 'TECH' ? '4% 费率，扣 1.33 倍' : '3% 费率，扣 1 倍' }})</span>
             </el-radio>
             <el-radio value="VAT_SPECIAL">
-              <span class="vat-special-badge" style="margin-right:4px"><el-icon class="vat-special-ico"><Tickets /></el-icon><span>专票</span></span>（额度按 3 倍扣除）
+              <span class="vat-special-badge" style="margin-right:4px"><el-icon class="vat-special-ico"><Tickets /></el-icon><span>专票</span></span>
+              <span style="font-size:12px;color:#d97706;">({{ submitForm.sellerCompany === 'TECH' ? '10% 费率，扣 3.33 倍' : '9% 费率，扣 3 倍' }})</span>
             </el-radio>
           </el-radio-group>
         </el-form-item>
@@ -1175,6 +1376,7 @@ import {
   Connection,
   CopyDocument,
   Document,
+  DocumentCopy,
   DocumentDelete,
   Download,
   EditPen,
@@ -1207,7 +1409,7 @@ import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import { useUserStore } from '@/stores/user'
 import { saveBlobResponse } from '@/utils/download'
-import { copyImageToClipboard } from '@/utils/clipboard'
+import { copyImageToClipboard, copyTextToClipboard } from '@/utils/clipboard'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import { ApiRequestError } from '@/utils/request'
 
@@ -1235,12 +1437,21 @@ const userStore = useUserStore()
 const loading = ref(false)
 const uploadingId = ref<number | null>(null)
 const copyingId = ref<number | null>(null)
+const copyingField = ref<string | null>(null)
 const pasteActiveId = ref<number | null>(null)
 const invoices = ref<Invoice[]>([])
 const statusFilter = ref(getInitialStatusFilter())
 const userFilter = ref('')
 const submissionTypeFilter = ref<'ALL' | 'API' | 'MANUAL' | 'UNKNOWN'>('ALL')
 const categoryFilter = ref<'ALL' | 'NORMAL' | 'VAT_SPECIAL'>('ALL')
+const sellerCompanyFilter = ref<'ALL' | 'DEFAULT' | 'TECH'>('ALL')
+
+const calculateSingleQuotaDeduct = (amount: number, category?: string, sellerCompany?: string): number => {
+  const isTech = sellerCompany === 'TECH'
+  const isSpecial = category === 'VAT_SPECIAL'
+  const feeRate = isTech ? (isSpecial ? 0.10 : 0.04) : (isSpecial ? 0.09 : 0.03)
+  return Math.round((amount * feeRate / 0.03) * 100) / 100
+}
 const searchKeyword = ref('')
 
 watch(() => route?.query?.status, (newStatus) => {
@@ -1403,6 +1614,8 @@ const filteredInvoices = computed(() => {
       (invoice.submissionType || 'UNKNOWN') === submissionTypeFilter.value
     const matchesCategory = categoryFilter.value === 'ALL' ||
       (invoice.invoiceCategory || 'NORMAL') === categoryFilter.value
+    const matchesSeller = sellerCompanyFilter.value === 'ALL' ||
+      (invoice.sellerCompany || 'DEFAULT') === sellerCompanyFilter.value
     const kw = searchKeyword.value.trim().toLowerCase()
     const matchesKeyword = !kw ||
       (invoice.companyName && invoice.companyName.toLowerCase().includes(kw)) ||
@@ -1411,8 +1624,9 @@ const filteredInvoices = computed(() => {
       (kw === 'api' && invoice.submissionType === 'API') ||
       (kw.includes('手动') && invoice.submissionType === 'MANUAL') ||
       (kw.includes('专票') && invoice.invoiceCategory === 'VAT_SPECIAL') ||
-      (kw.includes('普票') && (invoice.invoiceCategory || 'NORMAL') === 'NORMAL')
-    return matchesStatus && matchesUser && matchesSubmissionType && matchesCategory && matchesKeyword
+      (kw.includes('普票') && (invoice.invoiceCategory || 'NORMAL') === 'NORMAL') ||
+      (kw.includes('科技') && invoice.sellerCompany === 'TECH')
+    return matchesStatus && matchesUser && matchesSubmissionType && matchesCategory && matchesSeller && matchesKeyword
   })
 })
 
@@ -1424,7 +1638,7 @@ const paginatedInvoices = computed(() => {
   return filteredInvoices.value.slice(start, start + pageSize.value)
 })
 
-watch([searchKeyword, statusFilter, userFilter, submissionTypeFilter, categoryFilter], () => {
+watch([searchKeyword, statusFilter, userFilter, submissionTypeFilter, categoryFilter, sellerCompanyFilter], () => {
   page.value = 1
 })
 
@@ -1450,6 +1664,7 @@ const emptyText = computed(() => {
   if (statusFilter.value !== 'ALL') return '当前状态下暂无发票申请'
   if (submissionTypeFilter.value !== 'ALL') return '当前提交方式下暂无发票申请'
   if (categoryFilter.value !== 'ALL') return '当前发票票种下暂无发票申请'
+  if (sellerCompanyFilter.value !== 'ALL') return '当前出票主体下暂无发票申请'
   return '暂无发票申请'
 })
 
@@ -1673,6 +1888,21 @@ const handleCopyImage = async (row: Invoice) => {
   }
 }
 
+const handleCopyField = async (text: string, fieldId: string, fieldName: string) => {
+  if (copyingField.value !== null || !text) return
+  
+  copyingField.value = fieldId
+  try {
+    await copyTextToClipboard(text)
+    ElMessage.success(`${fieldName}已复制到剪贴板`)
+  } catch (error: any) {
+    console.error('复制字段失败', error)
+    ElMessage.error(`复制${fieldName}失败`)
+  } finally {
+    copyingField.value = null
+  }
+}
+
 const handleCopyPreviewImage = async () => {
   if (!previewSrc.value) return
   try {
@@ -1798,6 +2028,7 @@ const editForm = reactive<InvoiceRequest>({
   amount: 0.01,
   invoiceType: '技术服务费',
   invoiceCategory: 'NORMAL',
+  sellerCompany: 'DEFAULT',
   remark: ''
 })
 
@@ -1824,6 +2055,7 @@ const handleEditInvoice = (row: Invoice) => {
   editForm.amount = Number(row.amount)
   editForm.invoiceType = row.invoiceType || '技术服务费'
   editForm.invoiceCategory = row.invoiceCategory || 'NORMAL'
+  editForm.sellerCompany = row.sellerCompany || 'DEFAULT'
   editForm.remark = row.remark || ''
   editDialogVisible.value = true
 }
@@ -1844,6 +2076,7 @@ const handleEditSubmit = async () => {
       amount: editForm.amount,
       invoiceType: editForm.invoiceType,
       invoiceCategory: editForm.invoiceCategory || 'NORMAL',
+      sellerCompany: editForm.sellerCompany || 'DEFAULT',
       remark: editForm.remark?.trim() || undefined
     })
     ElMessage.success('修改成功')
@@ -2084,6 +2317,7 @@ const submitForm = reactive({
   count: 1,
   invoiceType: '技术服务费',
   invoiceCategory: 'NORMAL',
+  sellerCompany: 'DEFAULT',
   remark: ''
 })
 
@@ -2233,6 +2467,7 @@ const showSubmitDialog = () => {
   submitForm.count = 1
   submitForm.invoiceType = '技术服务费'
   submitForm.invoiceCategory = 'NORMAL'
+  submitForm.sellerCompany = 'DEFAULT'
   submitForm.remark = ''
   submitPendingIdempotencyKey.value = null
   resetAiParseState()
@@ -2251,14 +2486,22 @@ const handleSubmitInvoice = async () => {
     }
 
     const count = Number(submitForm.count) || 1
-    const singleQuota = submitForm.invoiceCategory === 'VAT_SPECIAL' ? submitForm.amount * 3 : submitForm.amount
+    const singleQuota = calculateSingleQuotaDeduct(submitForm.amount, submitForm.invoiceCategory, submitForm.sellerCompany)
     const requiredQuota = singleQuota * count
     if (defaultUserQuota.value !== null && requiredQuota > defaultUserQuota.value) {
-      ElMessage.error(
-        submitForm.invoiceCategory === 'VAT_SPECIAL'
-          ? `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张专票` : '专票'}按 3 倍扣除需 ¥${requiredQuota.toFixed(2)}`
-          : `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张发票` : ''}需要 ¥${requiredQuota.toFixed(2)}`
-      )
+      if (submitForm.sellerCompany === 'TECH') {
+        ElMessage.error(
+          submitForm.invoiceCategory === 'VAT_SPECIAL'
+            ? `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张科技公司专票` : '科技公司专票'}按 3.33 倍扣除需 ¥${requiredQuota.toFixed(2)}`
+            : `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张科技公司发票` : '科技公司发票'}按 1.33 倍扣除需 ¥${requiredQuota.toFixed(2)}`
+        )
+      } else {
+        ElMessage.error(
+          submitForm.invoiceCategory === 'VAT_SPECIAL'
+            ? `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张专票` : '专票'}按 3 倍扣除需 ¥${requiredQuota.toFixed(2)}`
+            : `用户 [user] 额度不足，当前余额 ¥${defaultUserQuota.value.toFixed(2)}，${count > 1 ? `共 ${count} 张发票` : ''}需要 ¥${requiredQuota.toFixed(2)}`
+        )
+      }
       return
     }
 
@@ -2273,6 +2516,7 @@ const handleSubmitInvoice = async () => {
         amount: submitForm.amount.toFixed(2),
         invoiceType: submitForm.invoiceType,
         invoiceCategory: submitForm.invoiceCategory || 'NORMAL',
+        sellerCompany: submitForm.sellerCompany || 'DEFAULT',
         remark: submitForm.remark?.trim() || undefined
       }))
       await invoiceApi.createInvoicesBatch(items, idempotencyKey, true)
@@ -2284,6 +2528,7 @@ const handleSubmitInvoice = async () => {
         amount: submitForm.amount,
         invoiceType: submitForm.invoiceType,
         invoiceCategory: submitForm.invoiceCategory || 'NORMAL',
+        sellerCompany: submitForm.sellerCompany || 'DEFAULT',
         remark: submitForm.remark?.trim() || undefined
       }, idempotencyKey)
       ElMessage.success('成功以管理员身份提交发票申请，已从用户 [user] 扣除额度')
@@ -2379,6 +2624,7 @@ const handleBatchSuccess = async () => {
   align-items: center;
   gap: 10px;
   min-width: 0;
+  position: relative;
 }
 
 .company-avatar {
@@ -2401,6 +2647,52 @@ const handleBatchSuccess = async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.inline-copy-btn {
+  opacity: 0.45;
+  transition: opacity 0.2s ease;
+  padding: 2px 4px !important;
+  margin-left: 4px !important;
+  font-size: 14px;
+  min-width: unset !important;
+  height: auto !important;
+}
+
+.company-cell:hover .inline-copy-btn,
+.amount-value-row:hover .inline-copy-btn,
+.tax-cell-box:hover .inline-copy-btn,
+.invoice-type-cell:hover .inline-copy-btn,
+.inline-copy-btn:focus,
+.inline-copy-btn:active {
+  opacity: 1;
+}
+
+.tax-cell-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.amount-cell-box {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.25;
+}
+
+.amount-value-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.invoice-type-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
 }
 
 .applicant-user-cell {
@@ -3245,6 +3537,41 @@ const handleBatchSuccess = async () => {
   margin-top: 4px;
   font-size: 12px;
   color: #6b7280;
+}
+
+.deducted-quota-sub {
+  font-size: 11px;
+  color: #ea580c;
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.seller-tech-tag {
+  color: #c2410c !important;
+  background-color: #ffedd5 !important;
+  border-color: #fed7aa !important;
+  font-weight: 600;
+}
+
+.seller-default-tag {
+  color: #4b5563 !important;
+  background-color: #f3f4f6 !important;
+  border-color: #e5e7eb !important;
+}
+
+.tech-hint {
+  background: #fff7ed !important;
+  border-color: #ffedd5 !important;
+  color: #9a3412 !important;
+}
+
+.tech-hint .hint-icon {
+  color: #ea580c !important;
+}
+
+.tech-label {
+  color: #c2410c;
+  font-weight: 600;
 }
 </style>
 

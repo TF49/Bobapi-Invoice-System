@@ -64,7 +64,7 @@ import UserGuideContent from './UserGuideContent.vue'
 const props = withDefaults(
   defineProps<{
     modelValue: boolean
-    initialTab?: 'quota' | 'invoice' | 'faq'
+    initialTab?: 'quota' | 'invoice' | 'document' | 'faq'
   }>(),
   {
     modelValue: false,
@@ -92,12 +92,14 @@ const handleOpenFullPage = () => {
   router.push('/guide')
 }
 
-const handleNavigate = (destination: 'quota' | 'invoice') => {
+const handleNavigate = (destination: 'quota' | 'invoice' | 'document') => {
   visible.value = false
   if (destination === 'quota') {
     router.push('/user/quota')
   } else if (destination === 'invoice') {
     router.push('/user')
+  } else if (destination === 'document') {
+    router.push('/user/documents')
   }
 }
 </script>

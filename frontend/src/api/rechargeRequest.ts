@@ -4,6 +4,7 @@ export interface RechargeRequest {
   id: number
   userId: number
   username?: string
+  requestType?: 'INVOICE' | 'SEAL'
   feeAmount?: number | null
   amount: number
   screenshotUrl?: string
@@ -18,6 +19,7 @@ export interface RechargeRequest {
 }
 
 export interface CreateRechargeRequest {
+  requestType?: 'INVOICE' | 'SEAL'
   feeAmount: number
   screenshotUrl: string
   remark?: string

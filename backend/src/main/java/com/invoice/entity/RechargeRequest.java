@@ -21,6 +21,11 @@ public class RechargeRequest {
     private Long userId;
 
     /**
+     * 充值类型：INVOICE-发票额度，SEAL-盖章钱包
+     */
+    private String requestType;
+
+    /**
      * 用户支付的手续费，历史记录可为空
      */
     private BigDecimal feeAmount;

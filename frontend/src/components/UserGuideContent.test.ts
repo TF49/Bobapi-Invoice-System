@@ -24,10 +24,11 @@ describe('UserGuideContent', () => {
     wrapper = null
   })
 
-  it('renders all 3 sections in a single vertical scroll layout', async () => {
+  it('renders all sections in a single vertical scroll layout including seal document service', async () => {
     const w = await mountComponent()
     expect(w.text()).toContain('额度申请指引')
     expect(w.text()).toContain('发票申请指引')
+    expect(w.text()).toContain('证明文件盖章指引')
     expect(w.text()).toContain('常见问题速查')
 
     // 充值 4 步极简流程
@@ -40,12 +41,17 @@ describe('UserGuideContent', () => {
     expect(w.text()).toContain('常规手动填单')
     expect(w.text()).toContain('AI 智能识别自动填单')
     expect(w.text()).toContain('Excel 批量导入')
+
+    // 证明文件盖章指引
+    expect(w.text()).toContain('极简称心上传')
+    expect(w.text()).toContain('审核与加盖公章')
+    expect(w.text()).toContain('在线查验与下载')
   })
 
   it('renders quick jump pill buttons and scroll hint', async () => {
     const w = await mountComponent()
     const pills = w.findAll('.pill-btn')
-    expect(pills.length).toBe(3)
+    expect(pills.length).toBe(4)
     expect(w.find('.scroll-hint').text()).toContain('上下滑动浏览全部')
 
     // Click pill to activate
@@ -57,7 +63,7 @@ describe('UserGuideContent', () => {
   it('emits navigate event when clicking action buttons', async () => {
     const w = await mountComponent()
     const actionBtns = w.findAll('.section-action-btn')
-    expect(actionBtns.length).toBeGreaterThanOrEqual(2)
+    expect(actionBtns.length).toBeGreaterThanOrEqual(3)
 
     await actionBtns[0].trigger('click')
     expect(w.emitted('navigate')).toBeTruthy()
@@ -65,5 +71,8 @@ describe('UserGuideContent', () => {
 
     await actionBtns[1].trigger('click')
     expect(w.emitted('navigate')![1]).toEqual(['invoice'])
+
+    await actionBtns[2].trigger('click')
+    expect(w.emitted('navigate')![2]).toEqual(['document'])
   })
 })

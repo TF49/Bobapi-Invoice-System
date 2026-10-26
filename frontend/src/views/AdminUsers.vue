@@ -220,12 +220,12 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column prop="quota" label="额度情况" min-width="210" align="left">
+            <el-table-column prop="quota" label="额度情况" min-width="230" align="left">
               <template #default="{ row }">
                 <template v-if="row.role === 'USER'">
                   <div class="quota-cell">
-                    <div class="quota-cell-balance">
-                      <span class="quota-balance-label">余额:</span>
+                    <div class="quota-cell-row">
+                      <span class="quota-badge">开票</span>
                       <span
                         class="quota-balance-value"
                         title="点击管理额度"
@@ -245,6 +245,15 @@
                     <div class="quota-cell-meta">
                       <span>充值 ¥{{ row.quota ? Number(row.quota.totalRecharged).toFixed(2) : '0.00' }}</span>
                       <span>扣除 ¥{{ row.quota ? Number(row.quota.totalDeducted).toFixed(2) : '0.00' }}</span>
+                    </div>
+                    <div class="quota-cell-row seal-row">
+                      <span class="quota-badge seal">盖章</span>
+                      <span
+                        class="quota-balance-value"
+                        title="点击管理额度"
+                        @click="openQuotaDialog(row)"
+                      >¥{{ row.quota?.sealBalance != null ? Number(row.quota.sealBalance).toFixed(2) : '0.00' }}</span>
+                      <span class="quota-count-meta">({{ row.quota?.sealAvailableCount ?? 0 }}次)</span>
                     </div>
                   </div>
                 </template>
@@ -347,9 +356,19 @@
                 </el-select>
               </div>
               <div v-if="row.role === 'USER'" class="user-detail-row">
-                <span class="detail-label">当前余额</span>
+                <span class="detail-label">额度情况</span>
                 <div class="mobile-quota-info">
-                  <strong class="quota-val">¥{{ row.quota ? Number(row.quota.balance).toFixed(2) : '0.00' }}</strong>
+                  <div class="mobile-quota-badges">
+                    <div class="mobile-quota-item">
+                      <span class="quota-badge">开票</span>
+                      <strong class="quota-val">¥{{ row.quota ? Number(row.quota.balance).toFixed(2) : '0.00' }}</strong>
+                    </div>
+                    <div class="mobile-quota-item">
+                      <span class="quota-badge seal">盖章</span>
+                      <strong class="quota-val">¥{{ row.quota?.sealBalance != null ? Number(row.quota.sealBalance).toFixed(2) : '0.00' }}</strong>
+                      <span class="mobile-quota-count">({{ row.quota?.sealAvailableCount ?? 0 }}次)</span>
+                    </div>
+                  </div>
                   <el-button size="small" type="primary" link @click="openQuotaDialog(row)">额度管理</el-button>
                 </div>
               </div>
@@ -449,51 +468,114 @@
     </el-dialog>
 
     <!-- 额度管理对话框 -->
-    <el-dialog v-model="quotaDialogVisible" title="额度管理" width="min(92vw, 700px)" destroy-on-close>
+    <el-dialog v-model="quotaDialogVisible" title="额度与钱包管理" width="min(94vw, 720px)" destroy-on-close>
       <template v-if="quotaTarget && quotaInfo">
         <p class="dialog-context">
-          正在管理 <strong>{{ quotaTarget.username }}</strong> 的额度。
+          正在管理用户 <strong>{{ quotaTarget.username }}</strong> 的开票额度与盖章钱包。
         </p>
         
-        <div class="quota-summary">
-          <div class="quota-summary-item">
-            <span class="label">当前余额</span>
-            <span class="value balance">{{ quotaInfo.balance.toFixed(2) }}</span>
+        <div class="quota-summary-grid">
+          <!-- 开票钱包卡片 -->
+          <div
+            class="wallet-stat-card"
+            :class="{ 'is-selected': quotaWalletType === 'INVOICE' && quotaActiveTab !== 'history' }"
+            @click="quotaActiveTab !== 'history' && (quotaWalletType = 'INVOICE')"
+          >
+            <div class="wallet-stat-header">
+              <span class="wallet-badge">开票额度</span>
+              <span class="wallet-badge-sub">开票业务扣费</span>
+            </div>
+            <div class="wallet-stat-balance-row">
+              <span class="label">当前可用余额</span>
+              <span class="value balance">¥{{ Number(quotaInfo.balance || 0).toFixed(2) }}</span>
+            </div>
+            <div class="wallet-stat-footer">
+              <span>总充值: ¥{{ Number(quotaInfo.totalRecharged || 0).toFixed(2) }}</span>
+              <span>总扣除: ¥{{ Number(quotaInfo.totalDeducted || 0).toFixed(2) }}</span>
+            </div>
           </div>
-          <div class="quota-summary-item">
-            <span class="label">总充值</span>
-            <span class="value">{{ quotaInfo.totalRecharged.toFixed(2) }}</span>
-          </div>
-          <div class="quota-summary-item">
-            <span class="label">总扣除</span>
-            <span class="value">{{ quotaInfo.totalDeducted.toFixed(2) }}</span>
+
+          <!-- 盖章钱包卡片 -->
+          <div
+            class="wallet-stat-card"
+            :class="{ 'is-selected': quotaWalletType === 'SEAL' && quotaActiveTab !== 'history' }"
+            @click="quotaActiveTab !== 'history' && (quotaWalletType = 'SEAL')"
+          >
+            <div class="wallet-stat-header">
+              <span class="wallet-badge seal">盖章钱包</span>
+              <span class="wallet-badge-sub">10.00元/次</span>
+            </div>
+            <div class="wallet-stat-balance-row">
+              <span class="label">当前可用余额</span>
+              <div class="seal-balance-group">
+                <span class="value balance">¥{{ Number(quotaInfo.sealBalance || 0).toFixed(2) }}</span>
+                <span class="seal-count-tag">折合 {{ quotaInfo.sealAvailableCount ?? Math.floor((quotaInfo.sealBalance || 0) / 10) }} 次</span>
+              </div>
+            </div>
+            <div class="wallet-stat-footer">
+              <span>总充值: ¥{{ Number(quotaInfo.sealTotalRecharged || 0).toFixed(2) }}</span>
+              <span>总扣除: ¥{{ Number(quotaInfo.sealTotalDeducted || 0).toFixed(2) }}</span>
+            </div>
           </div>
         </div>
 
         <el-tabs v-model="quotaActiveTab">
-          <el-tab-pane label="充值" name="recharge">
+          <el-tab-pane label="充值额度" name="recharge">
             <el-form ref="quotaFormRef" :model="quotaForm" label-position="top">
-              <el-form-item label="充值金额" prop="amount" :rules="[{ required: true, message: '请输入充值金额' }, { type: 'number', min: 0.01, message: '充值金额必须大于0' }]">
-                <el-input-number v-model="quotaForm.amount" :min="0.01" :max="999999.99" :precision="2" :step="100" controls-position="right" style="width: 100%" />
+              <el-form-item label="充值目标钱包">
+                <el-radio-group v-model="quotaWalletType">
+                  <el-radio-button value="INVOICE" label="INVOICE">开票钱包</el-radio-button>
+                  <el-radio-button value="SEAL" label="SEAL">盖章钱包 (10元/次)</el-radio-button>
+                </el-radio-group>
               </el-form-item>
-              <el-form-item label="备注">
+              <el-form-item
+                :label="quotaWalletType === 'SEAL' ? '充值金额 (元，10元/次)' : '充值金额 (元)'"
+                prop="amount"
+                :rules="[{ required: true, message: '请输入充值金额' }, { type: 'number', min: 0.01, message: '充值金额必须大于0' }]"
+              >
+                <el-input-number v-model="quotaForm.amount" :min="0.01" :max="999999.99" :precision="2" :step="quotaWalletType === 'SEAL' ? 10 : 100" controls-position="right" style="width: 100%" />
+                <div v-if="quotaWalletType === 'SEAL' && quotaForm.amount > 0" class="form-tip">
+                  预计增加盖章次数: <strong>{{ Math.floor(quotaForm.amount / 10) }}</strong> 次（充值后余额: ¥{{ (Number(quotaInfo.sealBalance || 0) + Number(quotaForm.amount)).toFixed(2) }}）
+                </div>
+              </el-form-item>
+              <el-form-item label="充值备注">
                 <el-input v-model="quotaForm.remark" maxlength="200" placeholder="可选，最多200个字符" />
               </el-form-item>
             </el-form>
           </el-tab-pane>
-          <el-tab-pane label="调整" name="adjust">
+          <el-tab-pane label="人工调整" name="adjust">
             <el-form ref="quotaFormRef" :model="quotaForm" label-position="top">
-              <el-form-item label="调整金额" prop="amount" :rules="[{ required: true, message: '请输入调整金额' }]">
-                <el-input-number v-model="quotaForm.amount" :precision="2" :step="100" controls-position="right" style="width: 100%" />
-                <div class="form-tip">正数表示增加，负数表示减少</div>
+              <el-form-item label="调整目标钱包">
+                <el-radio-group v-model="quotaWalletType">
+                  <el-radio-button value="INVOICE" label="INVOICE">开票钱包</el-radio-button>
+                  <el-radio-button value="SEAL" label="SEAL">盖章钱包 (10元/次)</el-radio-button>
+                </el-radio-group>
               </el-form-item>
-              <el-form-item label="备注">
+              <el-form-item
+                label="调整金额 (正数增加/负数减少)"
+                prop="amount"
+                :rules="[{ required: true, message: '请输入调整金额' }, { validator: validateAdjustAmount, trigger: 'blur' }]"
+              >
+                <el-input-number v-model="quotaForm.amount" :precision="2" :step="quotaWalletType === 'SEAL' ? 10 : 100" controls-position="right" style="width: 100%" />
+                <div class="form-tip">正数表示增加余额，负数表示扣减余额</div>
+                <div v-if="quotaWalletType === 'SEAL' && quotaForm.amount !== 0" class="form-tip">
+                  调整后盖章余额: ¥{{ (Number(quotaInfo.sealBalance || 0) + Number(quotaForm.amount)).toFixed(2) }}
+                  （折合 {{ Math.max(0, Math.floor((Number(quotaInfo.sealBalance || 0) + Number(quotaForm.amount)) / 10)) }} 次）
+                </div>
+              </el-form-item>
+              <el-form-item label="调整备注">
                 <el-input v-model="quotaForm.remark" maxlength="200" placeholder="可选，最多200个字符" />
               </el-form-item>
             </el-form>
           </el-tab-pane>
-          <el-tab-pane label="历史记录" name="history">
-            <el-table :data="paginatedQuotaTransactions" stripe max-height="300">
+          <el-tab-pane label="流水明细" name="history">
+            <div class="history-toolbar">
+              <el-radio-group v-model="quotaHistoryWalletType" size="small" @change="handleHistoryWalletChange">
+                <el-radio-button value="INVOICE" label="INVOICE">开票额度记录</el-radio-button>
+                <el-radio-button value="SEAL" label="SEAL">盖章额度记录</el-radio-button>
+              </el-radio-group>
+            </div>
+            <el-table :data="paginatedQuotaTransactions" stripe max-height="300" style="margin-top: 12px">
               <el-table-column prop="transactionType" label="类型" width="100">
                 <template #default="{ row }">
                   <el-tag :type="getTransactionTypeTag(row.transactionType)" size="small">
@@ -501,20 +583,20 @@
                   </el-tag>
                 </template>
               </el-table-column>
-              <el-table-column prop="amount" label="金额" width="120">
+              <el-table-column prop="amount" label="变动金额" width="120">
                 <template #default="{ row }">
                   <span :class="row.amount > 0 ? 'amount-positive' : 'amount-negative'">
-                    {{ row.amount > 0 ? '+' : '' }}{{ row.amount.toFixed(2) }}
+                    {{ row.amount > 0 ? '+' : '' }}{{ Number(row.amount).toFixed(2) }}
                   </span>
                 </template>
               </el-table-column>
               <el-table-column prop="balanceBefore" label="变更前" width="100">
-                <template #default="{ row }">{{ row.balanceBefore.toFixed(2) }}</template>
+                <template #default="{ row }">¥{{ Number(row.balanceBefore).toFixed(2) }}</template>
               </el-table-column>
               <el-table-column prop="balanceAfter" label="变更后" width="100">
-                <template #default="{ row }">{{ row.balanceAfter.toFixed(2) }}</template>
+                <template #default="{ row }">¥{{ Number(row.balanceAfter).toFixed(2) }}</template>
               </el-table-column>
-              <el-table-column prop="remark" label="备注" />
+              <el-table-column prop="remark" label="备注" min-width="120" show-overflow-tooltip />
               <el-table-column prop="createdAt" label="时间" width="160">
                 <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
               </el-table-column>
@@ -536,8 +618,12 @@
       </template>
       <template #footer>
         <el-button @click="quotaDialogVisible = false">关闭</el-button>
-        <el-button v-if="quotaActiveTab === 'recharge'" type="primary" :loading="quotaSubmitting" @click="submitRechargeQuota">确认充值</el-button>
-        <el-button v-if="quotaActiveTab === 'adjust'" type="warning" :loading="quotaSubmitting" @click="submitAdjustQuota">确认调整</el-button>
+        <el-button v-if="quotaActiveTab === 'recharge'" type="primary" :loading="quotaSubmitting" @click="submitRechargeQuota">
+          确认充值{{ quotaWalletType === 'SEAL' ? ' (盖章钱包)' : ' (开票钱包)' }}
+        </el-button>
+        <el-button v-if="quotaActiveTab === 'adjust'" type="warning" :loading="quotaSubmitting" @click="submitAdjustQuota">
+          确认调整{{ quotaWalletType === 'SEAL' ? ' (盖章钱包)' : ' (开票钱包)' }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -696,6 +782,8 @@ const quotaTarget = ref<ManagedUser | null>(null)
 const quotaInfo = ref<UserQuota | null>(null)
 const quotaTransactions = ref<QuotaTransaction[]>([])
 const quotaActiveTab = ref('recharge')
+const quotaWalletType = ref<'INVOICE' | 'SEAL'>('INVOICE')
+const quotaHistoryWalletType = ref<'INVOICE' | 'SEAL'>('INVOICE')
 const quotaForm = reactive<{ amount: number; remark: string }>({
   amount: 0,
   remark: ''
@@ -1066,6 +1154,8 @@ const openQuotaDialog = async (user: ManagedUser) => {
   const requestId = ++quotaDialogRequestId
   quotaTarget.value = user
   quotaActiveTab.value = 'recharge'
+  quotaWalletType.value = 'INVOICE'
+  quotaHistoryWalletType.value = 'INVOICE'
   quotaForm.amount = 0
   quotaForm.remark = ''
   quotaPendingIdempotencyKey.value = null
@@ -1074,7 +1164,9 @@ const openQuotaDialog = async (user: ManagedUser) => {
   try {
     const [userQuota, transactions] = await Promise.all([
       quotaApi.getUserQuota(user.id),
-      quotaApi.getUserTransactions(user.id)
+      quotaHistoryWalletType.value === 'INVOICE'
+        ? quotaApi.getUserTransactions(user.id)
+        : quotaApi.getUserTransactions(user.id, undefined, quotaHistoryWalletType.value)
     ])
     if (requestId !== quotaDialogRequestId || quotaTarget.value?.id !== user.id) return
     quotaInfo.value = userQuota
@@ -1089,6 +1181,36 @@ const openQuotaDialog = async (user: ManagedUser) => {
   }
 }
 
+const handleHistoryWalletChange = async () => {
+  if (!quotaTarget.value) return
+  quotaHistoryPage.value = 1
+  try {
+    quotaTransactions.value = await quotaApi.getUserTransactions(
+      quotaTarget.value.id,
+      undefined,
+      quotaHistoryWalletType.value
+    )
+  } catch (error) {
+    console.error('获取额度历史记录失败', error)
+    ElMessage.error('获取额度历史记录失败')
+  }
+}
+
+const validateAdjustAmount = (_rule: any, value: number, callback: any) => {
+  if (value === 0 || value === null || value === undefined) {
+    return callback(new Error('调整金额不能为 0'))
+  }
+  if (quotaInfo.value) {
+    const currentBalance = quotaWalletType.value === 'SEAL' 
+      ? Number(quotaInfo.value.sealBalance || 0)
+      : Number(quotaInfo.value.balance || 0)
+    if (value < 0 && currentBalance + value < 0) {
+      return callback(new Error(`扣减金额不能大于当前可用余额 (当前: ¥${currentBalance.toFixed(2)})`))
+    }
+  }
+  callback()
+}
+
 const submitRechargeQuota = async () => {
   if (!quotaFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
   const valid = await quotaFormRef.value.validate().catch(() => false)
@@ -1099,7 +1221,8 @@ const submitRechargeQuota = async () => {
   try {
     const data: RechargeQuotaRequest = {
       amount: quotaForm.amount,
-      remark: quotaForm.remark || undefined
+      remark: quotaForm.remark || undefined,
+      walletType: quotaWalletType.value
     }
     const idempotencyKey = quotaPendingIdempotencyKey.value || generateIdempotencyKey('quota')
     quotaPendingIdempotencyKey.value = idempotencyKey
@@ -1109,12 +1232,16 @@ const submitRechargeQuota = async () => {
     const row = users.value.find(u => u.id === target.id)
     if (row) row.quota = { ...updatedQuota }
     try {
-      quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+      quotaTransactions.value = await (quotaHistoryWalletType.value === 'INVOICE'
+        ? quotaApi.getUserTransactions(target.id)
+        : quotaApi.getUserTransactions(target.id, undefined, quotaHistoryWalletType.value))
     } catch (refreshError) {
       console.error('刷新额度历史失败', refreshError)
       ElMessage.warning('充值成功，但额度历史刷新失败')
     }
-    ElMessage.success('充值成功')
+    // 通知全系统盖章相关页面同步（如有）
+    window.dispatchEvent(new CustomEvent('bobapi-document-events', { detail: { type: 'QUOTA_UPDATED' } }))
+    ElMessage.success(`${quotaWalletType.value === 'SEAL' ? '盖章钱包' : '开票钱包'}充值成功`)
     quotaPendingIdempotencyKey.value = null
     quotaForm.amount = 0
     quotaForm.remark = ''
@@ -1136,7 +1263,8 @@ const submitAdjustQuota = async () => {
   try {
     const data: AdjustQuotaRequest = {
       amount: quotaForm.amount,
-      remark: quotaForm.remark || undefined
+      remark: quotaForm.remark || undefined,
+      walletType: quotaWalletType.value
     }
     const idempotencyKey = quotaPendingIdempotencyKey.value || generateIdempotencyKey('quota')
     quotaPendingIdempotencyKey.value = idempotencyKey
@@ -1146,12 +1274,16 @@ const submitAdjustQuota = async () => {
     const row = users.value.find(u => u.id === target.id)
     if (row) row.quota = { ...updatedQuota }
     try {
-      quotaTransactions.value = await quotaApi.getUserTransactions(target.id)
+      quotaTransactions.value = await (quotaHistoryWalletType.value === 'INVOICE'
+        ? quotaApi.getUserTransactions(target.id)
+        : quotaApi.getUserTransactions(target.id, undefined, quotaHistoryWalletType.value))
     } catch (refreshError) {
       console.error('刷新额度历史失败', refreshError)
       ElMessage.warning('调整成功，但额度历史刷新失败')
     }
-    ElMessage.success('调整成功')
+    // 通知全系统盖章相关页面同步（如有）
+    window.dispatchEvent(new CustomEvent('bobapi-document-events', { detail: { type: 'QUOTA_UPDATED' } }))
+    ElMessage.success(`${quotaWalletType.value === 'SEAL' ? '盖章钱包' : '开票钱包'}调整成功`)
     quotaPendingIdempotencyKey.value = null
     quotaForm.amount = 0
     quotaForm.remark = ''
@@ -1167,7 +1299,8 @@ const getTransactionTypeLabel = (type: string) => {
   const labels: Record<string, string> = {
     RECHARGE: '充值',
     DEDUCT: '扣除',
-    ADJUST: '调整'
+    ADJUST: '调整',
+    REFUND: '退费'
   }
   return labels[type] || type
 }
@@ -1176,13 +1309,22 @@ const getTransactionTypeTag = (type: string) => {
   const tags: Record<string, any> = {
     RECHARGE: 'success',
     DEDUCT: 'danger',
-    ADJUST: 'warning'
+    ADJUST: 'warning',
+    REFUND: 'info'
   }
   return tags[type] || 'info'
 }
 
 watch(
-  () => [quotaTarget.value?.id, quotaActiveTab.value, quotaForm.amount, quotaForm.remark],
+  () => quotaActiveTab.value,
+  () => {
+    quotaForm.amount = 0
+    quotaForm.remark = ''
+  }
+)
+
+watch(
+  () => [quotaTarget.value?.id, quotaActiveTab.value, quotaWalletType.value, quotaForm.amount, quotaForm.remark],
   () => {
     // Reset the pending idempotency key whenever the target user, active tab, or form
     // fields change. This ensures each logically distinct operation gets a fresh key,
@@ -1405,38 +1547,103 @@ onMounted(loadUsers)
   width: 100%;
 }
 
-/* 额度管理对话框样式 */
-.quota-summary {
-  display: flex;
-  gap: 20px;
+/* 额度管理对话框网格与卡片 */
+.quota-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
   margin-bottom: 20px;
-  padding: 16px;
-  background: var(--color-surface-muted);
+}
+
+.wallet-stat-card {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-subtle);
   border-radius: 8px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
-.quota-summary-item {
-  flex: 1;
-  text-align: center;
+.wallet-stat-card:hover {
+  border-color: var(--color-primary);
 }
 
-.quota-summary-item .label {
-  display: block;
+.wallet-stat-card.is-selected {
+  border-color: var(--color-primary);
+  background: rgba(18, 113, 91, 0.04);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+.wallet-stat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   margin-bottom: 8px;
-  color: var(--color-text-muted);
+}
+
+.wallet-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-secondary);
   font-size: 12px;
+  font-weight: 600;
+  border: 1px solid var(--color-border);
 }
 
-.quota-summary-item .value {
-  display: block;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--color-text);
-}
-
-.quota-summary-item .value.balance {
+.wallet-badge.seal {
+  background: rgba(18, 113, 91, 0.1);
   color: var(--color-primary);
-  font-size: 24px;
+  border-color: rgba(18, 113, 91, 0.25);
+}
+
+.wallet-badge-sub {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.wallet-stat-balance-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 8px;
+}
+
+.wallet-stat-balance-row .label {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.wallet-stat-balance-row .value.balance {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-primary);
+  line-height: 1.2;
+}
+
+.seal-balance-group {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.seal-count-tag {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-surface-muted);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.wallet-stat-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  border-top: 1px dashed var(--color-border);
+  padding-top: 8px;
 }
 
 .form-tip {
@@ -1457,22 +1664,34 @@ onMounted(loadUsers)
 .quota-cell {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 5px;
 }
 
-.quota-cell-balance {
+.quota-cell-row {
   display: flex;
   align-items: center;
   gap: 6px;
+  line-height: 1.3;
 }
 
-.quota-balance-label {
-  font-size: 12px;
-  color: var(--color-text-muted);
+.quota-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--color-surface-subtle);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.quota-badge.seal {
+  background: rgba(18, 113, 91, 0.08);
+  color: var(--color-primary);
+  border-color: rgba(18, 113, 91, 0.2);
 }
 
 .quota-balance-value {
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 700;
   color: var(--color-primary);
   cursor: pointer;
@@ -1484,17 +1703,22 @@ onMounted(loadUsers)
   text-decoration: underline;
 }
 
+.quota-count-meta {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
 .quota-manage-btn {
   padding: 0 4px;
   font-size: 12px;
   height: auto;
 }
 
-.quota-cell-meta {
+.history-toolbar {
   display: flex;
-  gap: 8px;
-  color: var(--color-text-muted);
-  font-size: 11px;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 4px;
 }
 
 .user-action-cell {
@@ -1668,9 +1892,33 @@ onMounted(loadUsers)
     font-size: 12.5px;
   }
 
-  .quota-summary {
-    flex-direction: column;
+  .quota-summary-grid {
+    grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .mobile-quota-info {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .mobile-quota-badges {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .mobile-quota-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .mobile-quota-count {
+    font-size: 11px;
+    color: var(--color-text-muted);
   }
 }
 

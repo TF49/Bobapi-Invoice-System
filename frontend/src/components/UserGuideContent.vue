@@ -24,11 +24,20 @@
         <button
           type="button"
           class="pill-btn"
+          :class="{ active: activeSection === 'document' }"
+          @click="scrollToSection('document')"
+        >
+          <el-icon><DocumentChecked /></el-icon>
+          <span>3. 文件盖章</span>
+        </button>
+        <button
+          type="button"
+          class="pill-btn"
           :class="{ active: activeSection === 'faq' }"
           @click="scrollToSection('faq')"
         >
           <el-icon><QuestionFilled /></el-icon>
-          <span>3. 常见问题</span>
+          <span>4. 常见问题</span>
         </button>
       </div>
       <span class="scroll-hint">
@@ -176,10 +185,77 @@
       <!-- 分隔线 -->
       <div class="section-divider" />
 
-      <!-- 模块 3：常见问题 FAQ -->
-      <section id="guide-section-faq" class="compact-section">
+      <!-- 模块 3：文件盖章 -->
+      <section id="guide-section-document" class="compact-section">
         <div class="section-title-row">
           <span class="section-index">03</span>
+          <div>
+            <h3>证明文件盖章指引</h3>
+            <p>需加盖公章的各类证明文件，极简直传，发票方盖章交付</p>
+          </div>
+          <el-button
+            size="small"
+            type="primary"
+            class="section-action-btn"
+            @click="handleAction('document')"
+          >
+            前往盖章
+          </el-button>
+        </div>
+
+        <!-- 极简计费与规则横条 -->
+        <div class="mini-rule-bar">
+          <div class="rule-calc">
+            <span class="rule-label">服务费 <strong>¥10.00 / 次</strong></span>
+            <span class="calc-arrow">➔</span>
+            <span class="rule-formula">独立盖章钱包扣费 · 1:1 转账充值</span>
+          </div>
+          <div class="rule-demo">
+            <span>规则：<strong>无需表单直接上传原件</strong> · 撤销或驳回全额自动退款</span>
+          </div>
+        </div>
+
+        <!-- 盖章 3 步极简流程 -->
+        <div class="compact-step-list">
+          <div class="step-line-item">
+            <div class="step-circle">1</div>
+            <div class="step-detail">
+              <strong>极简称心上传</strong>
+              <span>待盖章文件格式完全不限（PDF/Word/Excel/图片均可），无需任何表单直接拖拽提交</span>
+            </div>
+          </div>
+
+          <div class="step-line-item">
+            <div class="step-circle">2</div>
+            <div class="step-detail">
+              <strong>审核与加盖公章</strong>
+              <span>发票方（开票员/管理员）在线审核材料并加盖企业公章，制作交付扫描件</span>
+            </div>
+          </div>
+
+          <div class="step-line-item">
+            <div class="step-circle">3</div>
+            <div class="step-detail">
+              <strong>在线查验与下载</strong>
+              <span>盖章完成后系统变更为已交付，支持一键在线预览查验与高清交付文件下载</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 凭证精简提示 -->
+        <div class="micro-note-box">
+          <el-icon><InfoFilled /></el-icon>
+          <span>额度保障：每次上传前先从独立盖章钱包扣除 10 元；若您主动撤销或被发票方驳回，款项<strong>全额原路秒级退还</strong>。</span>
+        </div>
+      </section>
+
+      <!-- 分隔线 -->
+      <div class="section-divider" />
+
+      <!-- 模块 4：常见问题 FAQ -->
+      <section id="guide-section-faq" class="compact-section">
+        <div class="section-title-row">
+          <span class="section-index">04</span>
           <div>
             <h3>常见问题速查</h3>
             <p>高频疑问快速排查与解答</p>
@@ -187,6 +263,35 @@
         </div>
 
         <div class="faq-compact-list">
+          <div class="faq-mini-item">
+            <div class="faq-q">
+              <span class="q-tag">Q</span>
+              <strong>证明文件盖章如何收费？发票额度和盖章额度通用吗？</strong>
+            </div>
+            <div class="faq-a">
+              每次盖章固定收费 <strong>10.00 元</strong>。盖章费用与发票额度相互独立，采用专用盖章钱包。充值时转账金额 <strong>1:1 入账</strong>，不收取额外手续费。
+            </div>
+          </div>
+
+          <div class="faq-mini-item">
+            <div class="faq-q">
+              <span class="q-tag">Q</span>
+              <strong>上传待盖章文件有限制格式或大小吗？</strong>
+            </div>
+            <div class="faq-a">
+              待盖章文件格式<strong>完全不限制</strong>，支持 PDF、Word、Excel、图片等常用格式，单文件上限支持 <strong>50MB</strong>。
+            </div>
+          </div>
+
+          <div class="faq-mini-item">
+            <div class="faq-q">
+              <span class="q-tag">Q</span>
+              <strong>申请盖章后如果驳回或取消，费用会退吗？</strong>
+            </div>
+            <div class="faq-a">
+              会的。如果用户主动撤销待盖章工单，或者发票方因材料不合规驳回工单，扣除的 10 元服务费将<strong>全额自动退回</strong>至您的盖章钱包。
+            </div>
+          </div>
           <div class="faq-mini-item">
             <div class="faq-q">
               <span class="q-tag">Q</span>
@@ -227,6 +332,7 @@ import { nextTick, onMounted, ref, watch } from 'vue'
 import {
   Wallet,
   Tickets,
+  DocumentChecked,
   QuestionFilled,
   ArrowDown,
   InfoFilled,
@@ -237,7 +343,7 @@ import {
 
 const props = withDefaults(
   defineProps<{
-    initialTab?: 'quota' | 'invoice' | 'faq'
+    initialTab?: 'quota' | 'invoice' | 'document' | 'faq'
     mode?: 'dialog' | 'page'
   }>(),
   {
@@ -247,13 +353,13 @@ const props = withDefaults(
 )
 
 const emit = defineEmits<{
-  (e: 'navigate', destination: 'quota' | 'invoice'): void
+  (e: 'navigate', destination: 'quota' | 'invoice' | 'document'): void
 }>()
 
 const contentRef = ref<HTMLElement | null>(null)
-const activeSection = ref<'quota' | 'invoice' | 'faq'>(props.initialTab || 'quota')
+const activeSection = ref<'quota' | 'invoice' | 'document' | 'faq'>(props.initialTab || 'quota')
 
-const scrollToSection = (section: 'quota' | 'invoice' | 'faq') => {
+const scrollToSection = (section: 'quota' | 'invoice' | 'document' | 'faq') => {
   activeSection.value = section
   const targetId = `guide-section-${section}`
   const targetEl = contentRef.value?.querySelector(`#${targetId}`)
@@ -277,7 +383,7 @@ onMounted(() => {
   }
 })
 
-const handleAction = (destination: 'quota' | 'invoice') => {
+const handleAction = (destination: 'quota' | 'invoice' | 'document') => {
   emit('navigate', destination)
 }
 </script>

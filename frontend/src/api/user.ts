@@ -17,6 +17,10 @@ export interface ManagedUser {
     balance: number
     totalRecharged: number
     totalDeducted: number
+    sealBalance?: number
+    sealTotalRecharged?: number
+    sealTotalDeducted?: number
+    sealAvailableCount?: number
   }
 }
 

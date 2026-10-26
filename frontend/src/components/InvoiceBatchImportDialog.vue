@@ -33,6 +33,15 @@
         <span v-if="selectedFile" class="file-name">{{ selectedFile.name }}</span>
       </div>
 
+      <!-- 出票主体选择 -->
+      <div class="seller-company-section">
+        <span class="seller-section-label">出票主体：</span>
+        <el-radio-group v-model="batchSellerCompany" size="default">
+          <el-radio-button value="DEFAULT">普通公司（普 3% / 专 9%）</el-radio-button>
+          <el-radio-button value="TECH">科技公司（普票 4% / 专票 10%）</el-radio-button>
+        </el-radio-group>
+      </div>
+
       <!-- 状态提示 -->
       <el-alert
         v-if="parseStatus === 'PARSING'"
@@ -75,6 +84,13 @@
             </template>
           </el-table-column>
           <el-table-column prop="amount" label="开票金额" width="110" />
+          <el-table-column label="出票主体" width="105" align="center">
+            <template #default>
+              <el-tag :type="batchSellerCompany === 'TECH' ? 'warning' : 'info'" size="small">
+                {{ batchSellerCompany === 'TECH' ? '科技公司' : '普通公司' }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column prop="invoiceCategory" label="票种" width="95" align="center">
             <template #default="{ row }">
               <span
@@ -231,6 +247,7 @@ const selectedFile = ref<File | null>(null);
 const parseStatus = ref<'IDLE' | 'PARSING' | 'PREVIEW' | 'ERROR'>('IDLE');
 const parseError = ref('');
 const parsedData = ref<ParsedInvoiceRow[]>([]);
+const batchSellerCompany = ref<'DEFAULT' | 'TECH'>('DEFAULT');
 const previewPage = ref(1);
 const previewPageSize = ref(10);
 
@@ -286,6 +303,7 @@ const handleFileChange = async (uploadFile: UploadFile) => {
   parseStatus.value = 'PARSING';
   parseError.value = '';
   parsedData.value = [];
+  batchSellerCompany.value = 'DEFAULT';
   submitResult.value = null;
   previewPage.value = 1;
   resultPage.value = 1;
@@ -337,6 +355,7 @@ const handleSubmit = async () => {
       amount: normalizeAmount(row.amount) || row.amount,
       invoiceType: row.invoiceType.trim(),
       invoiceCategory: normalizeInvoiceCategory(row.invoiceCategory),
+      sellerCompany: batchSellerCompany.value,
       remark: row.remark?.trim() || undefined
     }));
 
@@ -384,6 +403,7 @@ const resetDialogState = () => {
   parseStatus.value = 'IDLE';
   parseError.value = '';
   parsedData.value = [];
+  batchSellerCompany.value = 'DEFAULT';
   submitResult.value = null;
   idempotencyKey.value = '';
   previewPage.value = 1;
@@ -417,6 +437,24 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
   align-items: center;
   gap: 16px;
   margin-bottom: 20px;
+}
+
+.seller-company-section {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding: 12px 16px;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.seller-section-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #334155;
+  white-space: nowrap;
 }
 
 .file-section {

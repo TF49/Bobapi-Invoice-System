@@ -4,11 +4,12 @@
 
     <main class="workspace-content">
       <AnimatedContent tag="section" class="stats-grid quota-stats-grid" :distance="10">
+        <!-- === 第一行：开票额度系列 === -->
         <SpotlightCard class="stat-card balance-card stat-card-featured">
           <div class="stat-card-content">
             <span class="stat-icon success"><Wallet /></span>
             <div class="stat-copy">
-              <span class="stat-label">当前余额</span>
+              <span class="stat-label">开票钱包余额</span>
               <strong class="stat-value quota-stat">
                 <CountUp :value="quota.balance" :decimals="2" prefix="¥" />
               </strong>
@@ -30,12 +31,12 @@
           <div class="stat-card-content">
             <span class="stat-icon neutral"><Coin /></span>
             <div class="stat-copy">
-              <span class="stat-label">累计充值</span>
+              <span class="stat-label">开票累计充值</span>
               <strong class="stat-value">
                 <CountUp :value="quota.totalRecharged" :decimals="2" prefix="¥" />
               </strong>
             </div>
-            <p class="stat-note">历史获得的算力额度</p>
+            <p class="stat-note">历史开票额度获得</p>
           </div>
         </SpotlightCard>
 
@@ -43,12 +44,61 @@
           <div class="stat-card-content">
             <span class="stat-icon warning"><Remove /></span>
             <div class="stat-copy">
-              <span class="stat-label">累计扣除</span>
+              <span class="stat-label">开票累计扣除</span>
               <strong class="stat-value">
                 <CountUp :value="quota.totalDeducted" :decimals="2" prefix="¥" />
               </strong>
             </div>
-            <p class="stat-note">已开票或扣除的额度</p>
+            <p class="stat-note">已开票扣除的额度</p>
+          </div>
+        </SpotlightCard>
+
+        <!-- === 第二行：盖章钱包系列 === -->
+        <SpotlightCard class="stat-card balance-card stat-card-featured">
+          <div class="stat-card-content">
+            <span class="stat-icon success"><Stamp /></span>
+            <div class="stat-copy">
+              <span class="stat-label">盖章钱包余额</span>
+              <strong class="stat-value quota-stat">
+                <CountUp :value="quota.sealBalance || 0" :decimals="2" prefix="¥" />
+              </strong>
+            </div>
+            <p class="stat-note">可盖章 {{ quota.sealAvailableCount || 0 }} 次（10元/次）</p>
+          </div>
+          <el-button
+            type="primary"
+            size="small"
+            :icon="Plus"
+            class="balance-recharge-btn"
+            @click="navigateToSealDoc"
+          >
+            盖章充值
+          </el-button>
+        </SpotlightCard>
+
+        <SpotlightCard class="stat-card">
+          <div class="stat-card-content">
+            <span class="stat-icon neutral"><Coin /></span>
+            <div class="stat-copy">
+              <span class="stat-label">盖章累计充值</span>
+              <strong class="stat-value">
+                <CountUp :value="quota.sealTotalRecharged || 0" :decimals="2" prefix="¥" />
+              </strong>
+            </div>
+            <p class="stat-note">历史盖章额度获得</p>
+          </div>
+        </SpotlightCard>
+
+        <SpotlightCard class="stat-card">
+          <div class="stat-card-content">
+            <span class="stat-icon warning"><Remove /></span>
+            <div class="stat-copy">
+              <span class="stat-label">盖章累计扣除</span>
+              <strong class="stat-value">
+                <CountUp :value="quota.sealTotalDeducted || 0" :decimals="2" prefix="¥" />
+              </strong>
+            </div>
+            <p class="stat-note">已盖章扣除的额度</p>
           </div>
         </SpotlightCard>
       </AnimatedContent>
@@ -240,9 +290,14 @@
 
           <div v-else class="table-scroll desktop-records">
             <el-table :data="paginatedMyRequests" v-loading="loadingRequests" class="records-table">
-              <el-table-column prop="id" label="申请编号" width="112">
+              <el-table-column prop="id" label="申请编号" width="135">
                 <template #default="{ row }">
-                  <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
+                  <div class="record-id-box">
+                    <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
+                    <el-tag :type="row.requestType === 'SEAL' ? 'warning' : 'success'" size="small" effect="plain" class="req-type-tag">
+                      {{ row.requestType === 'SEAL' ? '盖章' : '开票' }}
+                    </el-tag>
+                  </div>
                 </template>
               </el-table-column>
               <el-table-column prop="feeAmount" label="手续费" width="140" align="right">
@@ -307,6 +362,9 @@
               <div class="record-card-header">
                 <div class="record-id-wrap">
                   <span class="record-id">#{{ String(row.id).padStart(4, '0') }}</span>
+                  <el-tag :type="row.requestType === 'SEAL' ? 'warning' : 'success'" size="small" effect="plain" class="req-type-tag">
+                    {{ row.requestType === 'SEAL' ? '盖章' : '开票' }}
+                  </el-tag>
                   <span class="record-time">{{ formatDateTime(row.createdAt) }}</span>
                 </div>
                 <el-tag class="status-tag" :class="getRequestStatusClass(row.status)">
@@ -719,8 +777,9 @@
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Coin, Connection, CopyDocument, Filter, List, Plus, QuestionFilled, Remove, Tickets, Wallet } from '@element-plus/icons-vue'
+import { Coin, Connection, CopyDocument, Filter, List, Plus, QuestionFilled, Remove, Stamp, Tickets, Wallet } from '@element-plus/icons-vue'
 import { quotaApi, type QuotaTransaction, type UserQuota } from '@/api/quota'
 import { rechargeRequestApi, type RechargeRequest } from '@/api/rechargeRequest'
 import { userApi, type ApiKeyData } from '@/api/user'
@@ -733,6 +792,12 @@ import RechargeRequestDialog from '@/components/RechargeRequestDialog.vue'
 
 const openGuide = (tab: 'quota' | 'invoice' | 'faq' = 'quota') => {
   window.dispatchEvent(new CustomEvent('open-user-guide', { detail: { tab } }))
+}
+
+const router = useRouter()
+
+const navigateToSealDoc = () => {
+  router.push({ path: '/user/documents', query: { action: 'recharge' } })
 }
 
 const activeTab = ref<'transactions' | 'requests' | 'api'>('transactions')
@@ -752,7 +817,11 @@ const quota = ref<UserQuota>({
   userId: 0,
   balance: 0,
   totalRecharged: 0,
-  totalDeducted: 0
+  totalDeducted: 0,
+  sealBalance: 0,
+  sealTotalRecharged: 0,
+  sealTotalDeducted: 0,
+  sealAvailableCount: 0
 })
 
 const transactions = ref<QuotaTransaction[]>([])
@@ -1177,6 +1246,12 @@ const handleRefreshQuotaOnProcessed = () => {
   loadTransactions()
 }
 
+let quotaDocBroadcastChannel: BroadcastChannel | null = null
+
+const handleDocEvent = () => {
+  loadQuota()
+}
+
 onMounted(() => {
   loadQuota()
   loadTransactions()
@@ -1190,9 +1265,16 @@ onMounted(() => {
           handleRefreshQuotaOnProcessed()
         }
       }
+
+      quotaDocBroadcastChannel = new BroadcastChannel('bobapi-document-events')
+      quotaDocBroadcastChannel.onmessage = () => {
+        handleDocEvent()
+      }
     } catch (_) {}
   }
   window.addEventListener('invoice-red-flush-processed', handleRefreshQuotaOnProcessed)
+  window.addEventListener('document-updated', handleDocEvent)
+  window.addEventListener('recharge-reviewed', handleDocEvent)
 })
 
 onBeforeUnmount(() => {
@@ -1200,13 +1282,45 @@ onBeforeUnmount(() => {
     quotaInvoiceBroadcastChannel.close()
     quotaInvoiceBroadcastChannel = null
   }
+  if (quotaDocBroadcastChannel) {
+    quotaDocBroadcastChannel.close()
+    quotaDocBroadcastChannel = null
+  }
   window.removeEventListener('invoice-red-flush-processed', handleRefreshQuotaOnProcessed)
+  window.removeEventListener('document-updated', handleDocEvent)
+  window.removeEventListener('recharge-reviewed', handleDocEvent)
 })
 </script>
 
 <style scoped>
 .quota-stats-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+@media (max-width: 1080px) {
+  .quota-stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .quota-stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.record-id-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.req-type-tag {
+  font-size: 11px;
+  padding: 0 4px;
+  height: 20px;
+  line-height: 18px;
 }
 
 .record-id {

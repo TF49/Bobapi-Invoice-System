@@ -3,6 +3,8 @@ package com.invoice.controller;
 import com.invoice.dto.ApiResponse;
 import com.invoice.dto.UserQuotaResponse;
 import com.invoice.dto.UserQuotaTransactionResponse;
+import com.invoice.entity.UserQuota;
+import com.invoice.entity.UserSealQuota;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.security.RateLimitService;
 import com.invoice.service.UserQuotaService;
@@ -36,7 +38,9 @@ public class UserQuotaController {
     @GetMapping
     public ApiResponse<UserQuotaResponse> getMyQuota(@AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("view", principal.userId(), 60, 42907, "额度查询过于频繁，请稍后再试");
-        return ApiResponse.success(UserQuotaResponse.from(userQuotaService.getUserQuota(principal.userId())));
+        UserQuota quota = userQuotaService.getUserQuota(principal.userId());
+        UserSealQuota sealQuota = userQuotaService.getUserSealQuota(principal.userId());
+        return ApiResponse.success(UserQuotaResponse.from(quota, sealQuota));
     }
 
     @GetMapping("/transactions")

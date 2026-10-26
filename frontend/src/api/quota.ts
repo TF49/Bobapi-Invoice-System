@@ -2,15 +2,21 @@ import request from '@/utils/request'
 
 export interface UserQuota {
   userId: number
+  // 开票额度
   balance: number
   totalRecharged: number
   totalDeducted: number
+  // 盖章钱包额度
+  sealBalance?: number
+  sealTotalRecharged?: number
+  sealTotalDeducted?: number
+  sealAvailableCount?: number  // 可用盖章次数
 }
 
 export interface QuotaTransaction {
   id: number
   userId: number
-  transactionType: 'RECHARGE' | 'DEDUCT' | 'ADJUST'
+  transactionType: 'RECHARGE' | 'DEDUCT' | 'ADJUST' | 'REFUND'
   amount: number
   balanceBefore: number
   balanceAfter: number
@@ -19,16 +25,19 @@ export interface QuotaTransaction {
   invoiceId?: number
   remark?: string
   createdAt: string
+  walletType?: 'INVOICE' | 'SEAL'
 }
 
 export interface RechargeQuotaRequest {
   amount: number
   remark?: string
+  walletType?: 'INVOICE' | 'SEAL'
 }
 
 export interface AdjustQuotaRequest {
   amount: number
   remark?: string
+  walletType?: 'INVOICE' | 'SEAL'
 }
 
 export const quotaApi = {
@@ -50,9 +59,9 @@ export const quotaApi = {
   },
 
   // 管理员：获取用户额度变更历史
-  getUserTransactions(userId: number, transactionType?: string) {
+  getUserTransactions(userId: number, transactionType?: string, walletType?: 'INVOICE' | 'SEAL') {
     return request.get<any, QuotaTransaction[]>(`/users/admin/${userId}/quota/transactions`, {
-      params: { transactionType }
+      params: { transactionType, walletType }
     })
   },
 

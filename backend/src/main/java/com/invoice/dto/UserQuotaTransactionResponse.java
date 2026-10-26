@@ -23,6 +23,7 @@ public class UserQuotaTransactionResponse {
     private Long invoiceId;
     private String remark;
     private LocalDateTime createdAt;
+    private String walletType;
     
     public static UserQuotaTransactionResponse from(UserQuotaTransaction transaction) {
         UserQuotaTransactionResponse response = new UserQuotaTransactionResponse();
@@ -37,6 +38,23 @@ public class UserQuotaTransactionResponse {
         response.setInvoiceId(transaction.getInvoiceId());
         response.setRemark(transaction.getRemark());
         response.setCreatedAt(transaction.getCreatedAt());
+        response.setWalletType("INVOICE");
+        return response;
+    }
+
+    public static UserQuotaTransactionResponse from(com.invoice.entity.UserSealTransaction transaction) {
+        UserQuotaTransactionResponse response = new UserQuotaTransactionResponse();
+        response.setId(transaction.getId());
+        response.setUserId(transaction.getUserId());
+        response.setTransactionType(transaction.getTransactionType());
+        response.setAmount(transaction.getAmount());
+        response.setBalanceBefore(transaction.getBalanceBefore());
+        response.setBalanceAfter(transaction.getBalanceAfter());
+        response.setOperatorId(transaction.getOperatorId());
+        response.setOperatorType(transaction.getOperatorType());
+        response.setRemark(transaction.getRemark());
+        response.setCreatedAt(transaction.getCreatedAt());
+        response.setWalletType("SEAL");
         return response;
     }
 }

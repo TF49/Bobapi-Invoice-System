@@ -1,7 +1,53 @@
 // @vitest-environment happy-dom
 
 import { describe, expect, it, vi } from 'vitest'
-import { copyImageToClipboard } from './clipboard'
+import { copyImageToClipboard, copyTextToClipboard } from './clipboard'
+
+describe('copyTextToClipboard', () => {
+  it('throws error when navigator.clipboard is not supported', async () => {
+    const originalClipboard = navigator.clipboard
+    Object.defineProperty(navigator, 'clipboard', {
+      value: undefined,
+      configurable: true
+    })
+
+    await expect(copyTextToClipboard('test')).rejects.toThrow('当前浏览器环境不支持复制到剪贴板')
+
+    // Restore
+    Object.defineProperty(navigator, 'clipboard', {
+      value: originalClipboard,
+      configurable: true
+    })
+  })
+
+  it('calls navigator.clipboard.writeText with correct text', async () => {
+    const mockWriteText = vi.fn().mockResolvedValue(undefined)
+    
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: mockWriteText },
+      configurable: true,
+      writable: true
+    })
+
+    const testText = 'Hello World'
+    await copyTextToClipboard(testText)
+
+    expect(mockWriteText).toHaveBeenCalledTimes(1)
+    expect(mockWriteText).toHaveBeenCalledWith(testText)
+  })
+
+  it('throws error when writeText fails', async () => {
+    const mockWriteText = vi.fn().mockRejectedValue(new Error('Write failed'))
+    
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: mockWriteText },
+      configurable: true,
+      writable: true
+    })
+
+    await expect(copyTextToClipboard('test')).rejects.toThrow()
+  })
+})
 
 describe('copyImageToClipboard', () => {
   it('throws error when navigator.clipboard or ClipboardItem is not supported', async () => {

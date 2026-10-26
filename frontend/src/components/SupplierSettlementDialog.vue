@@ -22,6 +22,26 @@
       </template>
     </el-alert>
 
+    <!-- 四大出票通道额度快捷参考与填充 -->
+    <div v-if="channels && channels.length" class="channels-ref-box">
+      <div class="channels-ref-title">
+        <span>各出票通道已开额度参考 (点击快速带入):</span>
+      </div>
+      <div class="channels-tag-group">
+        <el-tag
+          v-for="ch in channels"
+          :key="ch.key"
+          size="small"
+          class="channel-quick-tag"
+          :type="ch.sellerCompany === 'TECH' ? 'primary' : 'success'"
+          effect="plain"
+          @click="handleSelectChannel(ch)"
+        >
+          {{ ch.label }}: ¥{{ formatAmount(ch.completedAmount) }}
+        </el-tag>
+      </div>
+    </div>
+
     <el-form
       ref="formRef"
       :model="form"
@@ -66,15 +86,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
 import { createSettlement, type SupplierSettlementRequest } from '@/api/supplierSettlement'
 import { generateIdempotencyKey } from '@/utils/idempotency'
+import type { SellerCategoryStat } from '@/api/dashboard'
 
 interface Props {
   modelValue: boolean
   /** 当前未结款项金额，用于动态限制最大结算额并在对话框内展示（修复 #2 / #8） */
   unsettledAmount?: number
+  /** 四大通道细分统计数据供快捷参考与选择 */
+  channels?: SellerCategoryStat[]
+  /** 默认初始备注（如快捷从通道子卡片点击发起） */
+  initialRemark?: string
+  /** 默认初始金额 */
+  initialAmount?: number
 }
 
 interface Emits {
@@ -124,6 +151,27 @@ const resetForm = () => {
   form.amount = undefined as any
   form.remark = ''
   pendingIdempotencyKey.value = ''
+}
+
+watch(
+  () => props.modelValue,
+  (val) => {
+    if (val) {
+      if (props.initialAmount !== undefined && props.initialAmount > 0) {
+        form.amount = props.initialAmount
+      }
+      if (props.initialRemark) {
+        form.remark = props.initialRemark
+      }
+    }
+  }
+)
+
+function handleSelectChannel(ch: SellerCategoryStat) {
+  if (ch.completedAmount > 0 && (!form.amount || form.amount <= 0)) {
+    form.amount = ch.completedAmount
+  }
+  form.remark = `[${ch.label}] 款项结算`
 }
 
 const handleClose = () => {
@@ -182,8 +230,40 @@ function formatDisplayAmount(val: number): string {
 
 /* 修复 #8：未结款项提示样式 */
 .unsettled-hint {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
   border-radius: 8px;
+}
+
+.channels-ref-box {
+  background: #f8fafc;
+  border: 1px dashed #cbd5e1;
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+}
+
+.channels-ref-title {
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+
+.channels-tag-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.channel-quick-tag {
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.channel-quick-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
 }
 
 .unsettled-amount {

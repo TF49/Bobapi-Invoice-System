@@ -106,8 +106,63 @@ public record DashboardStats(
         /**
          * 供应商开票与结算月度对账趋势
          */
-        List<SettlementTrendStat> settlementTrends
+        List<SettlementTrendStat> settlementTrends,
+
+        /**
+         * 供应商出票主体公司与票种开票细分统计（普通/科技 x 普票/专票）
+         */
+        List<SellerCategoryStat> sellerCategoryStats
 ) {
+
+    /**
+     * 向后兼容构造器（20参数版本），用于未传 sellerCategoryStats 的调用与历史测试
+     */
+    public DashboardStats(
+            Long totalInvoices,
+            Long pendingInvoices,
+            Long completedInvoices,
+            BigDecimal totalAmount,
+            BigDecimal pendingAmount,
+            BigDecimal totalSettledAmount,
+            BigDecimal unsettledAmount,
+            List<UserInvoiceStats> userStats,
+            List<InvoiceTypeStat> typeStats,
+            List<CompanyStat> companyTopStats,
+            List<AmountRangeStat> amountRangeStats,
+            List<HourStat> hourDistribution,
+            List<DailyTrendStat> dailyTrend,
+            QuotaPoolStat quotaPoolStats,
+            List<ChannelStat> channelStats,
+            List<CategoryStat> categoryStats,
+            RedFlushStat redFlushStats,
+            FulfillmentStat fulfillmentStats,
+            FundFlowStat fundFlowStats,
+            List<SettlementTrendStat> settlementTrends
+    ) {
+        this(
+                totalInvoices,
+                pendingInvoices,
+                completedInvoices,
+                totalAmount,
+                pendingAmount,
+                totalSettledAmount,
+                unsettledAmount,
+                userStats,
+                typeStats,
+                companyTopStats,
+                amountRangeStats,
+                hourDistribution,
+                dailyTrend,
+                quotaPoolStats,
+                channelStats,
+                categoryStats,
+                redFlushStats,
+                fulfillmentStats,
+                fundFlowStats,
+                settlementTrends,
+                List.of()
+        );
+    }
 
     /**
      * 向后兼容构造器（14参数版本），用于历史测试用例和扩展前的代码
@@ -337,5 +392,22 @@ public record DashboardStats(
             BigDecimal invoicedAmount,
             BigDecimal settledAmount,
             BigDecimal unsettledBalance
+    ) {}
+
+    /**
+     * 供应商出票主体公司与发票票种细分维度统计（普通公司普票/专票、科技公司普票/专票）
+     */
+    public record SellerCategoryStat(
+            String key,                 // 如 default_normal, default_special, tech_normal, tech_special
+            String label,               // 普通公司·普票, 普通公司·专票, 科技公司·普票, 科技公司·专票
+            String sellerCompany,       // DEFAULT / TECH
+            String sellerCompanyName,   // 普通公司 / 科技公司
+            String invoiceCategory,     // NORMAL / VAT_SPECIAL
+            String categoryName,        // 普通发票 / 增值税专用发票
+            BigDecimal completedAmount, // 已开票面金额
+            Long completedCount,        // 已开票单数
+            BigDecimal deductedQuota,   // 实际消耗额度
+            BigDecimal feeRate,         // 基准费率 (0.03, 0.09, 0.04, 0.10)
+            Double amountRatio          // 占已开总额百分比 (0.0 - 100.0)
     ) {}
 }

@@ -142,8 +142,16 @@ public class UserAdminController {
             String idempotencyKey,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("quota", principal.userId(), 30, 42906, "额度管理操作过于频繁，请稍后再试");
-        return ApiResponse.success("充值成功", UserQuotaResponse.from(
-                userQuotaService.rechargeQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey)));
+        com.invoice.entity.UserQuota quota;
+        com.invoice.entity.UserSealQuota sealQuota;
+        if ("SEAL".equalsIgnoreCase(request.getWalletType())) {
+            sealQuota = userQuotaService.rechargeSealQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey);
+            quota = userQuotaService.getAdminUserQuota(id);
+        } else {
+            quota = userQuotaService.rechargeQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey);
+            sealQuota = userQuotaService.getUserSealQuota(id);
+        }
+        return ApiResponse.success("充值成功", UserQuotaResponse.from(quota, sealQuota));
     }
 
     @PutMapping("/{id}/quota/adjust")
@@ -155,8 +163,16 @@ public class UserAdminController {
             String idempotencyKey,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("quota", principal.userId(), 30, 42906, "额度管理操作过于频繁，请稍后再试");
-        return ApiResponse.success("调整成功", UserQuotaResponse.from(
-                userQuotaService.adjustQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey)));
+        com.invoice.entity.UserQuota quota;
+        com.invoice.entity.UserSealQuota sealQuota;
+        if ("SEAL".equalsIgnoreCase(request.getWalletType())) {
+            sealQuota = userQuotaService.adjustSealQuota(id, request.getAmount(), principal.userId(), request.getRemark());
+            quota = userQuotaService.getAdminUserQuota(id);
+        } else {
+            quota = userQuotaService.adjustQuota(id, request.getAmount(), principal.userId(), request.getRemark(), idempotencyKey);
+            sealQuota = userQuotaService.getUserSealQuota(id);
+        }
+        return ApiResponse.success("调整成功", UserQuotaResponse.from(quota, sealQuota));
     }
 
     @GetMapping("/{id}/quota")
@@ -164,15 +180,25 @@ public class UserAdminController {
             @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");
-        return ApiResponse.success(UserQuotaResponse.from(userQuotaService.getAdminUserQuota(id)));
+        com.invoice.entity.UserQuota quota = userQuotaService.getAdminUserQuota(id);
+        com.invoice.entity.UserSealQuota sealQuota = userQuotaService.getUserSealQuota(id);
+        return ApiResponse.success(UserQuotaResponse.from(quota, sealQuota));
     }
 
     @GetMapping("/{id}/quota/transactions")
     public ApiResponse<List<UserQuotaTransactionResponse>> getUserQuotaTransactions(
             @PathVariable @Positive(message = "用户 ID 必须大于 0") Long id,
             @RequestParam(required = false) String transactionType,
+            @RequestParam(required = false, defaultValue = "INVOICE") String walletType,
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         enforceRateLimit("list", principal.userId(), 120, 42903, "用户列表刷新过于频繁，请稍后再试");
+        if ("SEAL".equalsIgnoreCase(walletType)) {
+            List<UserQuotaTransactionResponse> transactions = userQuotaService.getAdminSealTransactionHistory(id, transactionType)
+                    .stream()
+                    .map(UserQuotaTransactionResponse::from)
+                    .collect(Collectors.toList());
+            return ApiResponse.success(transactions);
+        }
         List<UserQuotaTransactionResponse> transactions = userQuotaService.getAdminTransactionHistory(id, transactionType)
                 .stream()
                 .map(UserQuotaTransactionResponse::from)

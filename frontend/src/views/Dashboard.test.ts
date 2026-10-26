@@ -6,6 +6,7 @@ import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Dashboard from './Dashboard.vue'
 import { dashboardApi, type DashboardStats } from '@/api/dashboard'
+import { useUserStore } from '@/stores/user'
 
 const chartMocks = vi.hoisted(() => ({
   init: vi.fn(),
@@ -128,11 +129,15 @@ const populatedStats: DashboardStats = {
 const mockedApi = vi.mocked(dashboardApi)
 let wrapper: VueWrapper | null = null
 
-async function mountPage() {
+async function mountPage(userRole: string = 'USER') {
+  const pinia = createPinia()
+  const userStore = useUserStore(pinia)
+  userStore.role = userRole
+
   wrapper = mount(Dashboard, {
     attachTo: document.body,
     global: {
-      plugins: [createPinia(), ElementPlus],
+      plugins: [pinia, ElementPlus],
       stubs: {
         AppHeader: { template: '<header>数据概览</header>' },
         AnimatedContent: { template: '<div><slot /></div>' },
@@ -434,6 +439,83 @@ describe('Dashboard', () => {
 
     // 9 个图表成功挂载初始化
     expect(chartMocks.init).toHaveBeenCalledTimes(9)
+  })
+
+  it('renders seller category channel breakdown subcards for settlement', async () => {
+    const statsWithSellerCategory: DashboardStats = {
+      ...populatedStats,
+      sellerCategoryStats: [
+        {
+          key: 'default_normal',
+          label: '普通公司·普票',
+          sellerCompany: 'DEFAULT',
+          sellerCompanyName: '普通公司',
+          invoiceCategory: 'NORMAL',
+          categoryName: '普通发票',
+          completedAmount: 1000.0,
+          completedCount: 5,
+          deductedQuota: 1000.0,
+          feeRate: 0.03,
+          amountRatio: 43.5
+        },
+        {
+          key: 'default_special',
+          label: '普通公司·专票',
+          sellerCompany: 'DEFAULT',
+          sellerCompanyName: '普通公司',
+          invoiceCategory: 'VAT_SPECIAL',
+          categoryName: '增值税专用发票',
+          completedAmount: 800.0,
+          completedCount: 2,
+          deductedQuota: 2400.0,
+          feeRate: 0.09,
+          amountRatio: 34.8
+        },
+        {
+          key: 'tech_normal',
+          label: '科技公司·普票',
+          sellerCompany: 'TECH',
+          sellerCompanyName: '科技公司',
+          invoiceCategory: 'NORMAL',
+          categoryName: '普通发票',
+          completedAmount: 300.0,
+          completedCount: 1,
+          deductedQuota: 400.0,
+          feeRate: 0.04,
+          amountRatio: 13.0
+        },
+        {
+          key: 'tech_special',
+          label: '科技公司·专票',
+          sellerCompany: 'TECH',
+          sellerCompanyName: '科技公司',
+          invoiceCategory: 'VAT_SPECIAL',
+          categoryName: '增值税专用发票',
+          completedAmount: 200.75,
+          completedCount: 1,
+          deductedQuota: 669.17,
+          feeRate: 0.1,
+          amountRatio: 8.7
+        }
+      ]
+    }
+    mockedApi.getStats.mockResolvedValue(statsWithSellerCategory)
+
+    const page = await mountPage('ADMIN')
+
+    expect(page.text()).toContain('出票主体与票种已开额度明细 (上游结款依据)')
+    const cards = page.findAll('.channel-stat-subcard')
+    expect(cards).toHaveLength(4)
+    expect(page.text()).toContain('普通公司')
+    expect(page.text()).toContain('科技公司')
+    expect(page.text()).toContain('费率 3%')
+    expect(page.text()).toContain('费率 9%')
+    expect(page.text()).toContain('费率 4%')
+    expect(page.text()).toContain('费率 10%')
+    expect(page.text()).toContain('¥1,000.00')
+    expect(page.text()).toContain('¥800.00')
+    expect(page.text()).toContain('¥300.00')
+    expect(page.text()).toContain('¥200.75')
   })
 })
 

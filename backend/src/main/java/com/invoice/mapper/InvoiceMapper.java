@@ -19,10 +19,10 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
 
     @Insert({
             "<script>",
-            "INSERT INTO invoice (company_name, tax_number, amount, invoice_type, invoice_category, remark, status, idempotency_key, ",
+            "INSERT INTO invoice (company_name, tax_number, amount, invoice_type, invoice_category, seller_company, fee_rate, deducted_quota, remark, status, idempotency_key, ",
             "batch_id, batch_row_number, submission_type, user_id, created_at, updated_at, deleted) VALUES ",
             "<foreach collection='invoices' item='invoice' separator=','>",
-            "(#{invoice.companyName}, #{invoice.taxNumber}, #{invoice.amount}, #{invoice.invoiceType}, #{invoice.invoiceCategory}, #{invoice.remark}, #{invoice.status}, ",
+            "(#{invoice.companyName}, #{invoice.taxNumber}, #{invoice.amount}, #{invoice.invoiceType}, #{invoice.invoiceCategory}, #{invoice.sellerCompany}, #{invoice.feeRate}, #{invoice.deductedQuota}, #{invoice.remark}, #{invoice.status}, ",
             "#{invoice.idempotencyKey}, #{invoice.batchId}, #{invoice.batchRowNumber}, #{invoice.submissionType}, ",
             "#{invoice.userId}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)",
             "</foreach>",
@@ -308,6 +308,53 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
             "ORDER BY month ASC")
     List<MonthlyInvoicedStat> selectRecentMonthlyInvoicedStats();
 
+    /**
+     * 查询出票主体公司与票种四大细分维度已开票额度与统计（普通公司普票/专票、科技公司普票/专票）
+     */
+    @Select("SELECT " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) != 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) != 'VAT_SPECIAL' " +
+            "                  THEN amount ELSE 0 END), 0) AS defaultNormalAmount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) != 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) != 'VAT_SPECIAL' " +
+            "                  THEN 1 ELSE 0 END), 0) AS defaultNormalCount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) != 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) != 'VAT_SPECIAL' " +
+            "                  THEN deducted_quota ELSE 0 END), 0) AS defaultNormalDeductedQuota, " +
+
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) != 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' " +
+            "                  THEN amount ELSE 0 END), 0) AS defaultSpecialAmount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) != 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' " +
+            "                  THEN 1 ELSE 0 END), 0) AS defaultSpecialCount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) != 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' " +
+            "                  THEN deducted_quota ELSE 0 END), 0) AS defaultSpecialDeductedQuota, " +
+
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) != 'VAT_SPECIAL' " +
+            "                  THEN amount ELSE 0 END), 0) AS techNormalAmount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) != 'VAT_SPECIAL' " +
+            "                  THEN 1 ELSE 0 END), 0) AS techNormalCount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) != 'VAT_SPECIAL' " +
+            "                  THEN deducted_quota ELSE 0 END), 0) AS techNormalDeductedQuota, " +
+
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' " +
+            "                  THEN amount ELSE 0 END), 0) AS techSpecialAmount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' " +
+            "                  THEN 1 ELSE 0 END), 0) AS techSpecialCount, " +
+            "COALESCE(SUM(CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' " +
+            "                   AND UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' " +
+            "                  THEN deducted_quota ELSE 0 END), 0) AS techSpecialDeductedQuota " +
+            "FROM invoice " +
+            "WHERE deleted = 0 AND status = 'COMPLETED' AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED')")
+    SellerCategorySummary selectSellerCategorySummary();
+
     record ChannelStat(
             String channel,
             Long count,
@@ -339,5 +386,20 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
             String month,
             BigDecimal amount,
             Long count
+    ) {}
+
+    record SellerCategorySummary(
+            BigDecimal defaultNormalAmount,
+            Long defaultNormalCount,
+            BigDecimal defaultNormalDeductedQuota,
+            BigDecimal defaultSpecialAmount,
+            Long defaultSpecialCount,
+            BigDecimal defaultSpecialDeductedQuota,
+            BigDecimal techNormalAmount,
+            Long techNormalCount,
+            BigDecimal techNormalDeductedQuota,
+            BigDecimal techSpecialAmount,
+            Long techSpecialCount,
+            BigDecimal techSpecialDeductedQuota
     ) {}
 }

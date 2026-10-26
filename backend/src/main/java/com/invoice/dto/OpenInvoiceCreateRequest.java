@@ -42,6 +42,12 @@ public class OpenInvoiceCreateRequest {
     @Size(max = 20, message = "发票票种不能超过 20 个字符")
     private String invoiceCategory = "NORMAL";
 
+    /**
+     * 出票主体公司：DEFAULT-普通公司（默认），TECH-科技公司
+     */
+    @Size(max = 50, message = "出票主体不能超过 50 个字符")
+    private String sellerCompany = "DEFAULT";
+
     @Size(max = 500, message = "备注不能超过 500 个字符")
     private String remark;
 }

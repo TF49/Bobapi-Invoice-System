@@ -1,4 +1,43 @@
 /**
+ * 将文本复制到系统剪贴板（支持现代 API 与 document.execCommand 降级）
+ */
+export async function copyTextToClipboard(text: string): Promise<void> {
+  if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text)
+      return
+    } catch (err: any) {
+      // 若因非安全上下文（如 HTTP）或权限拒绝，尝试降级
+    }
+  }
+
+  // 降级兼容：用于非安全上下文（HTTP）或不支持 Clipboard API 的环境
+  if (typeof document !== 'undefined' && typeof document.execCommand === 'function') {
+    try {
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      textarea.setAttribute('readonly', '')
+      textarea.style.position = 'fixed'
+      textarea.style.left = '-9999px'
+      textarea.style.top = '-9999px'
+      textarea.style.opacity = '0'
+      document.body.appendChild(textarea)
+      textarea.focus()
+      textarea.select()
+      const successful = document.execCommand('copy')
+      document.body.removeChild(textarea)
+      if (successful) {
+        return
+      }
+    } catch {
+      // 忽略错误并抛出统一步骤异常
+    }
+  }
+
+  throw new Error('当前浏览器环境不支持复制到剪贴板')
+}
+
+/**
  * 将图片 Blob 复制到系统剪贴板
  */
 export async function copyImageToClipboard(blob: Blob): Promise<void> {

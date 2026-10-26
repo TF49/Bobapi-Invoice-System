@@ -13,6 +13,7 @@ public class RechargeRequestResponse {
     private Long id;
     private Long userId;
     private String username;
+    private String requestType;
     private BigDecimal feeAmount;
     private BigDecimal amount;
     private String screenshotUrl;

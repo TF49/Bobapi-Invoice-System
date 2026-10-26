@@ -3,6 +3,7 @@ package com.invoice.dto;
 import com.invoice.entity.Invoice;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -15,6 +16,9 @@ public record InvoiceResponse(
         BigDecimal amount,
         String invoiceType,
         String invoiceCategory,
+        String sellerCompany,
+        BigDecimal feeRate,
+        BigDecimal deductedQuota,
         String remark,
         String status,
         boolean isProcessed,
@@ -33,6 +37,64 @@ public record InvoiceResponse(
         boolean fileExists,
         String fileName
 ) {
+    /**
+     * 兼容旧版全参构造方法（23 参）
+     */
+    public InvoiceResponse(
+            Long id,
+            String companyName,
+            String taxNumber,
+            BigDecimal amount,
+            String invoiceType,
+            String invoiceCategory,
+            String remark,
+            String status,
+            boolean isProcessed,
+            String redFlushStatus,
+            String redFlushReason,
+            String redFlushRemark,
+            LocalDateTime redFlushApplyTime,
+            LocalDateTime redFlushCompleteTime,
+            Long redFlushOperatorId,
+            String submissionType,
+            Long userId,
+            String username,
+            LocalDateTime createdAt,
+            LocalDateTime updatedAt,
+            boolean downloadable,
+            boolean fileExists,
+            String fileName
+    ) {
+        this(
+                id,
+                companyName,
+                taxNumber,
+                amount,
+                invoiceType,
+                invoiceCategory,
+                "DEFAULT",
+                "VAT_SPECIAL".equals(invoiceCategory) ? new BigDecimal("0.0900") : new BigDecimal("0.0300"),
+                "VAT_SPECIAL".equals(invoiceCategory) ? (amount != null ? amount.multiply(new BigDecimal("3")) : null) : amount,
+                remark,
+                status,
+                isProcessed,
+                redFlushStatus,
+                redFlushReason,
+                redFlushRemark,
+                redFlushApplyTime,
+                redFlushCompleteTime,
+                redFlushOperatorId,
+                submissionType,
+                userId,
+                username,
+                createdAt,
+                updatedAt,
+                downloadable,
+                fileExists,
+                fileName
+        );
+    }
+
     public static InvoiceResponse from(Invoice invoice) {
         return from(invoice, null, null);
     }
@@ -53,6 +115,25 @@ public record InvoiceResponse(
         String redFlushStatus = invoice.getRedFlushStatus() != null ? invoice.getRedFlushStatus() : "NONE";
         String submissionType = invoice.getSubmissionType() != null ? invoice.getSubmissionType() : "UNKNOWN";
         String invoiceCategory = invoice.getInvoiceCategory() != null ? invoice.getInvoiceCategory() : "NORMAL";
+        String sellerCompany = invoice.getSellerCompany() != null ? invoice.getSellerCompany() : "DEFAULT";
+        boolean isTech = "TECH".equalsIgnoreCase(sellerCompany);
+        boolean isVatSpecial = "VAT_SPECIAL".equals(invoiceCategory);
+        BigDecimal feeRate = invoice.getFeeRate() != null
+                ? invoice.getFeeRate()
+                : (isTech
+                        ? (isVatSpecial ? new BigDecimal("0.1000") : new BigDecimal("0.0400"))
+                        : (isVatSpecial ? new BigDecimal("0.0900") : new BigDecimal("0.0300")));
+        BigDecimal deductedQuota = invoice.getDeductedQuota() != null
+                ? invoice.getDeductedQuota()
+                : (invoice.getAmount() != null
+                        ? (isTech
+                                ? (isVatSpecial
+                                        ? invoice.getAmount().multiply(new BigDecimal("10")).divide(new BigDecimal("3"), 2, RoundingMode.HALF_UP)
+                                        : invoice.getAmount().multiply(new BigDecimal("4")).divide(new BigDecimal("3"), 2, RoundingMode.HALF_UP))
+                                : (isVatSpecial
+                                        ? invoice.getAmount().multiply(new BigDecimal("3"))
+                                        : invoice.getAmount()))
+                        : null);
         return new InvoiceResponse(
                 invoice.getId(),
                 invoice.getCompanyName(),
@@ -60,6 +141,9 @@ public record InvoiceResponse(
                 invoice.getAmount(),
                 invoice.getInvoiceType(),
                 invoiceCategory,
+                sellerCompany,
+                feeRate,
+                deductedQuota,
                 invoice.getRemark(),
                 invoice.getStatus(),
                 isProcessed,

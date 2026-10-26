@@ -60,6 +60,8 @@ public class SecurityConfig {
                 .requestMatchers("/admin/supplier-settlement/**").hasRole("ADMIN")
                 .requestMatchers("/invoices/admin/dashboard").hasRole("ADMIN")
                 .requestMatchers("/invoices/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
+                .requestMatchers("/documents/admin/quota/adjust").hasRole("ADMIN")
+                .requestMatchers("/documents/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
                 .requestMatchers("/users/admin/**").hasRole("ADMIN")
                 .requestMatchers("/recharge-requests/admin/**").hasRole("ADMIN")
                 .requestMatchers("/open/**").authenticated()
@@ -90,9 +92,13 @@ public class SecurityConfig {
         } else {
             configuration.setAllowedOrigins(allowedOrigins);
         }
+        if (allowedOrigins.contains("*")) {
+            configuration.setAllowCredentials(false);
+        } else {
+            configuration.setAllowCredentials(true);
+        }
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
-        configuration.setAllowCredentials(true);
         
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", configuration);

@@ -18,6 +18,9 @@
               <el-button type="primary" plain :icon="Wallet" @click="router.push('/user/quota')">
                 前往额度充值
               </el-button>
+              <el-button type="primary" plain :icon="DocumentChecked" @click="router.push('/user/documents')">
+                前往文件盖章
+              </el-button>
               <el-button type="primary" :icon="Tickets" @click="router.push('/user')">
                 前往发票申请
               </el-button>
@@ -41,7 +44,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Reading, Tickets, Wallet } from '@element-plus/icons-vue'
+import { DocumentChecked, Reading, Tickets, Wallet } from '@element-plus/icons-vue'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
@@ -50,19 +53,21 @@ import UserGuideContent from '@/components/UserGuideContent.vue'
 const route = useRoute()
 const router = useRouter()
 
-const activeTab = computed<'quota' | 'invoice' | 'faq'>(() => {
+const activeTab = computed<'quota' | 'invoice' | 'document' | 'faq'>(() => {
   const tab = route.query.tab
-  if (tab === 'invoice' || tab === 'faq') {
+  if (tab === 'invoice' || tab === 'document' || tab === 'faq') {
     return tab
   }
   return 'quota'
 })
 
-const handleNavigate = (destination: 'quota' | 'invoice') => {
+const handleNavigate = (destination: 'quota' | 'invoice' | 'document') => {
   if (destination === 'quota') {
     router.push('/user/quota')
   } else if (destination === 'invoice') {
     router.push('/user')
+  } else if (destination === 'document') {
+    router.push('/user/documents')
   }
 }
 </script>

@@ -49,11 +49,14 @@ class UserServiceTest {
     @Mock
     private com.invoice.mapper.RechargeRequestMapper rechargeRequestMapper;
 
+    @Mock
+    private com.invoice.mapper.SealDocumentMapper sealDocumentMapper;
+
     private UserService userService;
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userMapper, passwordEncoder, userQuotaService, invoiceMapper, rechargeRequestMapper);
+        userService = new UserService(userMapper, passwordEncoder, userQuotaService, invoiceMapper, rechargeRequestMapper, null, sealDocumentMapper);
     }
 
     @Test
@@ -288,6 +291,21 @@ class UserServiceTest {
                 () -> userService.deleteUser(2L, 1L));
 
         assertEquals(40907, exception.getCode());
+        verify(userMapper, never()).deleteById(any(java.io.Serializable.class));
+    }
+
+    @Test
+    void rejectsDeletingUserWithPendingSealDocuments() {
+        User target = user(2L, "alice", "USER", true, 0L);
+        when(userMapper.selectByIdForUpdate(2L)).thenReturn(target);
+        when(invoiceMapper.selectCount(any())).thenReturn(0L, 0L);
+        when(rechargeRequestMapper.selectCount(any())).thenReturn(0L);
+        when(sealDocumentMapper.selectCount(any())).thenReturn(1L);
+
+        BusinessException exception = assertThrows(BusinessException.class,
+                () -> userService.deleteUser(2L, 1L));
+
+        assertEquals(40908, exception.getCode());
         verify(userMapper, never()).deleteById(any(java.io.Serializable.class));
     }
 

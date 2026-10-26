@@ -12,6 +12,7 @@ import com.invoice.mapper.RechargeRequestMapper;
 import com.invoice.mapper.UserMapper;
 import com.invoice.security.RateLimitService;
 import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -50,6 +51,7 @@ public class RechargeRequestService {
     private final RechargeRequestMapper rechargeRequestMapper;
     private final UserMapper userMapper;
     private final UserQuotaService userQuotaService;
+    private final UserSealQuotaService userSealQuotaService;
     private final RateLimitService rateLimitService;
     private final Path screenshotDir;
 
@@ -65,9 +67,20 @@ public class RechargeRequestService {
                                    UserQuotaService userQuotaService,
                                    RateLimitService rateLimitService,
                                    @Value("${file.upload-path:./uploads}") String uploadDirectory) {
+        this(rechargeRequestMapper, userMapper, userQuotaService, null, rateLimitService, uploadDirectory);
+    }
+
+    @Autowired
+    public RechargeRequestService(RechargeRequestMapper rechargeRequestMapper,
+                                   UserMapper userMapper,
+                                   UserQuotaService userQuotaService,
+                                   @Autowired(required = false) UserSealQuotaService userSealQuotaService,
+                                   RateLimitService rateLimitService,
+                                   @Value("${file.upload-path:./uploads}") String uploadDirectory) {
         this.rechargeRequestMapper = rechargeRequestMapper;
         this.userMapper = userMapper;
         this.userQuotaService = userQuotaService;
+        this.userSealQuotaService = userSealQuotaService;
         this.rateLimitService = rateLimitService;
         this.screenshotDir = Path.of(uploadDirectory).resolve("screenshots").toAbsolutePath().normalize();
     }
@@ -99,23 +112,22 @@ public class RechargeRequestService {
         }
 
         if (!ALLOWED_IMAGE_EXTENSIONS.contains(extension)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "仅支持上传 jpg、jpeg、png、webp 格式的图片凭证");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "仅支持 JPG, PNG, WEBP 格式的图片凭证");
         }
 
-        String storedFileName = UUID.randomUUID() + "." + extension;
-        Path targetPath = screenshotDir.resolve(storedFileName).normalize();
-
+        String newFileName = UUID.randomUUID().toString().replace("-", "") + "." + extension;
+        Path targetPath = screenshotDir.resolve(newFileName).normalize();
         if (!targetPath.startsWith(screenshotDir)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40004, "非法的文件存储路径");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40004, "非法的文件路径");
         }
 
         try (InputStream inputStream = file.getInputStream()) {
             Files.copy(inputStream, targetPath);
         } catch (IOException e) {
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000, "保存截图文件失败，请稍后重试");
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50000, "保存截图失败");
         }
 
-        return "/recharge-requests/screenshot/" + storedFileName;
+        return "/recharge-requests/screenshot/" + newFileName;
     }
 
     private static final java.util.Map<String, String> IMAGE_MIME_TYPES = java.util.Map.of(
@@ -182,10 +194,25 @@ public class RechargeRequestService {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "只有普通用户可以申请充值");
         }
 
-        // 只信任用户提交的手续费，最终额度统一由服务端计算。
+        String requestType = requestDto.getRequestType();
+        if (requestType == null || requestType.isBlank() || !"SEAL".equalsIgnoreCase(requestType)) {
+            requestType = "INVOICE";
+        } else {
+            requestType = "SEAL";
+        }
+
         BigDecimal feeAmount = requestDto.getFeeAmount();
         validateFeeAmount(feeAmount);
-        BigDecimal quotaAmount = calculateQuotaAmount(feeAmount);
+
+        BigDecimal quotaAmount;
+        if ("SEAL".equals(requestType)) {
+            // 盖章充值：按实际转账金额 1:1 增加盖章钱包额度
+            quotaAmount = feeAmount;
+        } else {
+            // 发票充值：按 3% 手续费反算开票额度
+            quotaAmount = calculateQuotaAmount(feeAmount);
+        }
+
         String screenshotUrl = requestDto.getScreenshotUrl() == null ? null : requestDto.getScreenshotUrl().trim();
         String remark = normalizeRemark(requestDto.getRemark());
 
@@ -204,6 +231,7 @@ public class RechargeRequestService {
         // 创建申请
         RechargeRequest request = new RechargeRequest();
         request.setUserId(userId);
+        request.setRequestType(requestType);
         request.setFeeAmount(feeAmount);
         request.setAmount(quotaAmount);
         request.setIdempotencyKey(idempotencyKey);
@@ -258,12 +286,11 @@ public class RechargeRequestService {
         LambdaQueryWrapper<RechargeRequest> wrapper = new LambdaQueryWrapper<RechargeRequest>()
             .orderByDesc(RechargeRequest::getCreatedAt);
         
-        if (status != null && !status.trim().isEmpty()) {
-            wrapper.eq(RechargeRequest::getStatus, status.trim());
+        if (status != null && !status.isEmpty()) {
+            wrapper.eq(RechargeRequest::getStatus, status);
         }
         
         List<RechargeRequest> requests = rechargeRequestMapper.selectList(wrapper);
-        
         return toResponseList(requests);
     }
 
@@ -301,16 +328,28 @@ public class RechargeRequestService {
             throw new BusinessException(HttpStatus.CONFLICT, 40902, "该申请已被审核或不存在");
         }
 
-        // 如果审核通过，为用户充值
+        // 如果审核通过，根据类型为用户充值
         if ("APPROVED".equals(reviewDto.getStatus())) {
             String idempotencyKey = "RECHARGE_REQUEST_" + requestId;
-            userQuotaService.rechargeQuota(
-                request.getUserId(),
-                request.getAmount(),
-                adminId,
-                "充值申请审核通过",
-                idempotencyKey
-            );
+            if ("SEAL".equals(request.getRequestType())) {
+                if (userSealQuotaService != null) {
+                    userSealQuotaService.rechargeQuota(
+                        request.getUserId(),
+                        request.getAmount(),
+                        adminId,
+                        "盖章充值申请审核通过",
+                        idempotencyKey
+                    );
+                }
+            } else {
+                userQuotaService.rechargeQuota(
+                    request.getUserId(),
+                    request.getAmount(),
+                    adminId,
+                    "充值申请审核通过",
+                    idempotencyKey
+                );
+            }
         }
     }
 
@@ -329,31 +368,34 @@ public class RechargeRequestService {
      */
     private void validateFeeAmount(BigDecimal feeAmount) {
         if (feeAmount == null || feeAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40002, "手续费必须大于0");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40002, "金额必须大于0");
         }
         
         if (feeAmount.compareTo(MIN_FEE_AMOUNT) < 0) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "手续费不能小于" + MIN_FEE_AMOUNT);
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40003, "金额不能小于" + MIN_FEE_AMOUNT);
         }
         
         if (feeAmount.compareTo(MAX_FEE_AMOUNT) > 0) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40004, "手续费不能大于" + MAX_FEE_AMOUNT);
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40004, "金额不能大于" + MAX_FEE_AMOUNT);
         }
-        
+
         if (feeAmount.scale() > 2) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40005, "手续费最多两位小数");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40005, "金额最多两位小数");
         }
     }
 
     private BigDecimal calculateQuotaAmount(BigDecimal feeAmount) {
-        BigDecimal quotaAmount = feeAmount.divide(FEE_RATE, 2, RoundingMode.DOWN);
-        if (quotaAmount.compareTo(MAX_QUOTA_AMOUNT) > 0) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, 40004, "申请额度不能大于" + MAX_QUOTA_AMOUNT);
+        BigDecimal quota = feeAmount.divide(FEE_RATE, 2, RoundingMode.DOWN);
+        if (quota.compareTo(MAX_QUOTA_AMOUNT) > 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, 40005, "申请额度超出系统上限");
         }
-        return quotaAmount;
+        return quota;
     }
 
     private RechargeRequest findByIdempotencyKey(Long userId, String idempotencyKey) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
+            return null;
+        }
         return rechargeRequestMapper.selectOne(
                 new LambdaQueryWrapper<RechargeRequest>()
                         .eq(RechargeRequest::getUserId, userId)
@@ -437,6 +479,7 @@ public class RechargeRequestService {
         RechargeRequestResponse response = new RechargeRequestResponse();
         response.setId(request.getId());
         response.setUserId(request.getUserId());
+        response.setRequestType(request.getRequestType() != null ? request.getRequestType() : "INVOICE");
         response.setFeeAmount(request.getFeeAmount());
         response.setAmount(request.getAmount());
         response.setScreenshotUrl(request.getScreenshotUrl());
@@ -449,15 +492,12 @@ public class RechargeRequestService {
         response.setUpdatedAt(request.getUpdatedAt());
 
         if (fetchUsers) {
-            // 查询用户名
             if (request.getUserId() != null) {
                 User user = userMapper.selectById(request.getUserId());
                 if (user != null) {
                     response.setUsername(user.getUsername());
                 }
             }
-
-            // 查询审核管理员名
             if (request.getReviewedBy() != null) {
                 User admin = userMapper.selectById(request.getReviewedBy());
                 if (admin != null) {

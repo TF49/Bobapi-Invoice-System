@@ -137,6 +137,7 @@ describe('UserInvoice', () => {
         amount: 300.01,
         invoiceType: '技术服务费',
         invoiceCategory: 'NORMAL',
+        sellerCompany: 'DEFAULT',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
@@ -172,6 +173,7 @@ describe('UserInvoice', () => {
         amount: 100,
         invoiceType: '技术服务费',
         invoiceCategory: 'NORMAL',
+        sellerCompany: 'DEFAULT',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
@@ -930,6 +932,7 @@ describe('UserInvoice', () => {
           amount: '150.00',
           invoiceType: '技术服务费',
           invoiceCategory: 'NORMAL',
+          sellerCompany: 'DEFAULT',
           remark: undefined
         },
         {
@@ -939,6 +942,7 @@ describe('UserInvoice', () => {
           amount: '150.00',
           invoiceType: '技术服务费',
           invoiceCategory: 'NORMAL',
+          sellerCompany: 'DEFAULT',
           remark: undefined
         },
         {
@@ -948,6 +952,7 @@ describe('UserInvoice', () => {
           amount: '150.00',
           invoiceType: '技术服务费',
           invoiceCategory: 'NORMAL',
+          sellerCompany: 'DEFAULT',
           remark: undefined
         }
       ],
@@ -986,5 +991,109 @@ describe('UserInvoice', () => {
     expect(mockedApi.createInvoicesBatch).not.toHaveBeenCalled()
     expect(mockedApi.createInvoice).not.toHaveBeenCalled()
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('共 3 张发票需要 ¥300.00'))
+  })
+
+  it('submits tech company normal invoice with sellerCompany TECH', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('科技开票企业')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('1000.00')
+
+    const radios = page.findAll('.submit-invoice-dialog .el-radio')
+    const techRadio = radios.find(r => r.text().includes('科技公司'))
+    expect(techRadio).toBeDefined()
+    await techRadio!.trigger('click')
+    await flushPromises()
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      {
+        companyName: '科技开票企业',
+        taxNumber: '91410100MAE5H38A0F',
+        amount: 1000,
+        invoiceType: '技术服务费',
+        invoiceCategory: 'NORMAL',
+        sellerCompany: 'TECH',
+        remark: undefined
+      },
+      expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
+    )
+  })
+
+  it('rejects tech company invoice when quota is insufficient (4% fee rate / 1.33x multiplier)', async () => {
+    mockedQuotaApi.getMyQuota.mockResolvedValue({
+      userId: 1,
+      balance: 1300,
+      totalRecharged: 2000,
+      totalDeducted: 700
+    })
+    const errorSpy = vi.spyOn(ElMessage, 'error')
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('科技超额企业')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('1000.00')
+
+    const radios = page.findAll('.submit-invoice-dialog .el-radio')
+    const techRadio = radios.find(r => r.text().includes('科技公司'))
+    await techRadio!.trigger('click')
+    await flushPromises()
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('科技公司发票按 1.33 倍扣除需 ¥1333.33'))
+  })
+
+  it('rejects tech company vat special invoice when quota is insufficient (10% fee rate / 3.33x multiplier)', async () => {
+    mockedQuotaApi.getMyQuota.mockResolvedValue({
+      userId: 1,
+      balance: 3300,
+      totalRecharged: 5000,
+      totalDeducted: 1700
+    })
+    const errorSpy = vi.spyOn(ElMessage, 'error')
+
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('科技专票超额企业')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[2].setValue('1000.00')
+
+    const radios = page.findAll('.submit-invoice-dialog .el-radio')
+    const techRadio = radios.find(r => r.text().includes('科技公司'))
+    await techRadio!.trigger('click')
+    const vatSpecialRadio = radios.find(r => r.text().includes('专票'))
+    await vatSpecialRadio!.trigger('click')
+    await flushPromises()
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('科技公司专票按 3.33 倍扣除需 ¥3333.33'))
   })
 })

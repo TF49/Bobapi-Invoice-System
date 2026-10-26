@@ -1,8 +1,8 @@
 -- 发票管理系统数据库初始化脚本
--- 已整合 Flyway V1-V24 的最终完整数据库结构，适用于全新安装或彻底重置。
+-- 已整合 Flyway V1-V26 的最终完整数据库结构，适用于全新安装或彻底重置。
 -- 警告：执行本脚本会删除 invoice_system 数据库及其中的全部数据。
 -- 推荐部署方式：创建空数据库后直接启动后端，由 Flyway 自动按版本迁移初始化。
--- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 24。
+-- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 26。
 
 DROP DATABASE IF EXISTS `invoice_system`;
 
@@ -75,6 +75,9 @@ CREATE TABLE `invoice` (
     `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT '单条创建请求幂等键；批量申请明细为空',
     `batch_id` BIGINT DEFAULT NULL COMMENT '批次ID（批量申请时关联）',
     `batch_row_number` INT DEFAULT NULL COMMENT '批次内原始行号（用于审计）',
+    `seller_company` VARCHAR(50) NOT NULL DEFAULT 'DEFAULT' COMMENT '出票主体公司：DEFAULT-普通公司，TECH-科技公司',
+    `fee_rate` DECIMAL(5, 4) NOT NULL DEFAULT 0.0300 COMMENT '实际执行费率：普通普票0.03/专票0.09，科技普票0.04/专票0.10',
+    `deducted_quota` DECIMAL(12, 2) NOT NULL DEFAULT 0.00 COMMENT '实际扣除额度（用于发票取消或红冲时精准原样退还）',
     `submission_type` VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN' COMMENT '提交方式：API-API提交，MANUAL-网页手动提交，UNKNOWN-历史无法确认',
     `is_red_flushed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否已红冲：0-否，1-是',
     `red_flushed_at` DATETIME DEFAULT NULL COMMENT '红冲时间',
@@ -94,6 +97,7 @@ CREATE TABLE `invoice` (
     KEY `idx_created_at` (`created_at`),
     KEY `idx_status_completed_at` (`status`, `completed_at`),
     KEY `idx_batch_id` (`batch_id`),
+    KEY `idx_seller_company` (`seller_company`),
     KEY `idx_invoice_red_flush` (`is_red_flushed`),
     CONSTRAINT `fk_invoice_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB
@@ -149,8 +153,9 @@ CREATE TABLE `user_quota_transaction` (
 CREATE TABLE `recharge_request` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '申请ID',
     `user_id` BIGINT NOT NULL COMMENT '用户ID',
-    `fee_amount` DECIMAL(10, 2) DEFAULT NULL COMMENT '用户支付的手续费',
-    `amount` DECIMAL(10, 2) NOT NULL COMMENT '按手续费计算的申请额度',
+    `request_type` VARCHAR(20) NOT NULL DEFAULT 'INVOICE' COMMENT '充值类型：INVOICE-发票额度，SEAL-盖章钱包',
+    `fee_amount` DECIMAL(10, 2) DEFAULT NULL COMMENT '用户支付的金额/手续费',
+    `amount` DECIMAL(10, 2) NOT NULL COMMENT '实际到账额度',
     `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT '用户创建申请的幂等键',
     `screenshot_url` VARCHAR(512) DEFAULT NULL COMMENT '充值截图URL',
     `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '申请状态：PENDING-待审核，APPROVED-已通过，REJECTED-已拒绝',
@@ -162,6 +167,7 @@ CREATE TABLE `recharge_request` (
     `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     `deleted` INT NOT NULL DEFAULT 0 COMMENT '逻辑删除标记',
     KEY `idx_user_id` (`user_id`),
+    KEY `idx_request_type` (`request_type`),
     KEY `idx_status` (`status`),
     KEY `idx_created_at` (`created_at`),
     UNIQUE KEY `uk_recharge_request_user_idempotency` (`user_id`, `idempotency_key`)
@@ -190,12 +196,86 @@ CREATE TABLE `supplier_settlement` (
   COLLATE=utf8mb4_unicode_ci
   COMMENT='供应商结算记录表';
 
+-- 8. 用户盖章独立额度表 (10元/次)
+CREATE TABLE `user_seal_quota` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '盖章额度ID',
+    `user_id` BIGINT NOT NULL UNIQUE COMMENT '用户ID',
+    `balance` DECIMAL(12, 2) NOT NULL DEFAULT 0.00 COMMENT '当前可用盖章额度(元)',
+    `total_recharged` DECIMAL(12, 2) NOT NULL DEFAULT 0.00 COMMENT '累计充值金额(元)',
+    `total_deducted` DECIMAL(12, 2) NOT NULL DEFAULT 0.00 COMMENT '累计扣除金额(元)',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted` INT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
+    INDEX `idx_user_seal_quota_user` (`user_id`),
+    CONSTRAINT `fk_user_seal_quota_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='用户盖章独立额度表';
+
+-- 9. 用户盖章额度变更流水表
+CREATE TABLE `user_seal_transaction` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '交易ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `transaction_type` VARCHAR(20) NOT NULL COMMENT '交易类型：RECHARGE-充值，DEDUCT-扣除，REFUND-退还，ADJUST-调整',
+    `amount` DECIMAL(12, 2) NOT NULL COMMENT '变更金额（正数表示增加，负数表示减少）',
+    `balance_before` DECIMAL(12, 2) NOT NULL COMMENT '变更前余额',
+    `balance_after` DECIMAL(12, 2) NOT NULL COMMENT '变更后余额',
+    `document_id` BIGINT DEFAULT NULL COMMENT '关联盖章文件ID',
+    `operator_id` BIGINT DEFAULT NULL COMMENT '操作人ID',
+    `operator_type` VARCHAR(20) DEFAULT NULL COMMENT '操作人类型：ADMIN-管理员，SYSTEM-系统，USER-用户',
+    `remark` VARCHAR(255) DEFAULT NULL COMMENT '备注说明',
+    `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT '幂等键',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    INDEX `idx_ust_user` (`user_id`),
+    INDEX `idx_ust_type` (`transaction_type`),
+    INDEX `idx_ust_created` (`created_at`),
+    CONSTRAINT `fk_ust_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='用户盖章额度变更流水表';
+
+-- 10. 盖章证明文件记录表
+CREATE TABLE `seal_document` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '盖章文件ID',
+    `user_id` BIGINT NOT NULL COMMENT '申请用户ID',
+    `source_file_name` VARCHAR(255) NOT NULL COMMENT '原始待盖章文件名',
+    `source_file_path` VARCHAR(512) NOT NULL COMMENT '原始文件存储路径',
+    `source_file_size` BIGINT NOT NULL DEFAULT 0 COMMENT '原始文件大小(字节)',
+    `source_file_ext` VARCHAR(50) DEFAULT NULL COMMENT '原始文件扩展名',
+    `sealed_file_name` VARCHAR(255) DEFAULT NULL COMMENT '盖章交付文件名',
+    `sealed_file_path` VARCHAR(512) DEFAULT NULL COMMENT '盖章交付文件路径',
+    `sealed_file_size` BIGINT DEFAULT 0 COMMENT '盖章交付文件大小(字节)',
+    `fee_amount` DECIMAL(10, 2) NOT NULL DEFAULT 10.00 COMMENT '服务费金额(固定10.00)',
+    `status` VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待盖章，COMPLETED-已完成，REJECTED-已驳回，CANCELLED-已取消',
+    `reject_reason` VARCHAR(500) DEFAULT NULL COMMENT '驳回原因',
+    `operator_id` BIGINT DEFAULT NULL COMMENT '盖章交付操作人ID',
+    `is_processed` TINYINT(1) NOT NULL DEFAULT 0 COMMENT '用户标记处理：0-未处理，1-已处理',
+    `completed_at` DATETIME DEFAULT NULL COMMENT '盖章完成交付时间',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted` INT NOT NULL DEFAULT 0 COMMENT '逻辑删除',
+    INDEX `idx_sd_user` (`user_id`),
+    INDEX `idx_sd_status` (`status`),
+    INDEX `idx_sd_created` (`created_at`),
+    CONSTRAINT `fk_sd_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='盖章文件管理表';
+
 -- 默认账号：admin（高强度密码），user / user123
 INSERT INTO `user` (`id`, `username`, `password`, `role`) VALUES
     (1, 'admin', '$2b$10$03QLUNY7Yr9xBWJwbugxdONqzssH03qsdhG2XBiG9.RxHQjniRkTG', 'ADMIN'),
     (2, 'user', '$2a$10$8ORsuwbOGeGgarcH2nik8uvA1c8X4ah98zVMgpkkwIg.6PImYIRZ2', 'USER');
 
--- 初始化默认用户额度记录
+-- 初始化默认用户发票开票额度记录
 INSERT IGNORE INTO `user_quota` (`user_id`, `balance`, `total_recharged`, `total_deducted`) VALUES
+    (1, 0.00, 0.00, 0.00),
+    (2, 0.00, 0.00, 0.00);
+
+-- 初始化默认用户盖章独立钱包记录
+INSERT IGNORE INTO `user_seal_quota` (`user_id`, `balance`, `total_recharged`, `total_deducted`) VALUES
     (1, 0.00, 0.00, 0.00),
     (2, 0.00, 0.00, 0.00);

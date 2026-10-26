@@ -8,6 +8,9 @@ export interface Invoice {
   amount: number
   invoiceType: string
   invoiceCategory?: 'NORMAL' | 'VAT_SPECIAL'
+  sellerCompany?: 'DEFAULT' | 'TECH' | string
+  feeRate?: number
+  deductedQuota?: number
   remark?: string
   status: string
   userId: number
@@ -34,6 +37,7 @@ export interface InvoiceRequest {
   count?: number
   invoiceType: string
   invoiceCategory?: string
+  sellerCompany?: string
   remark?: string
 }
 
@@ -44,6 +48,7 @@ export interface BatchInvoiceItemRequest {
   amount: string
   invoiceType: string
   invoiceCategory?: string
+  sellerCompany?: string
   remark?: string
 }
 

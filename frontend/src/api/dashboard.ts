@@ -108,6 +108,20 @@ export interface SettlementTrendStat {
   unsettledBalance: number
 }
 
+export interface SellerCategoryStat {
+  key: string
+  label: string
+  sellerCompany: string
+  sellerCompanyName: string
+  invoiceCategory: string
+  categoryName: string
+  completedAmount: number
+  completedCount: number
+  deductedQuota: number
+  feeRate: number
+  amountRatio: number
+}
+
 export interface DashboardStats {
   totalInvoices: number
   pendingInvoices: number
@@ -129,6 +143,7 @@ export interface DashboardStats {
   fulfillmentStats?: FulfillmentStat
   fundFlowStats?: FundFlowStat
   settlementTrends?: SettlementTrendStat[]
+  sellerCategoryStats?: SellerCategoryStat[]
 }
 
 export const dashboardApi = {

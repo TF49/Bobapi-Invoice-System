@@ -33,6 +33,11 @@ public class BatchInvoiceItemRequest {
     private String invoiceCategory = "NORMAL";
 
     /**
+     * 出票主体公司：DEFAULT-普通公司（默认），TECH-科技公司
+     */
+    private String sellerCompany = "DEFAULT";
+
+    /**
      * 备注（可选）
      */
     private String remark;

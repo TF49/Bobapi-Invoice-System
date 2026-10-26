@@ -3,11 +3,13 @@ package com.invoice.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.invoice.entity.UserQuota;
 import com.invoice.entity.UserQuotaTransaction;
+import com.invoice.entity.UserSealQuota;
 import com.invoice.exception.BusinessException;
 import com.invoice.entity.User;
 import com.invoice.mapper.UserMapper;
 import com.invoice.mapper.UserQuotaMapper;
 import com.invoice.mapper.UserQuotaTransactionMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -15,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -28,6 +31,7 @@ public class UserQuotaService {
     private final UserQuotaMapper userQuotaMapper;
     private final UserQuotaTransactionMapper userQuotaTransactionMapper;
     private final UserMapper userMapper;
+    private final UserSealQuotaService userSealQuotaService;
 
     private static final BigDecimal MIN_RECHARGE_AMOUNT = new BigDecimal("0.01");
     private static final BigDecimal MAX_RECHARGE_AMOUNT = new BigDecimal("999999.99");
@@ -35,14 +39,20 @@ public class UserQuotaService {
     public UserQuotaService(UserQuotaMapper userQuotaMapper,
                            UserQuotaTransactionMapper userQuotaTransactionMapper,
                            UserMapper userMapper) {
+        this(userQuotaMapper, userQuotaTransactionMapper, userMapper, null);
+    }
+
+    @Autowired
+    public UserQuotaService(UserQuotaMapper userQuotaMapper,
+                           UserQuotaTransactionMapper userQuotaTransactionMapper,
+                           UserMapper userMapper,
+                           @Autowired(required = false) UserSealQuotaService userSealQuotaService) {
         this.userQuotaMapper = userQuotaMapper;
         this.userQuotaTransactionMapper = userQuotaTransactionMapper;
         this.userMapper = userMapper;
+        this.userSealQuotaService = userSealQuotaService;
     }
 
-    /**
-     * 获取用户当前额度
-     */
     /**
      * 获取用户当前额度
      */
@@ -60,6 +70,26 @@ public class UserQuotaService {
         }
         
         return quota;
+    }
+
+    /**
+     * 获取用户盖章额度
+     */
+    public UserSealQuota getUserSealQuota(Long userId) {
+        if (userSealQuotaService == null || userId == null) {
+            return null;
+        }
+        return userSealQuotaService.getUserQuota(userId);
+    }
+
+    /**
+     * 批量获取用户盖章额度
+     */
+    public List<UserSealQuota> getSealQuotasByUserIds(List<Long> userIds) {
+        if (userSealQuotaService == null || userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        return userSealQuotaService.getQuotasByUserIds(userIds);
     }
 
     /**
@@ -469,6 +499,30 @@ public class UserQuotaService {
     public List<UserQuotaTransaction> getAdminTransactionHistory(Long userId, String transactionType) {
         requireUserRole(userId);
         return getTransactionHistory(userId, transactionType);
+    }
+
+    public UserSealQuota rechargeSealQuota(Long userId, BigDecimal amount, Long operatorId, String remark, String idempotencyKey) {
+        requireUserRole(userId);
+        if (userSealQuotaService == null) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, 50301, "盖章服务不可用");
+        }
+        return userSealQuotaService.rechargeQuota(userId, amount, operatorId, remark, idempotencyKey);
+    }
+
+    public UserSealQuota adjustSealQuota(Long userId, BigDecimal amount, Long operatorId, String remark) {
+        requireUserRole(userId);
+        if (userSealQuotaService == null) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, 50301, "盖章服务不可用");
+        }
+        return userSealQuotaService.adjustQuota(userId, amount, operatorId, remark);
+    }
+
+    public List<com.invoice.entity.UserSealTransaction> getAdminSealTransactionHistory(Long userId, String transactionType) {
+        requireUserRole(userId);
+        if (userSealQuotaService == null) {
+            return Collections.emptyList();
+        }
+        return userSealQuotaService.getTransactionHistory(userId, transactionType);
     }
 
     /**

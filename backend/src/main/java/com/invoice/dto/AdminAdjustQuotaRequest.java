@@ -19,4 +19,6 @@ public class AdminAdjustQuotaRequest {
     
     @Size(max = 200, message = "备注不能超过200个字符")
     private String remark;
+
+    private String walletType;
 }

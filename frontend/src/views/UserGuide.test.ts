@@ -55,19 +55,23 @@ describe('UserGuide View', () => {
     const w = await mountPage()
     expect(w.text()).toContain('系统操作指引与帮助中心')
     expect(w.text()).toContain('前往额度充值')
+    expect(w.text()).toContain('前往文件盖章')
     expect(w.text()).toContain('前往发票申请')
     expect(w.text()).toContain('额度申请指引')
   })
 
-  it('navigates to quota page when clicking shortcut', async () => {
+  it('navigates to pages when clicking shortcuts', async () => {
     const w = await mountPage()
     const buttons = w.findAll('.hero-shortcuts .el-button')
-    expect(buttons.length).toBe(2)
+    expect(buttons.length).toBe(3)
 
     await buttons[0].trigger('click')
     expect(mockPush).toHaveBeenCalledWith('/user/quota')
 
     await buttons[1].trigger('click')
+    expect(mockPush).toHaveBeenCalledWith('/user/documents')
+
+    await buttons[2].trigger('click')
     expect(mockPush).toHaveBeenCalledWith('/user')
   })
 
