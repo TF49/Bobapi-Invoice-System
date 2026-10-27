@@ -245,10 +245,11 @@
     <el-dialog
       v-model="showRechargeDialog"
       title="充值盖章钱包额度"
-      width="480px"
+      width="520px"
       :close-on-click-modal="false"
       destroy-on-close
       class="recharge-dialog"
+      @close="handleRechargeDialogClose"
     >
       <el-form
         ref="rechargeFormRef"
@@ -277,7 +278,7 @@
               :type="rechargeForm.feeAmount === amt ? 'primary' : 'default'"
               @click="rechargeForm.feeAmount = amt"
             >
-              ¥{{ amt }}（{{ amt / 10 }}次）
+              ¥{{ amt }} ({{ amt / 10 }}次)
             </el-button>
           </div>
           <el-input-number
@@ -294,20 +295,47 @@
         </el-form-item>
 
         <el-form-item label="转账付款截图凭证" prop="screenshotUrl">
-          <div v-if="rechargeForm.screenshotUrl" class="proof-card">
-            <el-image
-              :src="rechargeForm.screenshotUrl"
-              fit="contain"
-              class="proof-img"
-              :preview-src-list="[rechargeForm.screenshotUrl]"
-              preview-teleported
-            />
-            <div class="proof-actions">
-              <el-button size="small" type="danger" link @click="rechargeForm.screenshotUrl = ''">移除重新上传</el-button>
+          <div v-if="displayProofUrl" class="proof-card">
+            <div class="proof-card-header">
+              <div class="proof-status-label">
+                <i class="status-dot-success" />
+                <span>{{ uploadingProof ? '凭证正在上传中...' : '凭证已就绪（点击图片可全屏放大）' }}</span>
+              </div>
+              <div class="proof-card-actions">
+                <el-button size="small" type="primary" link :icon="UploadFilled" :disabled="uploadingProof" @click="triggerProofFileInput">
+                  更换凭证
+                </el-button>
+                <el-button size="small" type="danger" link :icon="Delete" :disabled="uploadingProof" @click="removeProof">
+                  移除重新上传
+                </el-button>
+              </div>
+            </div>
+            <div class="proof-img-container" v-loading="uploadingProof">
+              <el-image
+                :src="displayProofUrl"
+                fit="contain"
+                class="proof-img"
+                :preview-src-list="[displayProofUrl]"
+                preview-teleported
+              >
+                <template #placeholder>
+                  <div class="proof-img-loading">
+                    <el-icon class="is-loading"><Loading /></el-icon>
+                    <span>凭证加载中...</span>
+                  </div>
+                </template>
+                <template #error>
+                  <div class="proof-img-error">
+                    <el-icon :size="24"><Picture /></el-icon>
+                    <span>图片加载失败，请重新上传</span>
+                  </div>
+                </template>
+              </el-image>
             </div>
           </div>
           <el-upload
             v-else
+            class="proof-uploader"
             drag
             action="#"
             :auto-upload="false"
@@ -317,11 +345,23 @@
             :disabled="uploadingProof"
           >
             <div class="proof-upload-box">
-              <el-icon v-if="!uploadingProof"><UploadFilled /></el-icon>
-              <el-icon v-else class="is-loading"><Loading /></el-icon>
-              <span>{{ uploadingProof ? '凭证上传中...' : '点击或将转账截图拖拽到此处' }}</span>
+              <el-icon v-if="!uploadingProof" class="upload-icon"><UploadFilled /></el-icon>
+              <el-icon v-else class="upload-icon is-loading"><Loading /></el-icon>
+              <div class="upload-text">
+                <span>{{ uploadingProof ? '凭证上传中...' : '点击或将转账截图拖拽到此处' }}</span>
+                <small>支持 JPG / PNG / WEBP 格式，单张不超过 5MB</small>
+              </div>
             </div>
           </el-upload>
+
+          <!-- 隐藏的文件选择器（用于更换凭证） -->
+          <input
+            ref="proofFileInputRef"
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp"
+            style="display: none"
+            @change="handleHiddenFileInputChange"
+          />
         </el-form-item>
 
         <el-form-item label="充值备注（可选）">
@@ -336,8 +376,8 @@
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="showRechargeDialog = false">取消</el-button>
-          <el-button type="primary" :loading="submittingRecharge" @click="handleSubmitRecharge">
+          <el-button @click="handleRechargeDialogClose">取消</el-button>
+          <el-button type="primary" :loading="submittingRecharge || uploadingProof" @click="handleSubmitRecharge">
             提交充值审核
           </el-button>
         </span>
@@ -354,10 +394,12 @@ import {
   CircleCheck,
   Clock,
   CloseBold,
+  Delete,
   Document,
   DocumentChecked,
   Download,
   Loading,
+  Picture,
   Plus,
   Refresh,
   UploadFilled,
@@ -367,6 +409,7 @@ import {
 import AppHeader from '@/components/AppHeader.vue'
 import { sealDocumentApi, type SealDocument, type UserSealQuota } from '@/api/sealDocument'
 import { rechargeRequestApi } from '@/api/rechargeRequest'
+import { getImageUrl } from '@/utils/imageUrl'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import { saveBlobResponse } from '@/utils/download'
 
@@ -393,15 +436,47 @@ const showRechargeDialog = ref(false)
 const uploadingProof = ref(false)
 const submittingRecharge = ref(false)
 const rechargeFormRef = ref()
+const proofFileInputRef = ref<HTMLInputElement>()
+const localProofUrl = ref('')
 const rechargeForm = reactive({
   feeAmount: 50,
   screenshotUrl: '',
   remark: ''
 })
 const rechargeRules = {
-  feeAmount: [{ required: true, message: '请输入充值金额', trigger: 'change' }],
-  screenshotUrl: [{ required: true, message: '请上传转账截图凭证', trigger: 'change' }]
+  feeAmount: [
+    { required: true, message: '请输入充值金额', trigger: 'change' },
+    {
+      validator: (_rule: any, value: any, callback: any) => {
+        if (!value || value < 10) {
+          callback(new Error('充值金额最低为 10 元'))
+        } else if (value > 29999) {
+          callback(new Error('充值金额最高为 29,999 元'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'change'
+    }
+  ],
+  screenshotUrl: [
+    {
+      validator: (_rule: any, value: any, callback: any) => {
+        if (!value || !String(value).trim()) {
+          callback(new Error('请上传转账付款截图凭证'))
+        } else {
+          callback()
+        }
+      },
+      trigger: ['blur', 'change']
+    }
+  ]
 }
+
+const displayProofUrl = computed(() => {
+  if (localProofUrl.value) return localProofUrl.value
+  return getImageUrl(rechargeForm.screenshotUrl)
+})
 
 // 统计
 const pendingCount = computed(() => documents.value.filter(d => d.status === 'PENDING').length)
@@ -496,6 +571,10 @@ onBeforeUnmount(() => {
     docChannel.close()
     docChannel = null
   }
+  if (localProofUrl.value) {
+    URL.revokeObjectURL(localProofUrl.value)
+    localProofUrl.value = ''
+  }
   window.removeEventListener('document-updated', handleRealtimeUpdate)
   window.removeEventListener('recharge-reviewed', handleRealtimeUpdate)
 })
@@ -585,23 +664,87 @@ const openRechargeDialog = () => {
   rechargeForm.feeAmount = 50
   rechargeForm.screenshotUrl = ''
   rechargeForm.remark = ''
+  if (localProofUrl.value) {
+    URL.revokeObjectURL(localProofUrl.value)
+    localProofUrl.value = ''
+  }
   showRechargeDialog.value = true
 }
 
-// 上传凭证
-const handleProofUpload = async (fileObj: any) => {
-  const file = fileObj.raw
-  if (!file) return
+// 关闭/重置充值弹窗
+const handleRechargeDialogClose = () => {
+  showRechargeDialog.value = false
+  rechargeForm.screenshotUrl = ''
+  rechargeForm.remark = ''
+  if (localProofUrl.value) {
+    URL.revokeObjectURL(localProofUrl.value)
+    localProofUrl.value = ''
+  }
+  rechargeFormRef.value?.resetFields()
+}
+
+// 处理上传凭证
+const processProofUpload = async (file: File) => {
+  const isImage = /\.(jpg|jpeg|png|webp)$/i.test(file.name)
+  if (!isImage) {
+    ElMessage.error('仅支持 JPG、PNG、WEBP 格式的图片文件')
+    return
+  }
+  const isLt5M = file.size / 1024 / 1024 <= 5
+  if (!isLt5M) {
+    ElMessage.error('凭证图片大小不能超过 5MB')
+    return
+  }
+
+  // 1. 本地即时生成 Blob 预览，0ms 呈现图片，无缝即视
+  if (localProofUrl.value) {
+    URL.revokeObjectURL(localProofUrl.value)
+  }
+  localProofUrl.value = URL.createObjectURL(file)
+
   uploadingProof.value = true
   try {
     const url = await rechargeRequestApi.uploadScreenshot(file)
     rechargeForm.screenshotUrl = url
     ElMessage.success('凭证上传成功')
+    rechargeFormRef.value?.validateField('screenshotUrl')
   } catch (err: any) {
-    ElMessage.error(err.message || '凭证上传失败')
+    ElMessage.error(err.message || '凭证上传失败，请重试')
+    if (localProofUrl.value) {
+      URL.revokeObjectURL(localProofUrl.value)
+      localProofUrl.value = ''
+    }
+    rechargeForm.screenshotUrl = ''
   } finally {
     uploadingProof.value = false
   }
+}
+
+const handleProofUpload = async (fileObj: any) => {
+  const file = fileObj.raw
+  if (!file) return
+  await processProofUpload(file)
+}
+
+const triggerProofFileInput = () => {
+  proofFileInputRef.value?.click()
+}
+
+const handleHiddenFileInputChange = async (e: Event) => {
+  const target = e.target as HTMLInputElement
+  if (target.files && target.files[0]) {
+    await processProofUpload(target.files[0])
+    target.value = ''
+  }
+}
+
+const removeProof = () => {
+  if (localProofUrl.value) {
+    URL.revokeObjectURL(localProofUrl.value)
+    localProofUrl.value = ''
+  }
+  rechargeForm.screenshotUrl = ''
+  rechargeFormRef.value?.validateField('screenshotUrl')
 }
 
 // 提交充值
@@ -611,7 +754,7 @@ const handleSubmitRecharge = async () => {
     if (!valid) return
     submittingRecharge.value = true
     try {
-      const idempotencyKey = generateIdempotencyKey()
+      const idempotencyKey = generateIdempotencyKey('seal-recharge')
       await rechargeRequestApi.createRequest({
         requestType: 'SEAL',
         feeAmount: rechargeForm.feeAmount,
@@ -620,7 +763,7 @@ const handleSubmitRecharge = async () => {
       }, idempotencyKey)
 
       ElMessage.success('充值申请提交成功，请等待管理员审核入账')
-      showRechargeDialog.value = false
+      handleRechargeDialogClose()
       broadcastRechargeCreated()
     } catch (err: any) {
       ElMessage.error(err.message || '提交充值申请失败')
@@ -1001,17 +1144,65 @@ const formatDateTime = (val?: string) => {
 }
 
 /* 充值弹窗样式 */
+.recharge-dialog {
+  max-width: 95vw;
+}
+
+.recharge-intro-alert {
+  line-height: 1.6;
+  border-radius: 8px;
+}
+
 .quick-amounts {
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 8px;
-  margin-bottom: 6px;
+  margin-bottom: 8px;
+  width: 100%;
+}
+
+.quick-amounts .el-button {
+  width: 100%;
+  margin-left: 0 !important;
+  padding: 8px 4px;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 13px;
 }
 
 .form-hint {
   font-size: 12px;
   color: #64748b;
-  margin-top: 4px;
+  margin-top: 6px;
   display: block;
+}
+
+.proof-uploader {
+  width: 100%;
+}
+
+.proof-uploader :deep(.el-upload) {
+  width: 100%;
+  display: block;
+}
+
+.proof-uploader :deep(.el-upload-dragger) {
+  width: 100%;
+  padding: 24px 16px;
+  border-radius: 8px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  box-sizing: border-box;
+}
+
+.proof-uploader :deep(.el-upload-dragger:hover) {
+  border-color: #059669;
+  background: #f0fdf4;
 }
 
 .proof-upload-box {
@@ -1019,28 +1210,126 @@ const formatDateTime = (val?: string) => {
   flex-direction: column;
   align-items: center;
   gap: 8px;
-  color: #64748b;
+}
+
+.proof-upload-box .upload-icon {
+  font-size: 36px;
+  color: #059669;
+}
+
+.proof-upload-box .upload-text {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: #334155;
   font-size: 13px;
+}
+
+.proof-upload-box .upload-text small {
+  color: #94a3b8;
+  font-size: 12px;
 }
 
 .proof-card {
   width: 100%;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.proof-card-header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.proof-status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #059669;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-dot-success {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #059669;
+}
+
+.proof-card-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.proof-img-container {
+  width: 100%;
+  height: 180px;
+  border-radius: 6px;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  padding: 12px;
-  background: #f8fafc;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .proof-img {
-  max-height: 180px;
-  border-radius: 4px;
+  width: 100%;
+  height: 100%;
+  cursor: zoom-in;
 }
 
-.proof-actions {
-  margin-top: 8px;
+.proof-img :deep(.el-image__inner) {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.proof-img-loading,
+.proof-img-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: #94a3b8;
+  font-size: 12px;
+  height: 100%;
+}
+
+.dialog-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  width: 100%;
+}
+
+@media (max-width: 480px) {
+  .quick-amounts {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dialog-footer {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+
+  .dialog-footer .el-button {
+    width: 100%;
+    margin-left: 0 !important;
+  }
 }
 
 @media (max-width: 1024px) {

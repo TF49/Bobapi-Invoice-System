@@ -49,6 +49,18 @@ export default defineConfig({
             }
           });
         }
+      },
+      '/recharge-requests': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:9090',
+        changeOrigin: true,
+        rewrite: (path) => `/api${path}`,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            if (req.headers.origin) {
+              proxyReq.setHeader('origin', 'http://localhost:8080');
+            }
+          });
+        }
       }
     }
   }
