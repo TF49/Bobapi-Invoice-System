@@ -220,7 +220,7 @@
                 </el-tooltip>
               </template>
             </el-table-column>
-            <el-table-column prop="quota" label="额度情况" min-width="230" align="left">
+            <el-table-column prop="quota" label="额度情况" min-width="250" align="left">
               <template #default="{ row }">
                 <template v-if="row.role === 'USER'">
                   <div class="quota-cell">
@@ -228,9 +228,9 @@
                       <span class="quota-badge">开票</span>
                       <span
                         class="quota-balance-value"
-                        title="点击管理额度"
-                        @click="openQuotaDialog(row)"
-                      >¥{{ row.quota ? Number(row.quota.balance).toFixed(2) : '0.00' }}</span>
+                        title="点击管理开票额度"
+                        @click="openQuotaDialog(row, 'INVOICE')"
+                      >{{ formatCurrency(row.quota ? row.quota.balance : 0) }}</span>
                       <el-button
                         size="small"
                         type="primary"
@@ -239,21 +239,28 @@
                         :aria-label="`管理 ${row.username} 的额度`"
                         @click="openQuotaDialog(row)"
                       >
-                        管理
+                        <el-icon :size="12"><Setting /></el-icon>
+                        <span>管理</span>
                       </el-button>
                     </div>
                     <div class="quota-cell-meta">
-                      <span>充值 ¥{{ row.quota ? Number(row.quota.totalRecharged).toFixed(2) : '0.00' }}</span>
-                      <span>扣除 ¥{{ row.quota ? Number(row.quota.totalDeducted).toFixed(2) : '0.00' }}</span>
+                      <span>充值 {{ formatCurrency(row.quota ? row.quota.totalRecharged : 0) }}</span>
+                      <span class="quota-meta-divider">/</span>
+                      <span>扣除 {{ formatCurrency(row.quota ? row.quota.totalDeducted : 0) }}</span>
                     </div>
                     <div class="quota-cell-row seal-row">
                       <span class="quota-badge seal">盖章</span>
                       <span
-                        class="quota-balance-value"
-                        title="点击管理额度"
-                        @click="openQuotaDialog(row)"
-                      >¥{{ row.quota?.sealBalance != null ? Number(row.quota.sealBalance).toFixed(2) : '0.00' }}</span>
-                      <span class="quota-count-meta">({{ row.quota?.sealAvailableCount ?? 0 }}次)</span>
+                        class="quota-balance-value seal-val"
+                        title="点击管理盖章钱包"
+                        @click="openQuotaDialog(row, 'SEAL')"
+                      >{{ formatCurrency(row.quota?.sealBalance ?? 0) }}</span>
+                      <span
+                        class="quota-count-meta"
+                        :class="{ 'has-count': (row.quota?.sealAvailableCount ?? 0) > 0 }"
+                      >
+                        {{ row.quota?.sealAvailableCount ?? 0 }} 次可用
+                      </span>
                     </div>
                   </div>
                 </template>
@@ -361,12 +368,14 @@
                   <div class="mobile-quota-badges">
                     <div class="mobile-quota-item">
                       <span class="quota-badge">开票</span>
-                      <strong class="quota-val">¥{{ row.quota ? Number(row.quota.balance).toFixed(2) : '0.00' }}</strong>
+                      <strong class="quota-val">{{ formatCurrency(row.quota ? row.quota.balance : 0) }}</strong>
                     </div>
                     <div class="mobile-quota-item">
                       <span class="quota-badge seal">盖章</span>
-                      <strong class="quota-val">¥{{ row.quota?.sealBalance != null ? Number(row.quota.sealBalance).toFixed(2) : '0.00' }}</strong>
-                      <span class="mobile-quota-count">({{ row.quota?.sealAvailableCount ?? 0 }}次)</span>
+                      <strong class="quota-val">{{ formatCurrency(row.quota?.sealBalance ?? 0) }}</strong>
+                      <span class="mobile-quota-count" :class="{ 'has-count': (row.quota?.sealAvailableCount ?? 0) > 0 }">
+                        ({{ row.quota?.sealAvailableCount ?? 0 }}次)
+                      </span>
                     </div>
                   </div>
                   <el-button size="small" type="primary" link @click="openQuotaDialog(row)">额度管理</el-button>
@@ -718,6 +727,7 @@ import {
   Plus,
   RefreshRight,
   Search,
+  Setting,
   Tickets,
   User,
   UserFilled
@@ -1149,13 +1159,25 @@ const formatDate = (value: string) => {
   }).format(date)
 }
 
+const formatCurrency = (amount: number | string | null | undefined) => {
+  if (amount == null || amount === '') return '¥0.00'
+  const num = Number(amount)
+  if (Number.isNaN(num)) return '¥0.00'
+  return new Intl.NumberFormat('zh-CN', {
+    style: 'currency',
+    currency: 'CNY',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(num)
+}
+
 // 额度管理相关函数
-const openQuotaDialog = async (user: ManagedUser) => {
+const openQuotaDialog = async (user: ManagedUser, defaultWallet: 'INVOICE' | 'SEAL' = 'INVOICE') => {
   const requestId = ++quotaDialogRequestId
   quotaTarget.value = user
   quotaActiveTab.value = 'recharge'
-  quotaWalletType.value = 'INVOICE'
-  quotaHistoryWalletType.value = 'INVOICE'
+  quotaWalletType.value = defaultWallet
+  quotaHistoryWalletType.value = defaultWallet
   quotaForm.amount = 0
   quotaForm.remark = ''
   quotaPendingIdempotencyKey.value = null
@@ -1664,54 +1686,130 @@ onMounted(loadUsers)
 .quota-cell {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
+  padding: 4px 0;
+  min-width: 0;
 }
 
 .quota-cell-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   line-height: 1.3;
 }
 
+.quota-cell-row.seal-row {
+  padding-top: 1px;
+}
+
 .quota-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-size: 11px;
-  font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: var(--color-surface-subtle);
-  color: var(--color-text-secondary);
-  border: 1px solid var(--color-border);
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  flex-shrink: 0;
+  background: var(--color-primary-soft, #e9f4f0);
+  color: var(--color-primary, #12715b);
+  border: 1px solid rgba(18, 113, 91, 0.22);
 }
 
 .quota-badge.seal {
-  background: rgba(18, 113, 91, 0.08);
-  color: var(--color-primary);
-  border-color: rgba(18, 113, 91, 0.2);
+  background: var(--color-accent-soft, #fff6df);
+  color: #b66d0b;
+  border: 1px solid rgba(214, 154, 45, 0.28);
 }
 
 .quota-balance-value {
   font-size: 13.5px;
   font-weight: 700;
-  color: var(--color-primary);
+  color: var(--color-primary, #12715b);
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: opacity 0.15s;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+  transition: opacity 0.15s ease;
 }
 
 .quota-balance-value:hover {
-  opacity: 0.75;
+  opacity: 0.8;
   text-decoration: underline;
 }
 
-.quota-count-meta {
-  font-size: 11px;
-  color: var(--color-text-muted);
+.quota-balance-value.seal-val {
+  color: #92530a;
 }
 
 .quota-manage-btn {
-  padding: 0 4px;
-  font-size: 12px;
-  height: auto;
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  height: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-primary, #12715b);
+  background: rgba(18, 113, 91, 0.06);
+  border: 1px solid rgba(18, 113, 91, 0.18);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.quota-manage-btn:hover {
+  background: var(--color-primary, #12715b);
+  color: #ffffff;
+  border-color: var(--color-primary, #12715b);
+  box-shadow: 0 2px 6px rgba(18, 113, 91, 0.2);
+}
+
+.quota-cell-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted, #74808b);
+  font-size: 11px;
+  line-height: 1.2;
+  padding-left: 2px;
+}
+
+.quota-cell-meta span {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.quota-meta-divider {
+  color: var(--color-border-strong, #cfd7d4);
+  font-weight: 300;
+  user-select: none;
+}
+
+.quota-count-meta {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  height: 20px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 500;
+  background: #f1f5f3;
+  color: var(--color-text-muted, #74808b);
+  border: 1px solid #e1e9e6;
+  white-space: nowrap;
+}
+
+.quota-count-meta.has-count {
+  background: var(--color-accent-soft, #fff6df);
+  color: #b66d0b;
+  border-color: rgba(214, 154, 45, 0.25);
+  font-weight: 600;
 }
 
 .history-toolbar {
@@ -1919,6 +2017,11 @@ onMounted(loadUsers)
   .mobile-quota-count {
     font-size: 11px;
     color: var(--color-text-muted);
+  }
+
+  .mobile-quota-count.has-count {
+    color: #b66d0b;
+    font-weight: 600;
   }
 }
 

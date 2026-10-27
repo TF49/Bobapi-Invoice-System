@@ -76,7 +76,7 @@
             <span class="panel-heading-icon"><Wallet /></span>
             <div>
               <h2>充值申请审核</h2>
-              <p>核验用户转账付款凭证，确认后系统自动为用户增加开票额度</p>
+              <p>核验用户转账付款凭证，确认后系统自动为用户增加开票额度或盖章钱包</p>
             </div>
           </div>
 
@@ -92,26 +92,11 @@
             />
 
             <div class="filter-control">
-              <span class="filter-label"><Filter /> 状态</span>
-              <el-select
-                v-model="filterStatus"
-                placeholder="全部状态"
-                class="status-select"
-              >
-                <el-option label="全部状态" value="ALL" />
-                <el-option label="待审核" value="PENDING" />
-                <el-option label="已通过" value="APPROVED" />
-                <el-option label="已拒绝" value="REJECTED" />
-              </el-select>
-            </div>
-
-            <div class="filter-control">
               <span class="filter-label"><Tickets /> 充值业务</span>
               <el-select
                 v-model="filterType"
                 placeholder="全部业务"
-                class="status-select"
-                style="width: 130px;"
+                class="business-select"
               >
                 <el-option label="全部业务" value="ALL" />
                 <el-option label="发票额度" value="INVOICE" />
@@ -226,27 +211,33 @@
               </template>
             </el-table-column>
 
-            <el-table-column prop="feeAmount" label="手续费" width="135" align="right">
+            <el-table-column prop="feeAmount" label="手续费" width="130" align="right">
               <template #default="{ row }">
                 <div v-if="row.feeAmount != null" class="fee-cell">
                   <span class="money-cell fee-amount">{{ formatCurrency(row.feeAmount) }}</span>
-                  <span class="fee-rate-tag">{{ getFeeRate(row.feeAmount, row.amount, row.requestType) }}</span>
+                  <span
+                    class="fee-rate-tag"
+                    :class="{ 'is-seal': row.requestType === 'SEAL' }"
+                    :title="row.requestType === 'SEAL' ? '盖章钱包等额兑换，免收手续费' : '发票额度充值手续费率 3%'"
+                  >
+                    {{ getFeeRate(row.feeAmount, row.amount, row.requestType) }}
+                  </span>
                 </div>
                 <el-tag v-else size="small" type="info" effect="plain" class="history-tag">历史记录</el-tag>
               </template>
             </el-table-column>
 
-            <el-table-column prop="amount" label="到账额度 / 类型" width="165" align="right">
+            <el-table-column prop="amount" label="到账额度 / 类型" width="175" align="right">
               <template #default="{ row }">
                 <div class="quota-cell">
                   <span class="money-cell amount-positive">+{{ formatCurrency(row.amount) }}</span>
-                  <div style="margin-top: 2px;">
-                    <el-tag v-if="row.requestType === 'SEAL'" size="small" type="warning" effect="dark" round>
+                  <div class="quota-type-wrapper">
+                    <span v-if="row.requestType === 'SEAL'" class="type-pill seal">
                       盖章钱包
-                    </el-tag>
-                    <el-tag v-else size="small" type="info" effect="plain" round>
+                    </span>
+                    <span v-else class="type-pill invoice">
                       发票额度
-                    </el-tag>
+                    </span>
                   </div>
                 </div>
               </template>
@@ -377,8 +368,13 @@
                 <span v-else class="text-muted">历史记录</span>
               </div>
               <div class="record-detail-row">
-                <span class="detail-label">申请额度</span>
-                <strong class="money-cell amount-positive">+{{ formatCurrency(row.amount) }}</strong>
+                <span class="detail-label">到账额度 / 类型</span>
+                <div class="mobile-amount-cell">
+                  <strong class="money-cell amount-positive">+{{ formatCurrency(row.amount) }}</strong>
+                  <span :class="['type-pill', row.requestType === 'SEAL' ? 'seal' : 'invoice']">
+                    {{ row.requestType === 'SEAL' ? '盖章钱包' : '发票额度' }}
+                  </span>
+                </div>
               </div>
 
               <div v-if="row.screenshotUrl" class="record-detail-row full-width proof-row">
@@ -524,7 +520,12 @@
               </div>
               <div class="strip-divider" />
               <div class="strip-item highlight">
-                <span class="strip-label">到账充值额度</span>
+                <div class="strip-label-row">
+                  <span class="strip-label">到账充值额度</span>
+                  <span :class="['type-pill', currentRequest.requestType === 'SEAL' ? 'seal' : 'invoice']">
+                    {{ currentRequest.requestType === 'SEAL' ? '盖章钱包' : '发票额度' }}
+                  </span>
+                </div>
                 <strong class="strip-value amount-badge">+{{ formatCurrency(currentRequest.amount) }}</strong>
               </div>
             </div>
@@ -708,6 +709,12 @@
                 <span v-else class="info-value text-muted">历史记录</span>
               </div>
               <div class="info-row">
+                <span class="info-label">充值业务</span>
+                <span :class="['type-pill', currentRequest.requestType === 'SEAL' ? 'seal' : 'invoice']">
+                  {{ currentRequest.requestType === 'SEAL' ? '盖章钱包' : '发票额度' }}
+                </span>
+              </div>
+              <div class="info-row">
                 <span class="info-label">申请到账额度</span>
                 <strong class="info-value amount-badge">+{{ formatCurrency(currentRequest.amount) }}</strong>
               </div>
@@ -774,7 +781,6 @@ import {
   Clock,
   Close,
   Coin,
-  Filter,
   Loading,
   Picture,
   Refresh,
@@ -1230,8 +1236,8 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.status-select {
-  width: 120px;
+.business-select {
+  width: 135px;
 }
 
 .refresh-button {
@@ -1454,20 +1460,76 @@ onUnmounted(() => {
   border-radius: 3px;
 }
 
+.fee-rate-tag.is-seal {
+  background: var(--color-accent-soft, #fff6df);
+  color: #b66d0b;
+  border: 1px solid rgba(214, 154, 45, 0.25);
+  font-weight: 600;
+}
+
 .history-tag {
   font-size: 11px;
 }
 
 .quota-cell {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  white-space: nowrap;
 }
 
 .amount-positive {
-  color: #12715b;
+  color: var(--color-primary);
   font-weight: 700;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
+}
+
+.quota-type-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  line-height: 1;
+}
+
+.type-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 7px;
+  height: 18px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.type-pill.invoice {
+  background: var(--color-primary-soft, #e9f4f0);
+  color: var(--color-primary, #12715b);
+  border: 1px solid rgba(18, 113, 91, 0.22);
+}
+
+.type-pill.seal {
+  background: var(--color-accent-soft, #fff6df);
+  color: #b66d0b;
+  border: 1px solid rgba(214, 154, 45, 0.28);
+}
+
+.strip-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mobile-amount-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* 状态标签 */

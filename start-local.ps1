@@ -11,6 +11,21 @@ if (-not (Test-Path -LiteralPath $backendPath -PathType Container)) {
     throw "Backend directory not found: $backendPath"
 }
 
+$envFile = Join-Path $PSScriptRoot '.env'
+if (Test-Path -LiteralPath $envFile -PathType Leaf) {
+    Get-Content -LiteralPath $envFile | ForEach-Object {
+        $line = $_.Trim()
+        if ($line -and -not $line.StartsWith('#') -and $line.Contains('=')) {
+            $parts = $line -split '=', 2
+            $k = $parts[0].Trim()
+            $v = $parts[1].Trim()
+            if (-not [string]::IsNullOrWhiteSpace($k) -and [string]::IsNullOrWhiteSpace([Environment]::GetEnvironmentVariable($k, 'Process'))) {
+                [Environment]::SetEnvironmentVariable($k, $v, 'Process')
+            }
+        }
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($env:JWT_SECRET)) {
     if (Test-Path -LiteralPath $secretPath -PathType Leaf) {
         $env:JWT_SECRET = (Get-Content -LiteralPath $secretPath -Raw -Encoding UTF8).Trim()

@@ -80,47 +80,63 @@ const router = createRouter({
 // 路由守卫
 router.beforeEach((to, _from, next) => {
   const token = localStorage.getItem('token') || sessionStorage.getItem('token')
-  const userRole = localStorage.getItem('role')
+  const userRole = localStorage.getItem('role') || sessionStorage.getItem('role')
 
-  // 只有当 role 确实存在且为非法值时才清除 token，避免 role 尚未写入时误删
-  if (token && userRole && !['USER', 'ADMIN', 'INVOICE_CLERK'].includes(userRole)) {
+  // 如果没有 token，或者 token 存在但没有合法角色，清除残留凭证，避免状态异常
+  const isValidRole = userRole && ['USER', 'ADMIN', 'INVOICE_CLERK'].includes(userRole)
+  if (token && !isValidRole) {
     localStorage.removeItem('token')
     localStorage.removeItem('username')
     localStorage.removeItem('role')
-    next('/login')
-    return
-  }
-  
-  if (to.meta.requiresAuth) {
-    if (!token) {
+    sessionStorage.removeItem('token')
+    sessionStorage.removeItem('username')
+    sessionStorage.removeItem('role')
+    if (to.path !== '/login' && to.path !== '/register') {
       next('/login')
-    } else if (to.meta.role) {
-      const allowedRoles = Array.isArray(to.meta.role) ? to.meta.role : [to.meta.role]
-      if (!allowedRoles.includes(userRole)) {
-        // 根据角色重定向到对应页面
-        if (userRole === 'ADMIN') {
-          next('/admin')
-        } else if (userRole === 'INVOICE_CLERK') {
+      return
+    }
+  }
+
+  const effectiveToken = localStorage.getItem('token') || sessionStorage.getItem('token')
+  const effectiveRole = localStorage.getItem('role') || sessionStorage.getItem('role')
+
+  if (to.meta.requiresAuth) {
+    if (!effectiveToken || !effectiveRole) {
+      next('/login')
+      return
+    }
+    const allowedRoles = Array.isArray(to.meta.role) ? to.meta.role : [to.meta.role]
+    if (!allowedRoles.includes(effectiveRole)) {
+      // 角色权限不符时重定向，并严格避免自身重定向死循环
+      if (effectiveRole === 'ADMIN' || effectiveRole === 'INVOICE_CLERK') {
+        if (to.path !== '/admin') {
           next('/admin')
         } else {
+          next()
+        }
+      } else if (effectiveRole === 'USER') {
+        if (to.path !== '/user') {
           next('/user')
+        } else {
+          next()
         }
       } else {
-        next()
+        next('/login')
       }
-    } else {
-      next()
+      return
     }
+    next()
   } else {
-    if (token && (to.path === '/login' || to.path === '/register')) {
-      if (userRole === 'ADMIN' || userRole === 'INVOICE_CLERK') {
+    // 访问登录/注册页时，若已拥有有效登录态则按角色分流
+    if (effectiveToken && effectiveRole && (to.path === '/login' || to.path === '/register')) {
+      if (effectiveRole === 'ADMIN' || effectiveRole === 'INVOICE_CLERK') {
         next('/admin')
       } else {
         next('/user')
       }
-    } else {
-      next()
+      return
     }
+    next()
   }
 })
 
