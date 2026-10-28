@@ -101,7 +101,7 @@
             <span class="total-tag">共 {{ documents.length }} 笔</span>
           </div>
           <div class="table-filters">
-            <el-radio-group v-model="filterStatus" size="default" @change="fetchDocuments">
+            <el-radio-group v-model="filterStatus" size="default" @change="() => fetchDocuments()">
               <el-radio-button label="ALL">全部</el-radio-button>
               <el-radio-button label="PENDING">待盖章</el-radio-button>
               <el-radio-button label="COMPLETED">已交付</el-radio-button>
@@ -156,9 +156,9 @@
 
           <el-table-column label="交付成品文件" min-width="220">
             <template #default="{ row }">
-              <div v-if="row.status === 'COMPLETED' && row.sealedFileName" class="sealed-file-cell">
+              <div v-if="row.status === 'COMPLETED'" class="sealed-file-cell">
                 <el-icon class="sealed-icon"><CircleCheck /></el-icon>
-                <span class="sealed-name" :title="row.sealedFileName">{{ row.sealedFileName }}</span>
+                <span class="sealed-name" :title="row.sealedFileName">{{ row.sealedFileName || '已交付' }}</span>
               </div>
               <div v-else-if="row.status === 'REJECTED'" class="reject-reason-cell">
                 <el-tooltip :content="row.rejectReason || '未提供具体原因'" placement="top">
@@ -495,21 +495,45 @@ const fetchQuota = async () => {
 }
 
 // 获取文件列表
-const fetchDocuments = async () => {
-  loadingList.value = true
+// 多个刷新来源（轮询、广播、手动、切换筛选）可能并发请求，只采纳最后一次发起的响应，
+// 避免较早发出的旧数据晚到后覆盖新状态。silent 用于后台轮询，不闪烁 loading、不弹错误。
+let fetchSeq = 0
+const fetchDocuments = async (silent = false) => {
+  const seq = ++fetchSeq
+  if (!silent) loadingList.value = true
   try {
     const res = await sealDocumentApi.getMyDocuments(filterStatus.value)
+    if (seq !== fetchSeq) return
     documents.value = res || []
   } catch (err: any) {
-    ElMessage.error(err.message || '获取文件列表失败')
+    if (!silent && seq === fetchSeq) {
+      ElMessage.error(err.message || '获取文件列表失败')
+    }
   } finally {
-    loadingList.value = false
+    if (seq === fetchSeq) loadingList.value = false
   }
 }
 
 const refreshAll = () => {
   fetchQuota()
   fetchDocuments()
+}
+
+// 发票方在另一台设备上交付时，BroadcastChannel 收不到通知，需定时拉取。
+// 仅在页面可见时轮询；切回页面时立即刷新一次。
+const POLL_INTERVAL_MS = 15000
+let pollTimer: number | null = null
+
+const silentRefresh = () => {
+  if (document.visibilityState !== 'visible') return
+  fetchQuota()
+  fetchDocuments(true)
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    silentRefresh()
+  }
 }
 
 let docChannel: BroadcastChannel | null = null
@@ -564,9 +588,16 @@ onMounted(() => {
   }
   window.addEventListener('document-updated', handleRealtimeUpdate)
   window.addEventListener('recharge-reviewed', handleRealtimeUpdate)
+  pollTimer = window.setInterval(silentRefresh, POLL_INTERVAL_MS)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (docChannel) {
     docChannel.close()
     docChannel = null

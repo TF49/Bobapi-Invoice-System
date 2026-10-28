@@ -368,9 +368,13 @@ public class SealDocumentService {
         if (!isAdminOrClerk && !Objects.equals(document.getUserId(), currentUserId)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, 40301, "无权操作他人的文件");
         }
-        document.setIsProcessed(Boolean.TRUE.equals(isProcessed));
-        document.setUpdatedAt(LocalDateTime.now());
-        sealDocumentMapper.updateById(document);
+        // 仅更新处理标记列。若用 updateById 回写整条旧实体，会把并发交付写入的
+        // COMPLETED 状态与交付文件字段覆盖回读取时的 PENDING 快照。
+        LambdaUpdateWrapper<SealDocument> updateWrapper = new LambdaUpdateWrapper<>();
+        updateWrapper.eq(SealDocument::getId, id)
+                .set(SealDocument::getIsProcessed, Boolean.TRUE.equals(isProcessed))
+                .set(SealDocument::getUpdatedAt, LocalDateTime.now());
+        sealDocumentMapper.update(null, updateWrapper);
     }
 
     /**

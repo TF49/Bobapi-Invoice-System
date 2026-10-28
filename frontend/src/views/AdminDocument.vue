@@ -54,7 +54,7 @@
       <section class="table-card">
         <div class="table-toolbar">
           <div class="toolbar-left">
-            <el-radio-group v-model="filterStatus" size="default" @change="fetchDocuments">
+            <el-radio-group v-model="filterStatus" size="default" @change="() => fetchDocuments()">
               <el-radio-button label="ALL">全部工单</el-radio-button>
               <el-radio-button label="PENDING">
                 待盖章 ({{ pendingCount }})
@@ -69,15 +69,15 @@
               placeholder="按用户名筛选"
               clearable
               style="width: 200px;"
-              @clear="fetchDocuments"
-              @keyup.enter="fetchDocuments"
+              @clear="() => fetchDocuments()"
+              @keyup.enter="() => fetchDocuments()"
             >
               <template #prefix>
                 <el-icon><Search /></el-icon>
               </template>
             </el-input>
 
-            <el-button type="primary" plain :icon="Search" @click="fetchDocuments">
+            <el-button type="primary" plain :icon="Search" @click="() => fetchDocuments()">
               查询
             </el-button>
           </div>
@@ -384,15 +384,38 @@ const rejectReason = ref('')
 const isRejecting = ref(false)
 
 // 获取列表
-const fetchDocuments = async () => {
-  loading.value = true
+// 只采纳最后一次发起的请求结果，防止旧响应晚到覆盖新状态；silent 用于后台轮询。
+let fetchSeq = 0
+const fetchDocuments = async (silent = false) => {
+  const seq = ++fetchSeq
+  if (!silent) loading.value = true
   try {
     const res = await sealDocumentApi.getAllDocuments(filterStatus.value, searchUsername.value)
+    if (seq !== fetchSeq) return
     documents.value = res || []
   } catch (err: any) {
-    ElMessage.error(err.message || '获取文件列表失败')
+    if (!silent && seq === fetchSeq) {
+      ElMessage.error(err.message || '获取文件列表失败')
+    }
   } finally {
-    loading.value = false
+    if (seq === fetchSeq) loading.value = false
+  }
+}
+
+// 多名开票员/管理员同时处理时，跨设备的变更需靠定时拉取同步
+const POLL_INTERVAL_MS = 15000
+let pollTimer: number | null = null
+
+const silentRefresh = () => {
+  if (document.visibilityState !== 'visible') return
+  // 弹窗打开期间不刷新，避免列表变化干扰正在进行的交付/驳回操作
+  if (showUploadDialog.value || showRejectDialog.value) return
+  fetchDocuments(true)
+}
+
+const handleVisibilityChange = () => {
+  if (document.visibilityState === 'visible') {
+    silentRefresh()
   }
 }
 
@@ -459,7 +482,12 @@ const handleSubmitDelivery = async () => {
   if (!currentDoc.value || !selectedFile.value) return
   isDelivering.value = true
   try {
-    await sealDocumentApi.uploadSealedDocument(currentDoc.value.id, selectedFile.value)
+    const updated = await sealDocumentApi.uploadSealedDocument(currentDoc.value.id, selectedFile.value)
+    // 先用接口返回值就地更新该行，即使随后的列表刷新失败也能看到最新状态
+    if (updated) {
+      const idx = documents.value.findIndex(d => d.id === updated.id)
+      if (idx >= 0) documents.value.splice(idx, 1, updated)
+    }
     ElMessage.success('交付成功，文件状态已变更为【已完成】')
     showUploadDialog.value = false
     await fetchDocuments()
@@ -522,9 +550,16 @@ onMounted(() => {
     } catch (_) {}
   }
   window.addEventListener('document-updated', handleRealtimeRefresh)
+  pollTimer = window.setInterval(silentRefresh, POLL_INTERVAL_MS)
+  document.addEventListener('visibilitychange', handleVisibilityChange)
 })
 
 onBeforeUnmount(() => {
+  if (pollTimer !== null) {
+    window.clearInterval(pollTimer)
+    pollTimer = null
+  }
+  document.removeEventListener('visibilitychange', handleVisibilityChange)
   if (docChannel) {
     docChannel.close()
     docChannel = null

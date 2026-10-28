@@ -32,6 +32,9 @@ export interface UserSealQuota {
   updatedAt: string
 }
 
+// 文件最大 50MB，全局 10s 超时不足以完成上传，单独放宽到 2 分钟
+const UPLOAD_TIMEOUT_MS = 120000
+
 export const sealDocumentApi = {
   // 获取当前用户盖章钱包额度
   getMySealQuota() {
@@ -45,7 +48,8 @@ export const sealDocumentApi = {
     return request.post<any, SealDocument>('/documents/upload', formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
-      }
+      },
+      timeout: UPLOAD_TIMEOUT_MS
     })
   },
 
@@ -87,7 +91,8 @@ export const sealDocumentApi = {
     return request.post<any, SealDocument>(`/documents/admin/${id}/upload`, formData, {
       headers: {
         'Content-Type': 'multipart/form-data'
-      }
+      },
+      timeout: UPLOAD_TIMEOUT_MS
     })
   },
 
