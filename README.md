@@ -190,7 +190,10 @@
 | POST | `/users/api-key/generate` | 生成 |
 | PUT | `/users/api-key/status` | 启用/禁用 |
 
-### 3.7 OpenAPI `/open/v1`（API Key 或 JWT 认证）
+### 3.7 OpenAPI `/open/v1`（仅 API Key 认证，请求头 `X-API-KEY`）
+
+API Key 只在 `/open/**` 路径生效，带 Key 调用其他站内接口会按未登录处理。
+OpenAPI 一律只操作 Key 所属账号自己的数据，管理员账号的 Key 也不会获得后台权限。
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
@@ -203,6 +206,17 @@
 | POST | `/open/v1/invoices/{id}/cancel` | 按内部 ID 取消 |
 | POST | `/open/v1/invoices/by-out-trade-no/{outTradeNo}/cancel` | 按外部商户单号取消 |
 | GET | `/open/v1/quota` | 查询当前额度 |
+| POST | `/open/v1/documents` | 上传待盖章文件（`multipart/form-data`，字段 `file`，扣除单次服务费；**必须**带 `Idempotency-Key`） |
+| GET | `/open/v1/documents?status=` | 我的盖章文件列表，`status` 可选 PENDING / COMPLETED / REJECTED / CANCELLED / ALL |
+| POST | `/open/v1/documents/{id}/cancel` | 撤销待盖章申请（退还服务费） |
+| GET | `/open/v1/documents/{id}/download` | 下载盖章完成的交付文件 |
+
+OpenAPI 不提供盖章额度查询；上传时额度不足只返回"盖章额度不足"，不带余额数字。
+
+盖章上传防重按 `(user_id, idempotency_key)` 唯一索引（V27）实现：
+同一 Key 重传文件名、大小和内容 SHA-256（V28 新增 `source_file_sha256` 列）都相同的文件，返回首次记录、不重复扣费；
+同一 Key 换了文件（包括同名但内容不同）返回 409 / `40903`；
+同一 Key 并发到达时后到的请求返回 409 / `40904`。网页端上传不受影响（幂等键为空）。
 
 **外部商户单号**（`outTradeNo`）：调用方可传入自己的订单号，`(user_id, out_trade_no)` 建有唯一索引，
 既可用内部 ID 也可用该单号查询、下载和取消，便于业务系统对齐。

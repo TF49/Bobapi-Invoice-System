@@ -79,6 +79,57 @@ class ApiKeyAuthenticationFilterTest {
     }
 
     @Test
+    void authenticatesValidApiKeyUnderContextPath() throws Exception {
+        User user = new User();
+        user.setId(88L);
+        user.setUsername("api_merchant");
+        user.setRole("USER");
+        user.setEnabled(true);
+        user.setApiKeyEnabled(true);
+        user.setAuthVersion(1L);
+        when(userMapper.selectOne(any())).thenReturn(user);
+
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", "/api/open/v1/documents");
+        request.setContextPath("/api");
+        request.addHeader("X-API-KEY", "bk_live_valid_key");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        assertNotNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void ignoresApiKeyOnNonOpenApiRoute() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("GET", "/api/documents/my");
+        request.setContextPath("/api");
+        request.addHeader("X-API-KEY", "bk_live_valid_key");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, filterChain);
+
+        // 不查库、不认证，交给后续 JWT 过滤器和安全规则处理
+        verify(filterChain).doFilter(request, response);
+        verifyNoInteractions(userMapper);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void ignoresAdminApiKeyOnAdminRoute() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest("DELETE", "/api/users/admin/5");
+        request.setContextPath("/api");
+        request.addHeader("X-API-KEY", "bk_live_admin_key");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter.doFilter(request, response, filterChain);
+
+        verify(filterChain).doFilter(request, response);
+        verifyNoInteractions(userMapper);
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
     void rejectsDisabledApiKey() throws Exception {
         User user = new User();
         user.setId(88L);

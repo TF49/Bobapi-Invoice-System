@@ -96,6 +96,24 @@ describe('UserQuota', () => {
     expect(text).toContain('/open/v1/invoices/{id}/cancel')
   })
 
+  it('renders OpenAPI seal document endpoints with Idempotency-Key and without seal quota query', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    const text = page.text()
+    expect(text).toContain('上传待盖章文件')
+    expect(text).toContain('/open/v1/documents')
+    expect(text).toContain('Idempotency-Key: seal-ORDER_20260828001')
+    expect(text).toContain('-F "file=@./contract.pdf"')
+    expect(text).toContain('/open/v1/documents/501/cancel')
+    expect(text).toContain('/open/v1/documents/501/download')
+    expect(text).toContain('不会重复扣费')
+    expect(text).toContain('文件名相同但内容已修改')
+    expect(text).not.toContain('/open/v1/documents/quota')
+  })
+
   it('renders invoiceCategory and allows toggling between normal and special VAT invoice snippets', async () => {
     const page = await mountPage()
     const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))

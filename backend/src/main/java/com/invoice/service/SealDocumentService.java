@@ -12,6 +12,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -76,10 +79,25 @@ public class SealDocumentService {
     }
 
     /**
+     * 带幂等键的上传结果。duplicate=true 表示命中已有记录，本次没有重复扣费和落盘。
+     */
+    public record UploadResult(SealDocumentResponse document, boolean duplicate) {}
+
+    /**
      * 用户上传待盖章文件（无需表单，格式不限，原子前置扣款 10 元）
      */
     @Transactional
     public SealDocumentResponse uploadSourceDocument(Long userId, MultipartFile file) {
+        return uploadSourceDocument(userId, file, null).document();
+    }
+
+    /**
+     * 上传待盖章文件，按 (userId, idempotencyKey) 防重。
+     * 相同幂等键 + 文件名、大小、内容 SHA-256 均相同：直接返回已有记录，不再扣费；
+     * 相同幂等键但文件不同（包括同名不同内容）：拒绝，避免调用方误用幂等键。
+     */
+    @Transactional
+    public UploadResult uploadSourceDocument(Long userId, MultipartFile file, String idempotencyKey) {
         if (file == null || file.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "请选择待上传的文件");
         }
@@ -108,19 +126,50 @@ public class SealDocumentService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40007, "系统不支持上传可执行程序或脚本文件，请上传证明材料文档或图片");
         }
 
-        // 1. 先插入待盖章记录，获取主键 ID
+        // 内容哈希：防重时识别"同名但内容不同"的文件，同时留作审计
+        String sourceSha256 = sha256Hex(file);
+
+        String normalizedKey = (idempotencyKey != null && !idempotencyKey.isBlank()) ? idempotencyKey.trim() : null;
+        if (normalizedKey != null) {
+            SealDocument existing = sealDocumentMapper.selectOne(new LambdaQueryWrapper<SealDocument>()
+                    .eq(SealDocument::getUserId, userId)
+                    .eq(SealDocument::getIdempotencyKey, normalizedKey));
+            if (existing != null) {
+                // V28 之前写入的记录没有哈希，只能退回到文件名 + 大小比较
+                boolean sameContent = existing.getSourceFileSha256() == null
+                        || existing.getSourceFileSha256().equalsIgnoreCase(sourceSha256);
+                boolean sameFile = Objects.equals(existing.getSourceFileName(), originalFilename)
+                        && Objects.equals(existing.getSourceFileSize(), file.getSize())
+                        && sameContent;
+                if (!sameFile) {
+                    throw new BusinessException(HttpStatus.CONFLICT, 40903,
+                            "Idempotency-Key 已用于其他文件，请为新文件使用新的 Idempotency-Key");
+                }
+                return new UploadResult(toResponse(existing, null), true);
+            }
+        }
+
+        // 1. 先插入待盖章记录，获取主键 ID（幂等键唯一索引兜住并发重复提交）
         SealDocument document = new SealDocument();
         document.setUserId(userId);
+        document.setIdempotencyKey(normalizedKey);
         document.setSourceFileName(originalFilename);
         document.setSourceFilePath(""); // 稍后落盘后写入真实路径
         document.setSourceFileSize(file.getSize());
+        document.setSourceFileSha256(sourceSha256);
         document.setSourceFileExt(extension);
         document.setFeeAmount(UserSealQuotaService.SINGLE_SEAL_FEE);
         document.setStatus(STATUS_PENDING);
         document.setIsProcessed(false);
         document.setCreatedAt(LocalDateTime.now());
         document.setUpdatedAt(LocalDateTime.now());
-        sealDocumentMapper.insert(document);
+        try {
+            sealDocumentMapper.insert(document);
+        } catch (DuplicateKeyException exception) {
+            // 同一幂等键的另一个请求刚刚写入。当前事务的读快照可能看不到它，直接提示调用方稍后查询。
+            throw new BusinessException(HttpStatus.CONFLICT, 40904,
+                    "相同 Idempotency-Key 的上传请求正在处理，请稍后通过列表接口查询结果");
+        }
 
         // 2. 前置扣除 10 元盖章额度（排他锁校验并扣减，余额不足直接抛出异常终止，不产生物理文件）
         userSealQuotaService.deductQuota(
@@ -154,7 +203,7 @@ public class SealDocumentService {
         document.setSourceFilePath(uploadRoot.relativize(targetPath).toString().replace('\\', '/'));
         sealDocumentMapper.updateById(document);
 
-        return toResponse(document, null);
+        return new UploadResult(toResponse(document, null), false);
     }
 
     /**
@@ -452,6 +501,22 @@ public class SealDocumentService {
         } catch (IOException ignored) {}
 
         return new FileDownload(resource, document.getSealedFileName(), contentType, length);
+    }
+
+    private String sha256Hex(MultipartFile file) {
+        try (InputStream in = file.getInputStream()) {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+            return HexFormat.of().formatHex(digest.digest());
+        } catch (IOException e) {
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, 50002, "读取上传文件失败");
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("当前 JVM 不支持 SHA-256", e);
+        }
     }
 
     private String probeContentType(Path path, String filename) {

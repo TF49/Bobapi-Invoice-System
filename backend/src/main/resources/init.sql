@@ -240,9 +240,11 @@ CREATE TABLE `user_seal_transaction` (
 CREATE TABLE `seal_document` (
     `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '盖章文件ID',
     `user_id` BIGINT NOT NULL COMMENT '申请用户ID',
+    `idempotency_key` VARCHAR(64) DEFAULT NULL COMMENT 'OpenAPI 上传幂等键',
     `source_file_name` VARCHAR(255) NOT NULL COMMENT '原始待盖章文件名',
     `source_file_path` VARCHAR(512) NOT NULL COMMENT '原始文件存储路径',
     `source_file_size` BIGINT NOT NULL DEFAULT 0 COMMENT '原始文件大小(字节)',
+    `source_file_sha256` CHAR(64) DEFAULT NULL COMMENT '原始文件内容 SHA-256（小写十六进制）',
     `source_file_ext` VARCHAR(50) DEFAULT NULL COMMENT '原始文件扩展名',
     `sealed_file_name` VARCHAR(255) DEFAULT NULL COMMENT '盖章交付文件名',
     `sealed_file_path` VARCHAR(512) DEFAULT NULL COMMENT '盖章交付文件路径',
@@ -259,6 +261,7 @@ CREATE TABLE `seal_document` (
     INDEX `idx_sd_user` (`user_id`),
     INDEX `idx_sd_status` (`status`),
     INDEX `idx_sd_created` (`created_at`),
+    UNIQUE KEY `uk_sd_user_idempotency` (`user_id`, `idempotency_key`),
     CONSTRAINT `fk_sd_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4

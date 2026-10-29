@@ -41,13 +41,18 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+        String requestUri = request.getRequestURI();
+        // API Key 只用于 OpenAPI。非 /open/ 路径一律不认 API Key，交给 JWT 认证，
+        // 避免 Key 泄露后被用来调用站内接口或管理后台接口。
+        if (!isOpenApiPath(request)) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         String apiKey = request.getHeader("X-API-KEY");
         if (apiKey == null || apiKey.isBlank()) {
             apiKey = request.getHeader("X-Api-Key");
         }
-
-        String requestUri = request.getRequestURI();
-        boolean isOpenApiUri = requestUri.startsWith("/open/") || requestUri.startsWith("/api/open/");
 
         if (apiKey != null && !apiKey.isBlank()) {
             apiKey = apiKey.trim();
@@ -72,18 +77,31 @@ public class ApiKeyAuthenticationFilter extends OncePerRequestFilter {
                 log.warn("API Key authentication failed for URI {}: userExists={}, enabled={}, apiKeyEnabled={}",
                         requestUri, user != null, user != null ? user.getEnabled() : null,
                         user != null ? user.getApiKeyEnabled() : null);
-                if (isOpenApiUri) {
-                    writeSecurityError(response, 401, 40101, "API Key 无效或未启用");
-                    return;
-                }
+                writeSecurityError(response, 401, 40101, "API Key 无效或未启用");
+                return;
             }
-        } else if (isOpenApiUri && !isDocUri(requestUri)) {
+        } else if (!isDocUri(requestUri)) {
             // 没有携带 API Key 且是 OpenAPI 接口
             writeSecurityError(response, 401, 40101, "缺少 X-API-KEY 请求头");
             return;
         }
 
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * 去掉 context-path（如 /api）后判断是否为 /open/ 开头的 OpenAPI 路径
+     */
+    private boolean isOpenApiPath(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        if (uri == null) {
+            return false;
+        }
+        String contextPath = request.getContextPath();
+        String path = (contextPath != null && !contextPath.isEmpty() && uri.startsWith(contextPath))
+                ? uri.substring(contextPath.length())
+                : uri;
+        return path.startsWith("/open/");
     }
 
     private boolean isDocUri(String uri) {

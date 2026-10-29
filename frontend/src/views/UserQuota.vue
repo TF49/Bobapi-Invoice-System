@@ -427,7 +427,7 @@
                 <div>
                   <h3 class="api-key-title">我的 OpenAPI 调用凭证</h3>
                   <p class="api-key-subtitle">
-                    外部系统调用发票开放接口时，请在 HTTP 请求头中携带 <code class="inline-code">X-API-KEY</code>。
+                    外部系统调用开票、盖章开放接口时，请在 HTTP 请求头中携带 <code class="inline-code">X-API-KEY</code>。
                   </p>
                 </div>
                 <el-tag :type="apiKeyData.apiKey && apiKeyData.apiKeyEnabled !== false ? 'success' : 'danger'" size="large">
@@ -480,7 +480,7 @@
                 <div>
                   <h3 class="openapi-title">⚡ 快速接入与接口返回示例 (OpenAPI v1)</h3>
                   <p class="openapi-desc">
-                    所有接口均以 JSON 格式通信。调用时请在 HTTP 请求头添加 <code class="inline-code">X-API-KEY: {{ apiKeyData.apiKey || 'your_api_key' }}</code>。
+                    接口统一返回 JSON（盖章文件上传使用 multipart/form-data）。调用时请在 HTTP 请求头添加 <code class="inline-code">X-API-KEY: {{ apiKeyData.apiKey || 'your_api_key' }}</code>。
                   </p>
                 </div>
                 <div class="openapi-base-url-badge">
@@ -739,15 +739,80 @@
                 </div>
               </div>
 
-              <!-- 接口 5: 异常与错误返回示例 -->
+              <!-- 接口 5: 盖章文件 -->
+              <div class="api-doc-item">
+                <div class="api-item-header">
+                  <span class="http-badge post">POST</span>
+                  <span class="api-item-title">5. 上传待盖章文件 (每份扣除 10 元盖章额度)</span>
+                  <span class="api-item-path">/open/v1/documents</span>
+                </div>
+                <p class="api-item-desc">
+                  以 <code class="inline-code">multipart/form-data</code> 上传，文件字段名为 <code class="inline-code">file</code>，上传成功即扣除 10 元盖章额度。请求头<strong>必须</strong>携带 <code class="inline-code">Idempotency-Key</code>（16–64 位字母、数字或 <code class="inline-code">. _ : -</code>），每份新文件使用一个新值。
+                </p>
+                <div class="api-quota-rules-card">
+                  <div class="rules-header">
+                    <span class="rules-badge">防重规则</span>
+                    <strong class="rules-title">网络超时重试时请沿用同一个 Idempotency-Key</strong>
+                  </div>
+                  <ul class="api-rule-list">
+                    <li>同一 Key 再次上传<strong>文件名和内容完全相同</strong>的文件（按 SHA-256 比对）：返回首次上传的记录，<strong>不会重复扣费</strong>。</li>
+                    <li>同一 Key 上传不同文件，<strong>包括文件名相同但内容已修改</strong>：返回 <code class="inline-code">40903</code>，请为新文件换一个 Key。</li>
+                    <li>同一 Key 的两个请求同时到达：后到的返回 <code class="inline-code">40904</code>，稍后通过列表接口查询结果即可。</li>
+                    <li>OpenAPI 不提供盖章额度查询；额度不足时返回 <code class="inline-code">40002</code>「盖章额度不足，请先充值」。</li>
+                  </ul>
+                </div>
+                <div class="api-code-grid">
+                  <div class="code-box">
+                    <div class="code-box-header">
+                      <span class="code-box-title">请求示例 (cURL)</span>
+                      <button class="code-copy-btn" type="button" @click="handleCopyText(snippetSealUploadReq, 'cURL 请求示例')">
+                        <el-icon :size="12"><CopyDocument /></el-icon>
+                        <span>复制</span>
+                      </button>
+                    </div>
+                    <pre class="code-box-content"><code>{{ snippetSealUploadReq }}</code></pre>
+                  </div>
+                  <div class="code-box">
+                    <div class="code-box-header">
+                      <span class="code-box-title">响应示例 (JSON - HTTP 200)</span>
+                      <button class="code-copy-btn" type="button" @click="handleCopyText(snippetSealUploadResp, '响应示例')">
+                        <el-icon :size="12"><CopyDocument /></el-icon>
+                        <span>复制</span>
+                      </button>
+                    </div>
+                    <pre class="code-box-content"><code>{{ snippetSealUploadResp }}</code></pre>
+                  </div>
+                </div>
+
+                <div class="api-sub-tip">
+                  <div class="api-sub-tip-title">查询、撤销与下载盖章文件：</div>
+                  <div class="api-sub-tip-desc">
+                    <code class="inline-code">GET /open/v1/documents?status=</code> 查询我的盖章文件，<code class="inline-code">status</code> 可选 <code class="inline-code">PENDING</code>(待盖章) / <code class="inline-code">COMPLETED</code>(已完成) / <code class="inline-code">REJECTED</code>(已驳回) / <code class="inline-code">CANCELLED</code>(已撤销)，不传返回全部。
+                    <code class="inline-code">PENDING</code> 状态可通过 <code class="inline-code">POST /open/v1/documents/{id}/cancel</code> 撤销并退回 10 元；
+                    <code class="inline-code">downloadable</code> 为 <code class="inline-code">true</code> 时可通过 <code class="inline-code">GET /open/v1/documents/{id}/download</code> 下载盖章后的文件。
+                  </div>
+                  <div class="code-box" style="margin-top: 8px;">
+                    <div class="code-box-header">
+                      <span class="code-box-title">列表 / 撤销 / 下载命令 (cURL)</span>
+                      <button class="code-copy-btn" type="button" @click="handleCopyText(snippetSealOtherReq, '盖章接口命令')">
+                        <el-icon :size="12"><CopyDocument /></el-icon>
+                        <span>复制</span>
+                      </button>
+                    </div>
+                    <pre class="code-box-content"><code>{{ snippetSealOtherReq }}</code></pre>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 接口 6: 异常与错误返回示例 -->
               <div class="api-doc-item" style="margin-bottom: 0;">
                 <div class="api-item-header">
                   <span class="http-badge error">ERROR</span>
-                  <span class="api-item-title">5. 统一异常 / 错误返回格式</span>
-                  <span class="api-item-path">HTTP 400 / 401 / 429</span>
+                  <span class="api-item-title">6. 统一异常 / 错误返回格式</span>
+                  <span class="api-item-path">HTTP 400 / 401 / 409 / 429</span>
                 </div>
                 <p class="api-item-desc">
-                  当请求发生错误（如额度不足 <code class="inline-code">40002</code>、密钥失效 <code class="inline-code">40101</code>、频率受限 <code class="inline-code">42902</code> 等），接口统一返回标准 JSON 结构。
+                  当请求发生错误（如额度不足 <code class="inline-code">40002</code>、密钥失效 <code class="inline-code">40101</code>、幂等键冲突 <code class="inline-code">40903</code> / <code class="inline-code">40904</code>、频率受限 <code class="inline-code">42902</code> 等），接口统一返回标准 JSON 结构。API Key 仅对 <code class="inline-code">/open/</code> 开头的接口生效。
                 </p>
                 <div class="api-code-grid">
                   <div class="code-box" style="grid-column: 1 / -1;">
@@ -1151,6 +1216,47 @@ const snippetQuotaResp = computed(() => `{
     "totalDeducted": 1500.00
   }
 }`)
+
+const snippetSealUploadReq = computed(() => `curl -X POST "${currentBaseUrl.value}/open/v1/documents" \\
+  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
+  -H "Idempotency-Key: seal-ORDER_20260828001" \\
+  -F "file=@./contract.pdf"`)
+
+const snippetSealUploadResp = computed(() => `{
+  "code": 200,
+  "message": "文件上传成功，等待盖章处理",
+  "data": {
+    "id": 501,
+    "sourceFileName": "contract.pdf",
+    "sourceFileSize": 102400,
+    "sourceFileExt": "pdf",
+    "feeAmount": 10.00,
+    "status": "PENDING",
+    "rejectReason": null,
+    "downloadable": false,
+    "sealedFileName": null,
+    "sealedFileSize": null,
+    "createdAt": "2026-08-28T14:00:00",
+    "completedAt": null,
+    "updatedAt": "2026-08-28T14:00:00"
+  }
+}`)
+
+const snippetSealOtherReq = computed(() => {
+  const key = apiKeyData.value.apiKey || 'your_api_key'
+  return `# 查询已完成的盖章文件
+curl -X GET "${currentBaseUrl.value}/open/v1/documents?status=COMPLETED" \\
+  -H "X-API-KEY: ${key}"
+
+# 撤销待盖章申请（退回 10 元）
+curl -X POST "${currentBaseUrl.value}/open/v1/documents/501/cancel" \\
+  -H "X-API-KEY: ${key}"
+
+# 下载盖章后的文件
+curl -X GET "${currentBaseUrl.value}/open/v1/documents/501/download" \\
+  -H "X-API-KEY: ${key}" \\
+  -O -J`
+})
 
 const snippetErrorResp = computed(() => `{
   "code": 40002,
@@ -1799,6 +1905,18 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   gap: 6px;
   line-height: 1.5;
+}
+
+.api-rule-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+}
+
+.api-rule-list li + li {
+  margin-top: 4px;
 }
 
 .api-sub-tip-desc {

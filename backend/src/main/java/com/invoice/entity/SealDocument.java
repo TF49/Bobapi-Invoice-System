@@ -19,6 +19,11 @@ public class SealDocument {
      * 申请用户ID
      */
     private Long userId;
+
+    /**
+     * OpenAPI 上传幂等键（网页端上传为空）
+     */
+    private String idempotencyKey;
     
     /**
      * 待盖章原始文件名
@@ -34,6 +39,12 @@ public class SealDocument {
      * 待盖章原始文件大小(字节)
      */
     private Long sourceFileSize;
+
+    /**
+     * 待盖章原始文件内容 SHA-256（小写十六进制，64 位）
+     */
+    @TableField("source_file_sha256")
+    private String sourceFileSha256;
     
     /**
      * 待盖章原始文件扩展名
