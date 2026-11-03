@@ -43,6 +43,15 @@ services:
       FILE_MAX_SIZE: ${FILE_MAX_SIZE:-50MB}
       REQUEST_MAX_SIZE: ${REQUEST_MAX_SIZE:-50MB}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:8080,http://localhost:8081,http://127.0.0.1:8080,http://127.0.0.1:8081,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173}
+      # 后端位于前端 Nginx 之后：只信任 Nginx 容器固定 IP 发来的转发头，用于限流与验证码绑定真实 IP。
+      # 修改下方 frontend 的 ipv4_address 时必须同步修改这里；前面还有 CDN / 负载均衡时把其回源地址追加进来。
+      TRUST_FORWARDED_HEADERS: ${TRUST_FORWARDED_HEADERS:-true}
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-172.16.238.10}
+      REGISTER_IP_HOURLY_LIMIT: ${REGISTER_IP_HOURLY_LIMIT:-3}
+      REGISTER_IP_DAILY_LIMIT: ${REGISTER_IP_DAILY_LIMIT:-10}
+      REGISTER_SUBNET_DAILY_LIMIT: ${REGISTER_SUBNET_DAILY_LIMIT:-30}
+      REGISTER_GLOBAL_HOURLY_LIMIT: ${REGISTER_GLOBAL_HOURLY_LIMIT:-60}
+      CAPTCHA_FAILURE_LIMIT: ${CAPTCHA_FAILURE_LIMIT:-10}
       AI_ENABLED: ${AI_ENABLED:-true}
       AI_PROVIDER: ${AI_PROVIDER:-deepseek}
       AI_API_KEY: ${AI_API_KEY:-}
@@ -72,7 +81,9 @@ services:
     ports:
       - "8080:80"
     networks:
-      - invoice-network
+      invoice-network:
+        # 固定 IP，后端 TRUSTED_PROXIES 只信任该地址
+        ipv4_address: 172.16.238.10
     depends_on:
       - backend
     healthcheck:
@@ -91,3 +102,10 @@ volumes:
 networks:
   invoice-network:
     driver: bridge
+    ipam:
+      config:
+        # 固定子网，供 frontend 使用固定 IP。若与宿主机已有网段冲突，修改此处并同步
+        # frontend 的 ipv4_address 与 backend 的 TRUSTED_PROXIES。
+        - subnet: 172.16.238.0/24
+          # 其他容器的动态 IP 只从后半段分配，避免占用 frontend 的固定 IP
+          ip_range: 172.16.238.128/25

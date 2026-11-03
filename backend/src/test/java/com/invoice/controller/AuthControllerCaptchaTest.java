@@ -5,6 +5,7 @@ import com.invoice.dto.LoginRequest;
 import com.invoice.dto.RegisterRequest;
 import com.invoice.entity.User;
 import com.invoice.exception.BusinessException;
+import com.invoice.security.AuthRateLimiter;
 import com.invoice.security.LoginAttemptService;
 import com.invoice.security.RateLimitService;
 import com.invoice.security.SlideCaptchaService;
@@ -15,9 +16,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -26,6 +30,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -52,12 +57,15 @@ class AuthControllerCaptchaTest {
     void setUp() {
         WebUtils.configureTrustForwardedHeaders(false);
         controller = new AuthController(
-                userService, jwtUtil, loginAttemptService, rateLimitService, slideCaptchaService);
+                userService, jwtUtil, loginAttemptService, rateLimitService, slideCaptchaService,
+                new AuthRateLimiter(rateLimitService));
         httpRequest = new MockHttpServletRequest();
         httpRequest.setRemoteAddr("203.0.113.10");
         // 多数用例默认放行；captchaRequiredIsRateLimited 会覆盖为拒绝
-        lenient().when(rateLimitService.tryAcquire(anyString(), anyInt(), any()))
-                .thenReturn(new RateLimitService.RateLimitResult(true, 0));
+        RateLimitService.RateLimitResult allowed = new RateLimitService.RateLimitResult(true, 0);
+        lenient().when(rateLimitService.tryAcquire(anyString(), anyInt(), any())).thenReturn(allowed);
+        lenient().when(rateLimitService.check(anyString(), anyInt(), any())).thenReturn(allowed);
+        lenient().when(rateLimitService.hit(anyString(), anyInt(), any())).thenReturn(allowed);
     }
 
     @AfterEach
@@ -105,7 +113,7 @@ class AuthControllerCaptchaTest {
     }
 
     @Test
-    void registerChecksUsernameBeforeConsumingCaptcha() {
+    void registerConsumesCaptchaBeforeUsernameCheck() {
         when(userService.findByUsername("taken")).thenReturn(new User());
 
         RegisterRequest request = new RegisterRequest();
@@ -117,7 +125,11 @@ class AuthControllerCaptchaTest {
                 .isInstanceOf(BusinessException.class)
                 .hasMessageContaining("用户名已存在");
 
-        verify(slideCaptchaService, never()).consumeToken(anyString(), anyString());
+        // 先核销凭证再查用户名，防止无验证码探测账号是否存在
+        InOrder order = inOrder(slideCaptchaService, userService);
+        order.verify(slideCaptchaService).consumeToken("tok-abc", "203.0.113.10");
+        order.verify(userService).findByUsername("taken");
+        verify(userService, never()).registerUser(anyString(), anyString(), anyString());
     }
 
     @Test
@@ -128,7 +140,7 @@ class AuthControllerCaptchaTest {
         created.setUsername("newbie");
         created.setRole("USER");
         created.setAuthVersion(1L);
-        when(userService.createUser("newbie", "pass1234", "USER")).thenReturn(created);
+        when(userService.registerUser("newbie", "pass1234", "203.0.113.10")).thenReturn(created);
         when(jwtUtil.generateToken(anyLong(), anyString(), anyString(), anyLong())).thenReturn("jwt");
 
         RegisterRequest request = new RegisterRequest();
@@ -144,11 +156,13 @@ class AuthControllerCaptchaTest {
 
     @Test
     void verifyCaptchaDelegatesWithClientIp() {
+        List<List<Integer>> track = List.of(List.of(0, 0, 0), List.of(40, 1, 500));
         CaptchaVerifyRequest request = new CaptchaVerifyRequest();
         request.setCaptchaId("cid");
         request.setX(40);
         request.setY(12);
-        when(slideCaptchaService.verifyAndIssueToken("cid", 40, 12, "203.0.113.10"))
+        request.setTrack(track);
+        when(slideCaptchaService.verifyAndIssueToken("cid", 40, 12, track, "203.0.113.10"))
                 .thenReturn("issued-token");
 
         var response = controller.verifyCaptcha(request, httpRequest);

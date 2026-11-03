@@ -38,6 +38,11 @@ public class User {
      */
     private String remark;
 
+    /**
+     * 自助注册来源 IP（管理员创建的账号为空）
+     */
+    private String registerIp;
+
     private Boolean enabled;
 
     private Long authVersion;

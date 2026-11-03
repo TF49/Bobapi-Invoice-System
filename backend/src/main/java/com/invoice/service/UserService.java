@@ -98,11 +98,26 @@ public class UserService {
      */
     @Transactional
     public User createUser(String username, String password, String role, String remark) {
+        return insertUser(username, password, role, remark, null);
+    }
+
+    /**
+     * 自助注册普通用户，并记录注册来源 IP
+     */
+    @Transactional
+    public User registerUser(String username, String password, String registerIp) {
+        User user = insertUser(username, password, "USER", null, registerIp);
+        logger.info("用户自助注册成功: userId={}, username={}, ip={}", user.getId(), username, registerIp);
+        return user;
+    }
+
+    private User insertUser(String username, String password, String role, String remark, String registerIp) {
         User user = new User();
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(password));
         user.setRole(role);
         user.setRemark(remark != null && !remark.isBlank() ? remark.trim() : null);
+        user.setRegisterIp(registerIp != null && registerIp.length() <= 45 ? registerIp : null);
         user.setEnabled(true);
         user.setAuthVersion(0L);
         try {

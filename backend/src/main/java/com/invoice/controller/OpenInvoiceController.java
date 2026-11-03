@@ -53,31 +53,20 @@ public class OpenInvoiceController {
         enforceRateLimit("open-invoice-create:user:" + principal.userId(),
                 60, Duration.ofMinutes(1), 42902, "发票申请提交过于频繁，请稍后再试");
 
-        boolean hasCustomSeller = request.getSellerCompany() != null && !"DEFAULT".equalsIgnoreCase(request.getSellerCompany().trim());
-        OpenInvoiceResponse response = hasCustomSeller
-                ? invoiceService.createOpenInvoice(
-                        principal.userId(),
-                        request.getOutTradeNo(),
-                        idempotencyKey,
-                        request.getCompanyName(),
-                        request.getTaxNumber(),
-                        request.getAmount(),
-                        request.getInvoiceType(),
-                        request.getInvoiceCategory(),
-                        request.getSellerCompany(),
-                        request.getRemark()
-                )
-                : invoiceService.createOpenInvoice(
-                        principal.userId(),
-                        request.getOutTradeNo(),
-                        idempotencyKey,
-                        request.getCompanyName(),
-                        request.getTaxNumber(),
-                        request.getAmount(),
-                        request.getInvoiceType(),
-                        request.getInvoiceCategory(),
-                        request.getRemark()
-                );
+        OpenInvoiceResponse response = invoiceService.createOpenInvoice(
+                principal.userId(),
+                request.getOutTradeNo(),
+                idempotencyKey,
+                request.getCompanyName(),
+                request.getTaxNumber(),
+                request.getAmount(),
+                request.getInvoiceType(),
+                request.getInvoiceCategory(),
+                request.getSellerCompany(),
+                request.getRemark(),
+                request.getSpecification(),
+                request.getUnit()
+        );
         return ApiResponse.success("申请成功", response);
     }
 

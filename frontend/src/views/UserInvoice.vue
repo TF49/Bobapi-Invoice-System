@@ -237,6 +237,44 @@
                 </div>
               </template>
             </el-table-column>
+            <el-table-column prop="specification" label="规格型号" min-width="120" show-overflow-tooltip>
+              <template #default="{ row }">
+                <div class="text-copy-cell">
+                  <span class="text-copy-value">{{ row.specification || '-' }}</span>
+                  <el-tooltip v-if="row.specification" content="复制规格型号" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :loading="copyingField === `specification-${row.id}`"
+                      @click.stop="handleCopyField(row.specification, `specification-${row.id}`, '规格型号')"
+                    >
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="unit" label="单位" width="100">
+              <template #default="{ row }">
+                <div class="text-copy-cell">
+                  <span class="text-copy-value">{{ row.unit || '-' }}</span>
+                  <el-tooltip v-if="row.unit" content="复制单位" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :loading="copyingField === `unit-${row.id}`"
+                      @click.stop="handleCopyField(row.unit, `unit-${row.id}`, '单位')"
+                    >
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
+              </template>
+            </el-table-column>
             <el-table-column prop="amount" label="开票金额" width="155" align="right">
               <template #default="{ row }">
                 <div class="amount-cell-box">
@@ -333,11 +371,25 @@
             </el-table-column>
             <el-table-column prop="remark" label="备注" min-width="140" show-overflow-tooltip>
               <template #default="{ row }">
-                <span v-if="row.remark?.trim()" class="remark-warning-text">
-                  <el-icon class="warning-icon-inline"><Warning /></el-icon>
-                  <span>{{ row.remark }}</span>
-                </span>
-                <span v-else>{{ row.remark || '-' }}</span>
+                <div class="text-copy-cell">
+                  <span v-if="row.remark?.trim()" class="remark-warning-text text-copy-value">
+                    <el-icon class="warning-icon-inline"><Warning /></el-icon>
+                    <span>{{ row.remark }}</span>
+                  </span>
+                  <span v-else>{{ row.remark || '-' }}</span>
+                  <el-tooltip v-if="row.remark?.trim()" content="复制备注" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :loading="copyingField === `remark-${row.id}`"
+                      @click.stop="handleCopyField(row.remark, `remark-${row.id}`, '备注')"
+                    >
+                      <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                </div>
               </template>
             </el-table-column>
             <el-table-column prop="status" label="开票状态" width="115" align="center">
@@ -631,6 +683,40 @@
                   </el-button>
                 </dd>
               </div>
+              <div class="mobile-detail-with-copy">
+                <dt>规格型号</dt>
+                <dd>
+                  <span>{{ row.specification || '-' }}</span>
+                  <el-button
+                    v-if="row.specification"
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `specification-${row.id}`"
+                    @click.stop="handleCopyField(row.specification, `specification-${row.id}`, '规格型号')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </dd>
+              </div>
+              <div class="mobile-detail-with-copy">
+                <dt>单位</dt>
+                <dd>
+                  <span>{{ row.unit || '-' }}</span>
+                  <el-button
+                    v-if="row.unit"
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `unit-${row.id}`"
+                    @click.stop="handleCopyField(row.unit, `unit-${row.id}`, '单位')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                </dd>
+              </div>
               <div>
                 <dt>提交方式</dt>
                 <dd>
@@ -695,11 +781,21 @@
                   </el-button>
                 </dd>
               </div>
-              <div v-if="row.remark?.trim()">
+              <div v-if="row.remark?.trim()" class="mobile-detail-with-copy">
                 <dt>备注</dt>
                 <dd class="remark-warning-text">
                   <el-icon class="warning-icon-inline"><Warning /></el-icon>
-                  {{ row.remark }}
+                  <span class="mobile-remark-text">{{ row.remark }}</span>
+                  <el-button
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :loading="copyingField === `remark-${row.id}`"
+                    @click.stop="handleCopyField(row.remark, `remark-${row.id}`, '备注')"
+                  >
+                    <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
                 </dd>
               </div>
               <div v-if="row.status === 'COMPLETED' && row.redFlushReason">
@@ -889,6 +985,22 @@
             placeholder="选填，例如：91110108...（个人/无税号可留空）"
             maxlength="100"
             @input="normalizeTaxNumber"
+          />
+        </el-form-item>
+        <el-form-item label="规格型号" prop="specification">
+          <el-input
+            v-model="form.specification"
+            :prefix-icon="Document"
+            placeholder="选填，例如：标准版"
+            maxlength="100"
+          />
+        </el-form-item>
+        <el-form-item label="单位" prop="unit">
+          <el-input
+            v-model="form.unit"
+            :prefix-icon="Files"
+            placeholder="选填，例如：项、次、套"
+            maxlength="20"
           />
         </el-form-item>
         <el-form-item label="开票金额" prop="amount">
@@ -1352,6 +1464,7 @@ const filteredInvoices = computed(() => {
       const matchesKeyword =
         (invoice.companyName && invoice.companyName.toLowerCase().includes(kw)) ||
         (invoice.taxNumber && invoice.taxNumber.toLowerCase().includes(kw)) ||
+        (invoice.specification && invoice.specification.toLowerCase().includes(kw)) ||
         (invoice.remark && invoice.remark.toLowerCase().includes(kw)) ||
         (invoice.invoiceType && invoice.invoiceType.toLowerCase().includes(kw)) ||
         (invoice.fileName && invoice.fileName.toLowerCase().includes(kw)) ||
@@ -1573,6 +1686,8 @@ const migrateLegacyProcessedData = async () => {
 const form = reactive<InvoiceRequest & { count: number }>({
   companyName: '',
   taxNumber: '',
+  specification: '',
+  unit: '',
   amount: 0.01,
   count: 1,
   invoiceType: '技术服务费',
@@ -1591,6 +1706,12 @@ const rules = {
   companyName: [{ required: true, message: '请输入公司名称', trigger: 'blur' }],
   taxNumber: [
     { max: 100, message: '税号不能超过 100 个字符', trigger: 'blur' }
+  ],
+  specification: [
+    { max: 100, message: '规格型号不能超过 100 个字符', trigger: 'blur' }
+  ],
+  unit: [
+    { max: 20, message: '单位不能超过 20 个字符', trigger: 'blur' }
   ],
   amount: [
     { required: true, message: '请输入开票金额', trigger: 'blur' },
@@ -1916,6 +2037,8 @@ const handleSubmit = async () => {
         rowNumber: idx + 1,
         companyName: form.companyName.trim(),
         taxNumber: form.taxNumber?.trim() || undefined,
+        specification: form.specification?.trim() || undefined,
+        unit: form.unit?.trim() || undefined,
         amount: form.amount.toFixed(2),
         invoiceType: form.invoiceType,
         invoiceCategory: form.invoiceCategory || 'NORMAL',
@@ -1928,6 +2051,8 @@ const handleSubmit = async () => {
       await invoiceApi.createInvoice({
         companyName: form.companyName.trim(),
         taxNumber: form.taxNumber?.trim() || undefined,
+        specification: form.specification?.trim() || undefined,
+        unit: form.unit?.trim() || undefined,
         amount: form.amount,
         invoiceType: form.invoiceType,
         invoiceCategory: form.invoiceCategory || 'NORMAL',
@@ -2458,7 +2583,26 @@ onBeforeUnmount(() => {
   max-width: 100%;
 }
 
+.text-copy-cell {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.text-copy-value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text-copy-cell .inline-copy-btn {
+  flex: 0 0 auto;
+}
+
 .company-cell:hover .inline-copy-btn,
+.text-copy-cell:hover .inline-copy-btn,
 .tax-cell-box:hover .inline-copy-btn,
 .amount-cell-box:hover .inline-copy-btn,
 .invoice-type-cell:hover .inline-copy-btn {
@@ -2863,6 +3007,12 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.remark-warning-text > .mobile-remark-text {
+  overflow: visible;
+  white-space: normal;
+  word-break: break-word;
 }
 
 .warning-invoice-type-text {

@@ -45,7 +45,8 @@ export const authApi = {
   generateCaptcha() {
     return request.get<any, CaptchaChallenge>('/auth/captcha/generate')
   },
-  verifyCaptcha(data: { captchaId: string; x: number; y: number }) {
+  /** track：拖动轨迹，每个点为 [x 偏移(主图像素), y 偏移(显示像素), t 毫秒] */
+  verifyCaptcha(data: { captchaId: string; x: number; y: number; track: number[][] }) {
     return request.post<any, CaptchaVerifyResponse>('/auth/captcha/verify', data)
   },
   captchaRequired(username: string) {

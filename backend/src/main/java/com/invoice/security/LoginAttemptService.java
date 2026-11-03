@@ -22,6 +22,13 @@ public class LoginAttemptService {
     /** 连续登录失败达到该次数后，后续登录必须通过滑块验证 */
     public static final int CAPTCHA_AFTER_FAILURES = 2;
 
+    /**
+     * 同一用户名（不区分来源 IP）在窗口内累计失败达到该次数后，所有来源登录该账号都需要滑块。
+     * 用于对抗多 IP 分布式撞库；只追加验证，不锁定账号，避免被恶意利用锁死他人账号。
+     */
+    public static final int USERNAME_CAPTCHA_AFTER_FAILURES = 5;
+    public static final long USERNAME_FAILURE_WINDOW_MS = 30 * 60 * 1000L; // 30分钟
+
     private static final class AttemptRecord {
         private final int count;
         private final long lastAttemptTime;
@@ -37,6 +44,44 @@ public class LoginAttemptService {
 
     // 存储锁定截止时间戳：key=客户端标识, value=锁定截止毫秒时间戳
     private final ConcurrentHashMap<String, Long> lockUntilCache = new ConcurrentHashMap<>();
+
+    // 按用户名聚合的失败记录：key=小写用户名
+    private final ConcurrentHashMap<String, AttemptRecord> usernameFailures = new ConcurrentHashMap<>();
+
+    /**
+     * 记录某用户名的一次登录失败（跨 IP 累计）
+     */
+    public void usernameLoginFailed(String username) {
+        long now = System.currentTimeMillis();
+        usernameFailures.compute(username, (k, old) -> {
+            if (old == null || now - old.lastAttemptTime > USERNAME_FAILURE_WINDOW_MS) {
+                return new AttemptRecord(1, now);
+            }
+            return new AttemptRecord(old.count + 1, now);
+        });
+    }
+
+    /**
+     * 该用户名是否因跨 IP 累计失败而需要滑块
+     */
+    public boolean usernameRequiresCaptcha(String username) {
+        AttemptRecord record = usernameFailures.get(username);
+        if (record == null) {
+            return false;
+        }
+        if (System.currentTimeMillis() - record.lastAttemptTime > USERNAME_FAILURE_WINDOW_MS) {
+            usernameFailures.remove(username, record);
+            return false;
+        }
+        return record.count >= USERNAME_CAPTCHA_AFTER_FAILURES;
+    }
+
+    /**
+     * 登录成功后清除用户名维度的失败记录
+     */
+    public void usernameLoginSucceeded(String username) {
+        usernameFailures.remove(username);
+    }
 
     /**
      * 普通用户登录失败，增加失败次数（5次失败锁定15分钟）
@@ -135,5 +180,6 @@ public class LoginAttemptService {
         long now = System.currentTimeMillis();
         lockUntilCache.entrySet().removeIf(entry -> now >= entry.getValue());
         attemptsCache.entrySet().removeIf(entry -> (now - entry.getValue().lastAttemptTime) > ADMIN_LOCK_DURATION_MS);
+        usernameFailures.entrySet().removeIf(entry -> (now - entry.getValue().lastAttemptTime) > USERNAME_FAILURE_WINDOW_MS);
     }
 }

@@ -10,6 +10,8 @@ export interface ManagedUser {
   apiKeyEnabled?: boolean
   enabled: boolean
   remark?: string | null
+  /** 自助注册来源 IP，管理员创建的账号为空 */
+  registerIp?: string | null
   createdAt: string
   updatedAt: string
   self: boolean

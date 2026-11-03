@@ -5,7 +5,7 @@
 
 - 后端：Spring Boot 3.1.5 + JDK 17，端口 `9090`，上下文路径 `/api`
 - 前端：Vue 3 + TypeScript 5.3 + Vite 5，端口 `8080`
-- 数据库：MySQL 8，结构由 Flyway 版本化管理（V1–V24）
+- 数据库：MySQL 8，结构由 Flyway 版本化管理（V1–V30）
 
 ---
 
@@ -325,6 +325,13 @@ OpenAPI 不提供盖章额度查询；上传时额度不足只返回"盖章额�
 | `INVOICE_BATCH_USER_WINDOW_MINUTES` | `1` | 否 | 批量提交用户维度窗口（分钟） |
 | `INVOICE_BATCH_IP_LIMIT` | `20` | 否 | 批量提交 IP 维度次数 |
 | `INVOICE_BATCH_IP_WINDOW_MINUTES` | `5` | 否 | 批量提交 IP 维度窗口（分钟） |
+| `TRUST_FORWARDED_HEADERS` | `false`（compose 中为 `true`） | 否 | 是否解析 `X-Forwarded-For`；仅当直连来源属于 `TRUSTED_PROXIES` 时生效 |
+| `TRUSTED_PROXIES` | `127.0.0.0/8,::1/128`（compose 中为 `172.16.238.10`） | 否 | 可信代理 IP / CIDR，逗号分隔。只填反向代理的确切地址，**不要填整个私有网段**（见下） |
+| `REGISTER_IP_HOURLY_LIMIT` | `3` | 否 | 单 IP 每小时成功注册上限，`0` 关闭 |
+| `REGISTER_IP_DAILY_LIMIT` | `10` | 否 | 单 IP 每天成功注册上限，`0` 关闭 |
+| `REGISTER_SUBNET_DAILY_LIMIT` | `30` | 否 | 同一 IPv4 /24 或 IPv6 /64 每天成功注册上限，`0` 关闭 |
+| `REGISTER_GLOBAL_HOURLY_LIMIT` | `60` | 否 | 全站每小时成功注册上限（熔断），`0` 关闭 |
+| `CAPTCHA_FAILURE_LIMIT` | `10` | 否 | 单 IP 10 分钟内滑块失败上限，达到后暂停获取验证码，`0` 关闭 |
 | `AI_ENABLED` | `true` | 否 | 是否启用 AI 识别 |
 | `AI_PROVIDER` | `deepseek` | 否 | `deepseek` / `openai` / `gemini` / `qwen` |
 | `AI_API_KEY` | 空 | 启用 AI 时必填 | 模型服务密钥 |
@@ -332,6 +339,13 @@ OpenAPI 不提供盖章额度查询；上传时额度不足只返回"盖章额�
 | `AI_MODEL` | `deepseek-v4-flash` | 否 | 模型名称 |
 | `AI_TIMEOUT_SECONDS` | `20` | 否 | AI 请求超时（1–120 秒） |
 | `MYBATIS_SQL_LOG_IMPL` | `NoLoggingImpl` | 否 | SQL 日志实现，默认关闭（见下） |
+
+> **可信代理只填确切地址**：后端从 `X-Forwarded-For` 右侧向左跳过可信代理，取第一个不可信地址作为客户端 IP。
+> 如果把 `192.168.0.0/16` 这类网段整体设为可信，处在该网段内的内网客户端会被当成代理跳过，
+> 其自行伪造的 `X-Forwarded-For` 就会被采用，从而绕过按 IP 的限流与验证码锁定。
+> Docker 部署时 compose 已为前端 Nginx 固定 IP `172.16.238.10`，后端只信任这一个地址；
+> 前面还有 CDN / 云负载均衡时，把其回源地址追加到 `TRUSTED_PROXIES`。
+> 按 IP 计数的注册与验证码限制会让共用出口 IP（公司 NAT）的用户共享额度，可按实际情况调大。
 
 > **SQL 日志默认关闭**：`StdOutImpl` 会把含金额、公司名称、税号等敏感数据的完整 SQL 打印到标准输出。
 > 仅在本地排查问题时临时开启：
@@ -373,15 +387,14 @@ cd frontend; npm install; npm run dev
 
 ### 7.4 数据库初始化与升级
 
-后端首次启动由 Flyway 依次执行 `V1` → `V24`，自动建表并写入默认账号。
+后端首次启动由 Flyway 依次执行 `V1` → `V30`，自动建表并写入默认账号。
 
 - **新服务器部署（推荐）**：创建字符集 `utf8mb4`、排序规则 `utf8mb4_unicode_ci` 的**空**数据库
   `invoice_system`，配置 `DB_PASSWORD` 与 `JWT_SECRET` 后启动。**不要**预先执行 `init.sql`。
 - **已有数据库升级**：先备份，再直接启动新版后端，Flyway 只执行未应用的增量脚本。
-- **手工全量初始化**：`backend/src/main/resources/init.sql` 仅整合 **V1–V4** 的结构
-  （`user`、`invoice`、`invoice_batch` 三张表），并且会**先删除 `invoice_system` 及其全部数据**。
-  执行后首次启动前需临时设置 `SPRING_FLYWAY_BASELINE_VERSION=4`，Flyway 会从 V5 继续补齐
-  额度、充值、OpenAPI、红冲、结算等后续结构。**除非确有需要，否则不推荐此方式。**
+- **手工全量初始化**：`backend/src/main/resources/init.sql` 整合了 **V1–V30** 的最终结构，
+  并且会**先删除 `invoice_system` 及其全部数据**。执行后首次启动前需临时设置
+  `SPRING_FLYWAY_BASELINE_VERSION=30`。**除非确有需要，否则不推荐此方式。**
 - **版本号 18 缺失**：源码中不包含 `V18` 迁移（`application.yml` 通过
   `ignore-migration-patterns: "*:missing"` 忽略已执行但源码缺失的历史脚本），
   因此迁移编号存在断点，属预期行为。

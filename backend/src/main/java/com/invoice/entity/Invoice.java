@@ -24,6 +24,16 @@ public class Invoice {
      * 税号
      */
     private String taxNumber;
+
+    /**
+     * 规格型号（选填）
+     */
+    private String specification;
+
+    /**
+     * 单位（选填）
+     */
+    private String unit;
     
     /**
      * 开票金额

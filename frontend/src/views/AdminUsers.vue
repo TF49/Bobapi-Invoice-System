@@ -177,6 +177,9 @@
                         <span>添加备注</span>
                       </span>
                     </div>
+                    <span v-if="row.registerIp" class="register-ip" title="自助注册时的来源 IP">
+                      注册 IP {{ row.registerIp }}
+                    </span>
                   </div>
                 </div>
               </template>
@@ -333,6 +336,7 @@
                     <small v-if="row.self">当前账号</small>
                   </div>
                   <span v-if="row.remark" class="mobile-user-remark">{{ row.remark }}</span>
+                  <span v-if="row.registerIp" class="register-ip">注册 IP {{ row.registerIp }}</span>
                 </div>
               </div>
               <el-switch
@@ -1442,6 +1446,15 @@ onMounted(loadUsers)
   align-items: center;
   cursor: pointer;
   width: fit-content;
+}
+
+.register-ip {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .remark-filled {

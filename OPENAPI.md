@@ -290,6 +290,8 @@ stateDiagram-v2
 | `outTradeNo` | String | 否 | 无 | 外部商户订单号，同账号下唯一，最大 100 字符。**强烈推荐传入** |
 | `companyName`| String | **是** | 无 | 开票抬头（购买方公司名称），最大 200 字符，不能为空 |
 | `taxNumber`  | String | 否 | 无 | 纳税人识别号（税号），最大 100 字符，自动去除首尾空格并转大写 |
+| `specification` | String | 否 | 无 | 规格型号，最大 100 字符，自动去除首尾空格，留空视为未填写 |
+| `unit`       | String | 否 | 无 | 单位（如 项、次、套），最大 20 字符，自动去除首尾空格，留空视为未填写 |
 | `amount`     | BigDecimal | **是** | 无 | 开票金额（元），最小 `0.01`，最多 10 位整数和 2 位小数 |
 | `invoiceType`| String | 否 | `技术服务费` | 开票类型。**严格白名单校验**，仅支持：<br>• `技术服务费`<br>• `AI订阅服务费`<br>• `计算服务费`<br>• `研发和技术服务` |
 | `invoiceCategory`| String | 否 | `NORMAL` | 发票票种：<br>• `NORMAL`：普通发票（普票）<br>• `VAT_SPECIAL`：增值税专用发票（专票）<br>*(支持中文别名“普票/普通发票”、“专票/专用发票”)* |
@@ -302,6 +304,8 @@ stateDiagram-v2
   "outTradeNo": "ORDER_20261031_0001",
   "companyName": "北京科技有限公司",
   "taxNumber": "91110108MA00000000",
+  "specification": "标准版",
+  "unit": "项",
   "amount": 1000.00,
   "invoiceType": "技术服务费",
   "invoiceCategory": "NORMAL",
@@ -320,6 +324,8 @@ stateDiagram-v2
     "outTradeNo": "ORDER_20261031_0001",
     "companyName": "北京科技有限公司",
     "taxNumber": "91110108MA00000000",
+    "specification": "标准版",
+    "unit": "项",
     "amount": 1000.00,
     "invoiceType": "技术服务费",
     "invoiceCategory": "NORMAL",
@@ -367,6 +373,8 @@ stateDiagram-v2
 - `rowNumber`（Integer，可选）：客户端行号。若传入，必须 $\ge 1$ 且**批次内不可重复**。若不传，系统默认从 1 自增赋值。
 - `companyName`（String，必填）：公司名称（$\le 200$ 字符）。
 - `taxNumber`（String，可选）：纳税人识别号（$\le 100$ 字符）。
+- `specification`（String，可选）：规格型号（$\le 100$ 字符）。
+- `unit`（String，可选）：单位（$\le 20$ 字符）。
 - `amount`（String，必填）：金额文本格式（如 `"1500.00"`），最多 10 位整数和 2 位小数。
 - `invoiceType`（String，可选，默认 `技术服务费`）：开票类型白名单。
 - `invoiceCategory`（String，可选，默认 `NORMAL`）：`NORMAL` 普票 / `VAT_SPECIAL` 专票。
@@ -382,6 +390,8 @@ stateDiagram-v2
       "rowNumber": 1,
       "companyName": "腾讯科技（深圳）有限公司",
       "taxNumber": "91440300708461136T",
+      "specification": "标准版",
+      "unit": "项",
       "amount": "5000.00",
       "invoiceType": "技术服务费",
       "invoiceCategory": "NORMAL",
@@ -465,6 +475,8 @@ stateDiagram-v2
     "outTradeNo": "ORDER_20261031_0001",
     "companyName": "北京科技有限公司",
     "taxNumber": "91110108MA00000000",
+    "specification": "标准版",
+    "unit": "项",
     "amount": 1000.00,
     "invoiceType": "技术服务费",
     "invoiceCategory": "NORMAL",

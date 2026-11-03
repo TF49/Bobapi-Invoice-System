@@ -148,7 +148,7 @@ class UserAdminControllerTest {
     void allowsAdministratorToUpdateRemark() throws Exception {
         when(userService.updateRemark(2L, "VIP 客户", 1L))
                 .thenReturn(new AdminUserResponse(
-                        2L, "alice", "USER", null, true, true, "VIP 客户", null, null, false, null));
+                        2L, "alice", "USER", null, true, true, "VIP 客户", null, null, null, false, null));
 
         mockMvc.perform(put("/users/admin/2/remark")
                         .with(authentication(auth("ADMIN")))

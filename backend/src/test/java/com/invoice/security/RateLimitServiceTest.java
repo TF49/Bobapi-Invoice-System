@@ -19,7 +19,8 @@ class RateLimitServiceTest {
         RateLimitService.RateLimitResult blocked =
                 service.tryAcquire("login:test", 10, Duration.ofMinutes(1));
         assertThat(blocked.allowed()).isFalse();
-        assertThat(blocked.retryAfterSeconds()).isBetween(1L, 60L);
+        // 滑动窗口：需等本窗口计数的权重衰减到阈值以下，可能略超过一个窗口长度
+        assertThat(blocked.retryAfterSeconds()).isBetween(1L, 120L);
     }
 
     @Test

@@ -83,6 +83,16 @@
               <span>{{ row.taxNumber || '-' }}</span>
             </template>
           </el-table-column>
+          <el-table-column prop="specification" label="规格型号" width="110" show-overflow-tooltip>
+            <template #default="{ row }">
+              <span>{{ row.specification || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column prop="unit" label="单位" width="70">
+            <template #default="{ row }">
+              <span>{{ row.unit || '-' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="amount" label="开票金额" width="110" />
           <el-table-column label="出票主体" width="105" align="center">
             <template #default>
@@ -352,6 +362,8 @@ const handleSubmit = async () => {
       rowNumber: row.rowNumber,
       companyName: row.companyName.trim(),
       taxNumber: row.taxNumber ? row.taxNumber.trim() : undefined,
+      specification: row.specification?.trim() || undefined,
+      unit: row.unit?.trim() || undefined,
       amount: normalizeAmount(row.amount) || row.amount,
       invoiceType: row.invoiceType.trim(),
       invoiceCategory: normalizeInvoiceCategory(row.invoiceCategory),

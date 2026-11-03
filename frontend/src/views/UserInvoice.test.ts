@@ -122,7 +122,7 @@ describe('UserInvoice', () => {
 
     await inputs[0].setValue(' 测试公司 ')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('300.01')
+    await inputs[4].setValue('300.01')
 
     const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
     const submit = submitButtons[submitButtons.length - 1]
@@ -159,7 +159,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('个人抬头')
     await inputs[1].setValue('')
-    await inputs[2].setValue('100.00')
+    await inputs[4].setValue('100.00')
 
     const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
     const submit = submitButtons[submitButtons.length - 1]
@@ -500,7 +500,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('某某AI科技有限公司')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('500.00')
+    await inputs[4].setValue('500.00')
 
     const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
     if (typeSelect) {
@@ -533,7 +533,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('某某算力科技有限公司')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('1000.00')
+    await inputs[4].setValue('1000.00')
 
     const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
     if (typeSelect) {
@@ -566,7 +566,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('某某研发科技有限公司')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('2000.00')
+    await inputs[4].setValue('2000.00')
 
     const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
     if (typeSelect) {
@@ -888,7 +888,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('测试企业')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('100.00')
+    await inputs[4].setValue('100.00')
 
     const radios = page.findAll('.submit-invoice-dialog .el-radio')
     const vatSpecialRadio = radios.find(r => r.text().includes('专票'))
@@ -915,8 +915,8 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('多开公司')
     await inputs[1].setValue('91110108MA01XXXXXX')
-    await inputs[2].setValue('150.00')
-    await inputs[3].setValue('3')
+    await inputs[4].setValue('150.00')
+    await inputs[5].setValue('3')
 
     const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
     const submit = submitButtons[submitButtons.length - 1]
@@ -980,8 +980,8 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('超额公司')
     await inputs[1].setValue('91110108MA01XXXXXX')
-    await inputs[2].setValue('100.00')
-    await inputs[3].setValue('3')
+    await inputs[4].setValue('100.00')
+    await inputs[5].setValue('3')
 
     const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
     const submit = submitButtons[submitButtons.length - 1]
@@ -1002,7 +1002,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('科技开票企业')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('1000.00')
+    await inputs[4].setValue('1000.00')
 
     const radios = page.findAll('.submit-invoice-dialog .el-radio')
     const techRadio = radios.find(r => r.text().includes('科技公司'))
@@ -1046,7 +1046,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('科技超额企业')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('1000.00')
+    await inputs[4].setValue('1000.00')
 
     const radios = page.findAll('.submit-invoice-dialog .el-radio')
     const techRadio = radios.find(r => r.text().includes('科技公司'))
@@ -1079,7 +1079,7 @@ describe('UserInvoice', () => {
     const inputs = page.find('.submit-invoice-dialog').findAll('input')
     await inputs[0].setValue('科技专票超额企业')
     await inputs[1].setValue('91410100MAE5H38A0F')
-    await inputs[2].setValue('1000.00')
+    await inputs[4].setValue('1000.00')
 
     const radios = page.findAll('.submit-invoice-dialog .el-radio')
     const techRadio = radios.find(r => r.text().includes('科技公司'))

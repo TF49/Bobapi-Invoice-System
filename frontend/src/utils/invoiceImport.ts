@@ -16,6 +16,8 @@ export interface ParsedInvoiceRow {
   invoiceType: string;     // 开票类型
   invoiceCategory?: string; // 发票票种（普票/专票 或 NORMAL/VAT_SPECIAL）
   remark: string;          // 备注（可选）
+  specification?: string;  // 规格型号（可选）
+  unit?: string;           // 单位（可选）
   error?: string;          // 错误信息
 }
 
@@ -32,8 +34,16 @@ const HEADERS = {
   AMOUNT: '开票金额',
   INVOICE_TYPE: '开票类型',
   INVOICE_CATEGORY: '发票票种',
-  REMARK: '备注'
+  REMARK: '备注',
+  SPECIFICATION: '规格型号',
+  UNIT: '单位'
 };
+
+// 第 5 列起的可选列：按表头名称识别，顺序任意，不可重复
+const OPTIONAL_HEADERS = [HEADERS.INVOICE_CATEGORY, HEADERS.REMARK, HEADERS.SPECIFICATION, HEADERS.UNIT];
+
+export const MAX_SPECIFICATION_LENGTH = 100;
+export const MAX_UNIT_LENGTH = 20;
 
 export function normalizeInvoiceCategory(value?: string): 'NORMAL' | 'VAT_SPECIAL' {
   if (!value || !value.trim()) {
@@ -193,25 +203,29 @@ function processSheetData(data: any[][]): ParseResult {
     return {
       success: false,
       data: [],
-      error: `表头不正确，必须按顺序包含：${HEADERS.COMPANY_NAME}、${HEADERS.TAX_NUMBER}、${HEADERS.AMOUNT}、${HEADERS.INVOICE_TYPE}（可加${HEADERS.INVOICE_CATEGORY}、${HEADERS.REMARK}）`
+      error: `表头不正确，必须按顺序包含：${HEADERS.COMPANY_NAME}、${HEADERS.TAX_NUMBER}、${HEADERS.AMOUNT}、${HEADERS.INVOICE_TYPE}（可加${OPTIONAL_HEADERS.join('、')}）`
     };
   }
 
-  const hasCategoryColumn = headers[4] === HEADERS.INVOICE_CATEGORY;
-  const hasRemarkAtCol4 = headers[4] === HEADERS.REMARK;
-  if (headers.length > 4 && !hasCategoryColumn && !hasRemarkAtCol4) {
-    return {
-      success: false,
-      data: [],
-      error: `第 5 列表头不正确，应为「${HEADERS.INVOICE_CATEGORY}」或「${HEADERS.REMARK}」`
-    };
-  }
-  if (hasCategoryColumn && headers.length > 5 && headers[5] !== HEADERS.REMARK) {
-    return {
-      success: false,
-      data: [],
-      error: `第 6 列表头不正确，应为「${HEADERS.REMARK}」`
-    };
+  // 第 5 列起的可选列：记录每个表头所在的列下标
+  const optionalColumnIndex = new Map<string, number>();
+  for (let col = requiredHeaders.length; col < headers.length; col++) {
+    const header = headers[col];
+    if (!OPTIONAL_HEADERS.includes(header)) {
+      return {
+        success: false,
+        data: [],
+        error: `第 ${col + 1} 列表头不正确，应为「${OPTIONAL_HEADERS.join('」「')}」之一`
+      };
+    }
+    if (optionalColumnIndex.has(header)) {
+      return {
+        success: false,
+        data: [],
+        error: `第 ${col + 1} 列表头「${header}」重复`
+      };
+    }
+    optionalColumnIndex.set(header, col);
   }
 
   // 解析数据行
@@ -230,15 +244,14 @@ function processSheetData(data: any[][]): ParseResult {
     const taxNumber = cellToString(row[1]);
     const amount = cellToString(row[2]);
     const invoiceType = cellToString(row[3]);
-    let invoiceCategory = 'NORMAL';
-    let remark = '';
-
-    if (hasCategoryColumn) {
-      invoiceCategory = cellToString(row[4]) || 'NORMAL';
-      remark = cellToString(row[5]);
-    } else if (hasRemarkAtCol4) {
-      remark = cellToString(row[4]);
-    }
+    const optionalCell = (header: string) => {
+      const col = optionalColumnIndex.get(header);
+      return col === undefined ? '' : cellToString(row[col]);
+    };
+    const invoiceCategory = optionalCell(HEADERS.INVOICE_CATEGORY) || 'NORMAL';
+    const remark = optionalCell(HEADERS.REMARK);
+    const specification = optionalCell(HEADERS.SPECIFICATION);
+    const unit = optionalCell(HEADERS.UNIT);
 
     rows.push({
       rowNumber,
@@ -247,7 +260,9 @@ function processSheetData(data: any[][]): ParseResult {
       amount,
       invoiceType,
       invoiceCategory,
-      remark
+      remark,
+      specification,
+      unit
     });
   }
 
@@ -289,6 +304,14 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
   // 税号校验（选填，最长 100 字符）
   if (row.taxNumber && row.taxNumber.trim().length > 100) {
     return '税号不能超过 100 个字符';
+  }
+
+  // 规格型号、单位校验（选填）
+  if (row.specification && row.specification.trim().length > MAX_SPECIFICATION_LENGTH) {
+    return `规格型号不能超过 ${MAX_SPECIFICATION_LENGTH} 个字符`;
+  }
+  if (row.unit && row.unit.trim().length > MAX_UNIT_LENGTH) {
+    return `单位不能超过 ${MAX_UNIT_LENGTH} 个字符`;
   }
 
   // 金额校验
@@ -381,7 +404,7 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
     const normalizedAmount = normalizeAmount(row.amount) || row.amount.trim();
     const normalizedTaxNumber = row.taxNumber ? row.taxNumber.trim().toUpperCase() : '';
     const normalizedCategory = normalizeInvoiceCategory(row.invoiceCategory);
-    const key = `${row.companyName.trim()}|${normalizedTaxNumber}|${normalizedAmount}|${row.invoiceType.trim()}|${normalizedCategory}`;
+    const key = `${row.companyName.trim()}|${normalizedTaxNumber}|${row.specification?.trim() ?? ''}|${row.unit?.trim() ?? ''}|${normalizedAmount}|${row.invoiceType.trim()}|${normalizedCategory}`;
     if (seen.has(key)) {
       duplicates.push(row.rowNumber);
     } else {
@@ -396,14 +419,16 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
  * 生成标准导入模板（CSV 格式）
  */
 export function generateTemplate(): string {
-  const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE, HEADERS.INVOICE_CATEGORY, HEADERS.REMARK];
+  const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE, HEADERS.INVOICE_CATEGORY, HEADERS.REMARK, HEADERS.SPECIFICATION, HEADERS.UNIT];
   const sampleDataRow1 = [
     '示例公司A',
     '91500123456789012A',
     '1000.00',
     '技术服务费',
     '普票',
-    '技术服务费普票申请示例'
+    '技术服务费普票申请示例',
+    '标准版',
+    '项'
   ];
   const sampleDataRow2 = [
     '示例公司B',
@@ -411,7 +436,9 @@ export function generateTemplate(): string {
     '500.00',
     'AI订阅服务费',
     '专票',
-    'AI订阅服务费专票申请示例（按3倍扣除额度）'
+    'AI订阅服务费专票申请示例（按3倍扣除额度）',
+    '',
+    ''
   ];
   const sampleDataRow3 = [
     '示例公司C',
@@ -419,7 +446,9 @@ export function generateTemplate(): string {
     '800.00',
     '计算服务费',
     '普票',
-    '计算服务费开票申请示例'
+    '计算服务费开票申请示例',
+    '',
+    '次'
   ];
   const sampleDataRow4 = [
     '示例公司D',
@@ -427,7 +456,9 @@ export function generateTemplate(): string {
     '1200.00',
     '研发和技术服务',
     '普票',
-    '研发和技术服务开票申请示例'
+    '研发和技术服务开票申请示例',
+    '企业版',
+    '套'
   ];
 
   return [

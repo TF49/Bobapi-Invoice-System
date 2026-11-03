@@ -21,6 +21,18 @@ public class AdminUpdateInvoiceRequest {
     @Size(max = 100, message = "税号不能超过 100 个字符")
     private String taxNumber;
 
+    /**
+     * 规格型号（选填）。不传（null）表示保持原值；传空字符串表示清空。
+     */
+    @Size(max = 100, message = "规格型号不能超过 100 个字符")
+    private String specification;
+
+    /**
+     * 单位（选填）。不传（null）表示保持原值；传空字符串表示清空。
+     */
+    @Size(max = 20, message = "单位不能超过 20 个字符")
+    private String unit;
+
     @NotNull(message = "开票金额不能为空")
     @DecimalMin(value = "0.01", message = "开票金额必须大于等于 0.01")
     @Digits(integer = 10, fraction = 2, message = "开票金额最多 10 位整数和 2 位小数")

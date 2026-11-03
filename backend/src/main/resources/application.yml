@@ -65,10 +65,27 @@ file:
     max-pixels: ${INVOICE_IMAGE_MAX_PIXELS:30000000}
 
 app:
-  # 生产环境若部署在 Nginx 等可信反向代理后，设为 true，并由代理覆盖 X-Real-IP / X-Forwarded-For。
-  # 直接暴露应用端口时务必保持 false，防止客户端伪造 IP 绕过限流与验证码绑定。
+  # 部署在 Nginx 等反向代理后设为 true。开启后仅当直连来源属于 trusted-proxies 时才解析转发头，
+  # 并从 X-Forwarded-For 右侧向左跳过可信代理取真实 IP，客户端自行伪造的最左侧条目不会被采用。
+  # 未开启时，代理后的所有用户会共用代理 IP，导致限流与验证码 IP 绑定失效。
   client-ip:
     trust-forwarded-headers: ${TRUST_FORWARDED_HEADERS:false}
+    # 可信代理列表（逗号分隔的 IP 或 CIDR），只填直接转发到后端的代理地址，例如 Nginx 容器的固定 IP。
+    # 不要填整个私有网段：内网客户端本身在私有网段内，会被当作代理跳过，从而能伪造 X-Forwarded-For。
+    # 前面若还有 CDN / 云负载均衡，请把其回源地址追加进来。
+    trusted-proxies: ${TRUSTED_PROXIES:127.0.0.0/8,::1/128}
+  security:
+    captcha:
+      # 单 IP 10 分钟内滑块失败达到该次数后，暂停获取/提交验证码（0 表示关闭）
+      failure-limit: ${CAPTCHA_FAILURE_LIMIT:10}
+    register:
+      # 注册成功配额，0 表示关闭对应维度
+      ip-hourly-limit: ${REGISTER_IP_HOURLY_LIMIT:3}
+      ip-daily-limit: ${REGISTER_IP_DAILY_LIMIT:10}
+      # 同一 IPv4 /24 或 IPv6 /64 网段每天的注册上限
+      subnet-daily-limit: ${REGISTER_SUBNET_DAILY_LIMIT:30}
+      # 全站每小时注册上限（熔断，防止大规模分布式注册）
+      global-hourly-limit: ${REGISTER_GLOBAL_HOURLY_LIMIT:60}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:8080,http://localhost:5173,http://127.0.0.1:8080,http://127.0.0.1:5173,http://your-domain.com,https://your-domain.com}
   invoice:

@@ -18,6 +18,16 @@ public class BatchInvoiceItemRequest {
     private String taxNumber;
 
     /**
+     * 规格型号（选填）
+     */
+    private String specification;
+
+    /**
+     * 单位（选填）
+     */
+    private String unit;
+
+    /**
      * 保留客户端的十进制文本，服务层按行校验并转换为 BigDecimal。
      */
     private String amount;

@@ -1,8 +1,8 @@
 -- 发票管理系统数据库初始化脚本
--- 已整合 Flyway V1-V26 的最终完整数据库结构，适用于全新安装或彻底重置。
+-- 已整合 Flyway V1-V29 的最终完整数据库结构，适用于全新安装或彻底重置。
 -- 警告：执行本脚本会删除 invoice_system 数据库及其中的全部数据。
 -- 推荐部署方式：创建空数据库后直接启动后端，由 Flyway 自动按版本迁移初始化。
--- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 26。
+-- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 29。
 
 DROP DATABASE IF EXISTS `invoice_system`;
 
@@ -21,6 +21,7 @@ CREATE TABLE `user` (
     `api_key` VARCHAR(64) DEFAULT NULL COMMENT 'OpenAPI 调用密钥',
     `api_key_enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT 'API Key是否启用：1-启用，0-禁用',
     `remark` VARCHAR(255) DEFAULT NULL COMMENT '管理员备注',
+    `register_ip` VARCHAR(45) DEFAULT NULL COMMENT '自助注册来源 IP（管理员创建为空）',
     `enabled` TINYINT(1) NOT NULL DEFAULT 1 COMMENT '账号状态：1-启用，0-禁用',
     `auth_version` BIGINT NOT NULL DEFAULT 0 COMMENT '认证版本，变更后使旧凭证失效',
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -31,7 +32,8 @@ CREATE TABLE `user` (
     UNIQUE KEY `uk_user_api_key` (`api_key`),
     KEY `idx_username` (`username`),
     KEY `idx_role` (`role`),
-    KEY `idx_user_admin_state` (`role`, `enabled`, `deleted`)
+    KEY `idx_user_admin_state` (`role`, `enabled`, `deleted`),
+    KEY `idx_user_register_ip` (`register_ip`)
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
@@ -63,6 +65,8 @@ CREATE TABLE `invoice` (
     `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT '发票ID',
     `company_name` VARCHAR(200) NOT NULL COMMENT '公司名称',
     `tax_number` VARCHAR(100) DEFAULT NULL COMMENT '税号',
+    `specification` VARCHAR(100) DEFAULT NULL COMMENT '规格型号（选填）',
+    `unit` VARCHAR(20) DEFAULT NULL COMMENT '单位（选填）',
     `amount` DECIMAL(12, 2) NOT NULL COMMENT '开票金额',
     `invoice_type` VARCHAR(100) NOT NULL DEFAULT '技术服务费' COMMENT '开票类型',
     `invoice_category` VARCHAR(20) NOT NULL DEFAULT 'NORMAL' COMMENT '发票票种：NORMAL-增值税普通发票，VAT_SPECIAL-增值税专用发票',
