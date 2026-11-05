@@ -138,7 +138,7 @@ class InvoiceServiceTest {
                 8L, "12345678-1234-1234-1234-123456789012",
                 "示例公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), "咨询服务费", null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("开票类型必须为技术服务费、AI订阅服务费、计算服务费或研发和技术服务");
+                .hasMessage("开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务或信息系统服务");
         verify(invoiceMapper, never()).insert(any(Invoice.class));
     }
 
@@ -217,6 +217,25 @@ class InvoiceServiceTest {
         assertThat(response.id()).isEqualTo(101L);
         assertThat(response.invoiceType()).isEqualTo("研发和技术服务");
         verify(userQuotaService).deductQuota(8L, new BigDecimal("400.00"), 101L);
+    }
+
+    @Test
+    void createsInvoiceWithInformationSystemServiceType() {
+        when(invoiceMapper.insert(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(102L);
+            return 1;
+        });
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "12345678-1234-1234-1234-123456789102",
+                "示例信息系统公司", "ABCDEFGHIJKLMNO", new BigDecimal("500.00"),
+                "信息系统服务", "信息系统服务"
+        );
+
+        assertThat(response.id()).isEqualTo(102L);
+        assertThat(response.invoiceType()).isEqualTo("信息系统服务");
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("500.00"), 102L);
     }
 
     @Test
