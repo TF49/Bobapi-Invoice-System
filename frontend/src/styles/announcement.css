@@ -1,0 +1,631 @@
+/* ==========================================================
+ * 系统公告：卡片、用户弹窗、历史公告与 Markdown 正文
+ * el-dialog 通过 append-to-body 传送到 body，故使用全局样式 + 前缀类名
+ * ========================================================== */
+
+/* ---------- 分类色彩令牌 ---------- */
+.is-all,
+.is-feature {
+  --ann-color: #12715b;
+  --ann-soft: #e9f4f0;
+}
+
+.is-maintenance {
+  --ann-color: #b66d0b;
+  --ann-soft: #fff4dc;
+}
+
+.is-important {
+  --ann-color: #c9463d;
+  --ann-soft: #fbeceb;
+}
+
+.is-general {
+  --ann-color: #4d5863;
+  --ann-soft: #eef1f3;
+}
+
+/* ---------- Markdown 正文 ---------- */
+.announcement-markdown {
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.announcement-markdown > :first-child {
+  margin-top: 0;
+}
+
+.announcement-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.announcement-markdown :is(h1, h2, h3, h4) {
+  margin: 1.1em 0 0.5em;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--color-text);
+}
+
+.announcement-markdown h1 { font-size: 20px; }
+.announcement-markdown h2 { font-size: 17px; }
+.announcement-markdown h3 { font-size: 15px; }
+.announcement-markdown h4 { font-size: 14px; }
+
+.announcement-markdown p,
+.announcement-markdown ul,
+.announcement-markdown ol,
+.announcement-markdown blockquote,
+.announcement-markdown pre,
+.announcement-markdown table {
+  margin: 0 0 0.8em;
+}
+
+.announcement-markdown :is(ul, ol) {
+  padding-left: 1.4em;
+}
+
+.announcement-markdown li + li {
+  margin-top: 0.25em;
+}
+
+.announcement-markdown li::marker {
+  color: var(--ann-color, var(--color-primary));
+}
+
+.announcement-markdown strong {
+  font-weight: 700;
+}
+
+.announcement-markdown a {
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.announcement-markdown blockquote {
+  padding: 8px 14px;
+  border-left: 3px solid var(--ann-color, var(--color-primary));
+  background: var(--ann-soft, var(--color-primary-soft));
+  color: var(--color-text-secondary);
+  border-radius: 0 6px 6px 0;
+}
+
+.announcement-markdown code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 12.5px;
+}
+
+.announcement-markdown pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #1f2a27;
+  color: #e8efec;
+}
+
+.announcement-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.announcement-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.announcement-markdown :is(th, td) {
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  text-align: left;
+}
+
+.announcement-markdown th {
+  background: var(--color-surface-muted);
+}
+
+.announcement-markdown img {
+  max-width: 100%;
+  border-radius: 6px;
+}
+
+.announcement-markdown hr {
+  margin: 1.2em 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+}
+
+/* ---------- 公告卡片（用户弹窗 / 历史详情 / 编辑预览共用） ---------- */
+.ann-card {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--color-surface);
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.ann-card-head {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 22px 56px 18px 24px;
+  border-top: 4px solid var(--ann-color);
+  border-bottom: 1px solid var(--color-border);
+  background: linear-gradient(180deg, var(--ann-soft) 0%, var(--color-surface) 100%);
+}
+
+.ann-card-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--ann-color);
+  color: #ffffff;
+  box-shadow: 0 6px 14px rgba(24, 39, 34, 0.16);
+}
+
+.ann-card-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.ann-card-heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.ann-card-eyebrow {
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  color: var(--ann-color);
+}
+
+.ann-card-title {
+  margin: 2px 0 6px;
+  font-size: 19px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: var(--color-text);
+  word-break: break-word;
+}
+
+.ann-card-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ann-card-time svg {
+  width: 13px;
+  height: 13px;
+}
+
+.ann-card-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+.ann-card-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ann-card-close:hover {
+  background: rgba(32, 37, 43, 0.06);
+  color: var(--color-text);
+}
+
+.ann-card-close:focus-visible,
+.ann-popup-dot:focus-visible,
+.ann-history-tab:focus-visible,
+.ann-history-item:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.ann-card-body {
+  padding: 20px 24px 22px;
+  max-height: min(52vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.ann-card-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.ann-card-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 14px 24px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.ann-card.is-flat {
+  border-radius: 0;
+  min-height: 100%;
+}
+
+.ann-card.is-flat .ann-card-head {
+  padding-right: 24px;
+}
+
+.ann-card.is-flat .ann-card-body {
+  flex: 1;
+  max-height: none;
+  overflow: visible;
+}
+
+/* ---------- 用户公告弹窗 ---------- */
+.el-dialog.announcement-popup {
+  --el-dialog-padding-primary: 0;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+}
+
+.el-dialog.announcement-popup .el-dialog__header {
+  display: none;
+}
+
+.el-dialog.announcement-popup .el-dialog__body {
+  padding: 0;
+}
+
+.ann-popup-progress {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.ann-popup-dots {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ann-popup-dot {
+  width: 8px;
+  height: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-border-strong);
+  cursor: pointer;
+  transition: width 200ms ease, background-color 200ms ease;
+}
+
+.ann-popup-dot:hover {
+  background: var(--color-text-muted);
+}
+
+.ann-popup-dot.is-active {
+  width: 22px;
+  background: var(--ann-color);
+}
+
+.ann-popup-counter {
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.ann-popup-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.ann-popup-actions .el-button + .el-button {
+  margin-left: 0;
+}
+
+/* ---------- 历史公告弹窗 ---------- */
+.el-dialog.announcement-history-dialog {
+  --el-dialog-padding-primary: 0;
+  padding: 0;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+}
+
+.el-dialog.announcement-history-dialog .el-dialog__header {
+  margin: 0;
+  padding: 18px 22px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.el-dialog.announcement-history-dialog .el-dialog__body {
+  padding: 0;
+}
+
+.ann-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ann-history-head .ann-card-close {
+  position: static;
+}
+
+.ann-history-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ann-history-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.ann-history-badge svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ann-history-heading h3 {
+  margin: 0 0 2px;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.ann-history-heading p {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+}
+
+.ann-history-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ann-history-tab {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: color 160ms ease, border-color 160ms ease;
+}
+
+.ann-history-tab:hover {
+  color: var(--color-text);
+}
+
+.ann-history-tab.is-active {
+  color: var(--ann-color);
+  font-weight: 650;
+  border-bottom-color: var(--ann-color);
+}
+
+.ann-history-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  height: min(62vh, 560px);
+}
+
+.ann-history-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+}
+
+.ann-history-list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 8px;
+  list-style: none;
+  overflow-y: auto;
+}
+
+.ann-history-list li + li {
+  margin-top: 2px;
+}
+
+.ann-history-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 160ms ease, box-shadow 160ms ease;
+}
+
+.ann-history-item:hover {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.ann-history-item.is-active {
+  background: var(--color-surface);
+  box-shadow: inset 3px 0 0 var(--ann-color), 0 2px 8px rgba(24, 39, 34, 0.06);
+}
+
+.ann-history-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-top: 7px;
+  border-radius: 999px;
+  background: var(--ann-color);
+}
+
+.ann-history-item-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.ann-history-item-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.ann-history-item-title strong {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.ann-history-new {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-danger);
+  color: #ffffff;
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+}
+
+.ann-history-item-meta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.ann-history-pagination {
+  display: flex;
+  justify-content: center;
+  padding: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.ann-history-detail {
+  min-height: 0;
+  overflow-y: auto;
+  background: var(--color-surface);
+}
+
+.ann-history-empty {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  min-height: 160px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.ann-history-empty svg {
+  width: 28px;
+  height: 28px;
+  opacity: 0.5;
+}
+
+@media (max-width: 720px) {
+  .ann-history-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+    height: 76vh;
+  }
+
+  .ann-history-sidebar {
+    max-height: 210px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .ann-card-head {
+    padding: 18px 52px 14px 18px;
+  }
+
+  .ann-card-body,
+  .ann-card-foot {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+
+  .ann-card-title {
+    font-size: 17px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ann-popup-dot,
+  .ann-history-item,
+  .ann-history-tab,
+  .ann-card-close {
+    transition: none;
+  }
+}

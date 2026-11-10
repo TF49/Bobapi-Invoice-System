@@ -64,6 +64,7 @@ public class SecurityConfig {
                 .requestMatchers("/documents/admin/**").hasAnyRole("ADMIN", "INVOICE_CLERK")
                 .requestMatchers("/users/admin/**").hasRole("ADMIN")
                 .requestMatchers("/recharge-requests/admin/**").hasRole("ADMIN")
+                .requestMatchers("/announcements/admin/**").hasRole("ADMIN")
                 .requestMatchers("/open/**").authenticated()
                 .anyRequest().authenticated()
             )

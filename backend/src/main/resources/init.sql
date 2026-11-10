@@ -1,8 +1,8 @@
 -- 发票管理系统数据库初始化脚本
--- 已整合 Flyway V1-V29 的最终完整数据库结构，适用于全新安装或彻底重置。
+-- 已整合 Flyway V1-V31 的最终完整数据库结构，适用于全新安装或彻底重置。
 -- 警告：执行本脚本会删除 invoice_system 数据库及其中的全部数据。
 -- 推荐部署方式：创建空数据库后直接启动后端，由 Flyway 自动按版本迁移初始化。
--- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 29。
+-- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 31。
 
 DROP DATABASE IF EXISTS `invoice_system`;
 
@@ -271,6 +271,39 @@ CREATE TABLE `seal_document` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='盖章文件管理表';
+
+-- 系统公告表（弹窗通知）
+CREATE TABLE `announcement` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '公告ID',
+    `title` VARCHAR(100) NOT NULL COMMENT '公告标题',
+    `content` TEXT NOT NULL COMMENT '公告正文（Markdown）',
+    `category` VARCHAR(20) NOT NULL DEFAULT 'GENERAL' COMMENT '分类：FEATURE-新功能，MAINTENANCE-系统维护，IMPORTANT-重要通知，GENERAL-一般通知',
+    `status` VARCHAR(20) NOT NULL DEFAULT 'DRAFT' COMMENT '状态：DRAFT-草稿，PUBLISHED-已发布，OFFLINE-已下线',
+    `push_version` INT NOT NULL DEFAULT 0 COMMENT '推送版本：每次发布/重新推送 +1，用户已读版本小于该值时会再次弹窗',
+    `published_at` DATETIME NULL COMMENT '最近一次发布或重新推送时间',
+    `created_by` BIGINT NOT NULL COMMENT '创建人ID',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    `deleted` INT NOT NULL DEFAULT 0 COMMENT '逻辑删除：0-未删除，1-已删除',
+    INDEX `idx_announcement_status_published` (`status`, `deleted`, `published_at`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='系统公告表';
+
+-- 公告已读记录表
+CREATE TABLE `announcement_read` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '记录ID',
+    `announcement_id` BIGINT NOT NULL COMMENT '公告ID',
+    `user_id` BIGINT NOT NULL COMMENT '用户ID',
+    `read_version` INT NOT NULL COMMENT '已读时公告的推送版本',
+    `read_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '已读时间',
+    UNIQUE KEY `uk_announcement_read_user` (`announcement_id`, `user_id`),
+    INDEX `idx_announcement_read_user` (`user_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='公告已读记录表';
 
 -- 默认账号：admin（高强度密码），user / user123
 INSERT INTO `user` (`id`, `username`, `password`, `role`) VALUES

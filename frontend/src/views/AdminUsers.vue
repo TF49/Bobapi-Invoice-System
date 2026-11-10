@@ -534,7 +534,7 @@
 
         <el-tabs v-model="quotaActiveTab">
           <el-tab-pane label="充值额度" name="recharge">
-            <el-form ref="quotaFormRef" :model="quotaForm" label-position="top">
+            <el-form v-if="quotaActiveTab === 'recharge'" ref="rechargeFormRef" :model="quotaForm" label-position="top">
               <el-form-item label="充值目标钱包">
                 <el-radio-group v-model="quotaWalletType">
                   <el-radio-button value="INVOICE" label="INVOICE">开票钱包</el-radio-button>
@@ -557,7 +557,7 @@
             </el-form>
           </el-tab-pane>
           <el-tab-pane label="人工调整" name="adjust">
-            <el-form ref="quotaFormRef" :model="quotaForm" label-position="top">
+            <el-form v-if="quotaActiveTab === 'adjust'" ref="adjustFormRef" :model="quotaForm" label-position="top">
               <el-form-item label="调整目标钱包">
                 <el-radio-group v-model="quotaWalletType">
                   <el-radio-button value="INVOICE" label="INVOICE">开票钱包</el-radio-button>
@@ -791,7 +791,10 @@ const passwordForm = reactive({ password: '', confirmPassword: '' })
 // 额度管理相关状态
 const quotaDialogVisible = ref(false)
 const quotaSubmitting = ref(false)
-const quotaFormRef = ref<FormInstance>()
+// 充值与调整两个表单共用 quotaForm，但必须使用独立 ref，且只渲染当前激活的表单：
+// 充值输入框带 :min="0.01"，若与调整输入框同时挂载，会把调整的负数值钳制为 0.01。
+const rechargeFormRef = ref<FormInstance>()
+const adjustFormRef = ref<FormInstance>()
 const quotaTarget = ref<ManagedUser | null>(null)
 const quotaInfo = ref<UserQuota | null>(null)
 const quotaTransactions = ref<QuotaTransaction[]>([])
@@ -1238,8 +1241,8 @@ const validateAdjustAmount = (_rule: any, value: number, callback: any) => {
 }
 
 const submitRechargeQuota = async () => {
-  if (!quotaFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
-  const valid = await quotaFormRef.value.validate().catch(() => false)
+  if (!rechargeFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
+  const valid = await rechargeFormRef.value.validate().catch(() => false)
   if (!valid) return
 
   const target = quotaTarget.value
@@ -1280,8 +1283,8 @@ const submitRechargeQuota = async () => {
 }
 
 const submitAdjustQuota = async () => {
-  if (!quotaFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
-  const valid = await quotaFormRef.value.validate().catch(() => false)
+  if (!adjustFormRef.value || !quotaTarget.value || quotaSubmitting.value) return
+  const valid = await adjustFormRef.value.validate().catch(() => false)
   if (!valid) return
 
   const target = quotaTarget.value

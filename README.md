@@ -5,7 +5,7 @@
 
 - 后端：Spring Boot 3.1.5 + JDK 17，端口 `9090`，上下文路径 `/api`
 - 前端：Vue 3 + TypeScript 5.3 + Vite 5，端口 `8080`
-- 数据库：MySQL 8，结构由 Flyway 版本化管理（V1–V30）
+- 数据库：MySQL 8，结构由 Flyway 版本化管理（V1–V31）
 
 ---
 
@@ -91,7 +91,7 @@
 | --- | --- | --- |
 | 普通用户 | `USER` | 提交/取消开票申请、查看自己的申请、预览下载自己的发票、申请红冲、充值申请、查看自己的额度与流水、管理自己的 API Key |
 | 开票员 | `INVOICE_CLERK` | 查看和筛选全部申请、上传发票图片、下载文件、处理红冲 |
-| 管理员 | `ADMIN` | 上述全部权限，外加用户管理、额度管理、充值审核、数据看板、供应商结算 |
+| 管理员 | `ADMIN` | 上述全部权限，外加用户管理、额度管理、充值审核、数据看板、供应商结算、系统公告管理 |
 
 **额度归属**：只有 `USER` 角色拥有额度。管理员对额度的充值/调整操作会校验目标用户角色，
 防止通过隐藏前端按钮绕过业务边界。
@@ -237,6 +237,28 @@ OpenAPI 不提供盖章额度查询；上传时额度不足只返回"盖章额�
 
 完整 URL 前缀为全局 `context-path`：`/api`，即 `/api/admin/supplier-settlement`。
 
+### 3.10 系统公告 `/announcements`
+
+管理员发布公告后，所有角色（USER / INVOICE_CLERK / ADMIN）在登录或打开系统时以弹窗形式收到；
+多条未读公告在同一弹窗中翻页，关闭时把**已翻看**的公告标记为已读，每条公告每人只弹一次。
+正文为 Markdown，前端渲染后经 DOMPurify 过滤（防 XSS）。
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | `/announcements/unread` | 登录用户 | 当前用户未读的已发布公告（最多 20 条） |
+| POST | `/announcements/read` | 登录用户 | 标记已读，`{"ids": [1, 2]}` |
+| GET | `/announcements` | 登录用户 | 历史公告（仅已发布），可按分类筛选 |
+| GET | `/announcements/admin` | ADMIN | 公告列表（含已读人数），可按标题/分类/状态筛选 |
+| POST | `/announcements/admin` | ADMIN | 新建公告（草稿） |
+| PUT | `/announcements/admin/{id}` | ADMIN | 编辑公告（不会让已读用户再次弹窗） |
+| PUT | `/announcements/admin/{id}/publish` | ADMIN | 发布（草稿 / 已下线 → 已发布） |
+| PUT | `/announcements/admin/{id}/offline` | ADMIN | 下线（不再弹窗、不出现在历史列表） |
+| POST | `/announcements/admin/{id}/repush` | ADMIN | 重新推送：所有用户（含已读）再次弹窗 |
+| DELETE | `/announcements/admin/{id}` | ADMIN | 删除（逻辑删除） |
+
+未读判定基于推送版本：发布与重新推送会让 `push_version + 1`，用户已读记录中的
+`read_version` 小于当前版本即视为未读。
+
 ---
 
 ## 4. 幂等与限流
@@ -278,6 +300,8 @@ OpenAPI 不提供盖章额度查询；上传时额度不足只返回"盖章额�
 | 用户管理写入 | 管理员 | 每分钟 30 次 |
 | 密码重置 | 管理员 | 每分钟 10 次 |
 | 额度管理 | 管理员 | 每分钟 30 次 |
+| 公告管理写入 | 管理员 | 每分钟 30 次 |
+| 公告查询 / 标记已读 | 用户 | 每分钟 60 次 |
 | API Key 生成 | 用户 | 每分钟 10 次 |
 
 触发限流返回 HTTP 429，响应体含重试等待秒数。
@@ -387,14 +411,14 @@ cd frontend; npm install; npm run dev
 
 ### 7.4 数据库初始化与升级
 
-后端首次启动由 Flyway 依次执行 `V1` → `V30`，自动建表并写入默认账号。
+后端首次启动由 Flyway 依次执行 `V1` → `V31`，自动建表并写入默认账号。
 
 - **新服务器部署（推荐）**：创建字符集 `utf8mb4`、排序规则 `utf8mb4_unicode_ci` 的**空**数据库
   `invoice_system`，配置 `DB_PASSWORD` 与 `JWT_SECRET` 后启动。**不要**预先执行 `init.sql`。
 - **已有数据库升级**：先备份，再直接启动新版后端，Flyway 只执行未应用的增量脚本。
-- **手工全量初始化**：`backend/src/main/resources/init.sql` 整合了 **V1–V30** 的最终结构，
+- **手工全量初始化**：`backend/src/main/resources/init.sql` 整合了 **V1–V31** 的最终结构，
   并且会**先删除 `invoice_system` 及其全部数据**。执行后首次启动前需临时设置
-  `SPRING_FLYWAY_BASELINE_VERSION=30`。**除非确有需要，否则不推荐此方式。**
+  `SPRING_FLYWAY_BASELINE_VERSION=31`。**除非确有需要，否则不推荐此方式。**
 - **版本号 18 缺失**：源码中不包含 `V18` 迁移（`application.yml` 通过
   `ignore-migration-patterns: "*:missing"` 忽略已执行但源码缺失的历史脚本），
   因此迁移编号存在断点，属预期行为。

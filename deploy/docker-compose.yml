@@ -12,8 +12,6 @@ services:
       MYSQL_DATABASE: ${DB_NAME:-invoice_system}
       MYSQL_USER: ${DB_USERNAME:-invoice_user}
       MYSQL_PASSWORD: ${DB_PASSWORD:-root123}
-    ports:
-      - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
     networks:

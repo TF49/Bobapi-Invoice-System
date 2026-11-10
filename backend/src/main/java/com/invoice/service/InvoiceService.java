@@ -74,7 +74,7 @@ public class InvoiceService {
     private static final int MAX_SPECIFICATION_LENGTH = 100;
     private static final int MAX_UNIT_LENGTH = 20;
     public static final String FIXED_INVOICE_TYPE = "技术服务费";
-    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费", "研发和技术服务", "信息系统服务");
+    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费", "研发和技术服务", "信息系统服务", "AI算力");
     public static final Set<String> ALLOWED_INVOICE_CATEGORIES = Set.of("NORMAL", "VAT_SPECIAL");
     public static final Set<String> ALLOWED_SELLER_COMPANIES = Set.of("DEFAULT", "TECH");
     private static final BigDecimal BASE_QUOTA_RATE = new BigDecimal("0.03");
@@ -903,7 +903,7 @@ public class InvoiceService {
             return "开票类型不能为空";
         }
         if (!ALLOWED_INVOICE_TYPES.contains(invoiceType)) {
-            return "开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务或信息系统服务";
+            return "开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务或AI算力";
         }
         if (invoiceType.length() > 100) {
             return "开票类型不能超过 100 个字符";

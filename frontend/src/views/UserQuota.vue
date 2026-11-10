@@ -592,11 +592,44 @@
                   </div>
                 </div>
 
-                <!-- 附带批量接口提示 -->
+                <!-- 字段补充说明 -->
+                <div class="api-sub-tip">
+                  <div class="api-sub-tip-title">📎 选填字段与防重说明：</div>
+                  <div class="api-sub-tip-desc">
+                    <code class="inline-code">specification</code>（规格型号，≤100 字符）与 <code class="inline-code">unit</code>（单位，如 项/次/套，≤20 字符）均为选填，留空视为未填写；提交后 OpenAPI 不支持修改，填错请在待开票状态下取消后重新提交。
+                    建议同时传 <code class="inline-code">outTradeNo</code> 与 <code class="inline-code">Idempotency-Key</code>（16–64 位）：超时重试时沿用原值不会重复扣额度；若内容（含规格型号、单位）与首次不一致将返回 <code class="inline-code">40902</code>。
+                    两者都不传时每次请求都会新建申请，重试会重复扣额度。
+                  </div>
+                </div>
+
+                <!-- 批量接口示例 -->
                 <div class="api-sub-tip">
                   <div class="api-sub-tip-title">📎 批量提交发票申请接口 (POST /open/v1/invoices/batch)：</div>
                   <div class="api-sub-tip-desc">
-                    支持单次批量提交最多 100 条发票申请。<code class="inline-code">items</code> 数组中每个对象均支持传入 <code class="inline-code">"invoiceCategory": "NORMAL" | "VAT_SPECIAL"</code>，后端自动按各发票明细对应的倍率累计扣减账户可用额度。
+                    单次最多 100 条、请求体不超过 512KB，整批原子提交：任一行校验失败或额度不足时整批回滚。<code class="inline-code">items</code> 中每行同样支持 <code class="inline-code">specification</code>、<code class="inline-code">unit</code>、<code class="inline-code">invoiceCategory</code>，金额以字符串传入。
+                    同一批次内若确实需要开具内容完全相同的多张发票，请将 <code class="inline-code">duplicateInvoiceRequest</code> 设为 <code class="inline-code">true</code>。
+                  </div>
+                  <div class="api-code-grid" style="margin-top: 8px;">
+                    <div class="code-box">
+                      <div class="code-box-header">
+                        <span class="code-box-title">批量请求示例 (cURL)</span>
+                        <button class="code-copy-btn" type="button" @click="handleCopyText(snippetBatchReq, '批量请求示例')">
+                          <el-icon :size="12"><CopyDocument /></el-icon>
+                          <span>复制</span>
+                        </button>
+                      </div>
+                      <pre class="code-box-content"><code>{{ snippetBatchReq }}</code></pre>
+                    </div>
+                    <div class="code-box">
+                      <div class="code-box-header">
+                        <span class="code-box-title">响应示例 (成功 200 / 逐行校验失败 422)</span>
+                        <button class="code-copy-btn" type="button" @click="handleCopyText(snippetBatchResp, '批量响应示例')">
+                          <el-icon :size="12"><CopyDocument /></el-icon>
+                          <span>复制</span>
+                        </button>
+                      </div>
+                      <pre class="code-box-content"><code>{{ snippetBatchResp }}</code></pre>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -812,12 +845,12 @@
                   <span class="api-item-path">HTTP 400 / 401 / 409 / 429</span>
                 </div>
                 <p class="api-item-desc">
-                  当请求发生错误（如额度不足 <code class="inline-code">40002</code>、密钥失效 <code class="inline-code">40101</code>、幂等键冲突 <code class="inline-code">40903</code> / <code class="inline-code">40904</code>、频率受限 <code class="inline-code">42902</code> 等），接口统一返回标准 JSON 结构。API Key 仅对 <code class="inline-code">/open/</code> 开头的接口生效。
+                  当请求发生错误（如额度不足 <code class="inline-code">40002</code>、密钥失效 <code class="inline-code">40101</code>、幂等键冲突 <code class="inline-code">40902</code> / <code class="inline-code">40903</code> / <code class="inline-code">40904</code>、频率受限 <code class="inline-code">42901</code>~<code class="inline-code">42907</code> 等），接口统一返回标准 JSON 结构。API Key 仅对 <code class="inline-code">/api/open/</code> 开头的接口生效。
                 </p>
                 <div class="api-code-grid">
                   <div class="code-box" style="grid-column: 1 / -1;">
                     <div class="code-box-header">
-                      <span class="code-box-title">错误响应示例 (JSON - 额度不足 400 Bad Request)</span>
+                      <span class="code-box-title">错误响应示例 (JSON - 额度不足 400 / 幂等冲突 409 / 限流 429)</span>
                       <button class="code-copy-btn" type="button" @click="handleCopyText(snippetErrorResp, '错误响应示例')">
                         <el-icon :size="12"><CopyDocument /></el-icon>
                         <span>复制</span>
@@ -1070,142 +1103,204 @@ const loadApiKey = async () => {
   }
 }
 
+// 后端 context-path 为 /api，nginx 与 vite 也只代理 /api/ 前缀，示例 URL 必须带上 /api
 const currentBaseUrl = computed(() => {
   if (typeof window !== 'undefined' && window.location && window.location.origin) {
-    return window.location.origin
+    return `${window.location.origin}/api`
   }
-  return 'http://localhost:9090'
+  return 'http://localhost:9090/api'
 })
 
 const submitCategoryTab = ref<'NORMAL' | 'VAT_SPECIAL'>('NORMAL')
 
-const snippetSubmitReq = computed(() => {
-  if (submitCategoryTab.value === 'VAT_SPECIAL') {
-    return `curl -X POST "${currentBaseUrl.value}/open/v1/invoices" \\
-  -H "Content-Type: application/json" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
-  -d '{
-    "outTradeNo": "ORDER_20260828002",
+const exampleApiKey = computed(() => apiKeyData.value.apiKey || 'your_api_key')
+
+interface InvoiceExample {
+  id: number
+  outTradeNo: string
+  invoiceCategory: 'NORMAL' | 'VAT_SPECIAL'
+  feeRate: string
+  deductedQuota: string
+  remark: string
+  status: 'PENDING' | 'COMPLETED' | 'CANCELLED'
+  fileName: string | null
+  createdAt: string
+  completedAt: string | null
+}
+
+// 与后端 OpenInvoiceResponse 字段保持一致；金额按两位小数原样展示，所以不用 JSON.stringify
+const buildInvoiceResp = (message: string, invoice: InvoiceExample) => {
+  const str = (value: string | null) => (value === null ? 'null' : `"${value}"`)
+  return `{
+  "code": 200,
+  "message": "${message}",
+  "data": {
+    "id": ${invoice.id},
+    "outTradeNo": "${invoice.outTradeNo}",
     "companyName": "测试企业有限公司",
     "taxNumber": "91110000MA00000000",
+    "specification": "标准版",
+    "unit": "项",
     "amount": 500.00,
     "invoiceType": "技术服务费",
-    "invoiceCategory": "VAT_SPECIAL",
-    "remark": "外部系统自动化推单(专票3倍扣额)"
-  }'`
-  }
+    "invoiceCategory": "${invoice.invoiceCategory}",
+    "sellerCompany": "DEFAULT",
+    "feeRate": ${invoice.feeRate},
+    "deductedQuota": ${invoice.deductedQuota},
+    "remark": "${invoice.remark}",
+    "status": "${invoice.status}",
+    "submissionType": "API",
+    "redFlushStatus": "NONE",
+    "redFlushReason": null,
+    "redFlushRemark": null,
+    "redFlushApplyTime": null,
+    "redFlushCompleteTime": null,
+    "downloadable": ${invoice.status === 'COMPLETED'},
+    "fileName": ${str(invoice.fileName)},
+    "createdAt": "${invoice.createdAt}",
+    "completedAt": ${str(invoice.completedAt)}
+  },
+  "traceId": "9f7b4946-b33a-44c1-845b-7b08219ab12e"
+}`
+}
+
+const normalInvoiceExample: InvoiceExample = {
+  id: 1024,
+  outTradeNo: 'ORDER_20260828001',
+  invoiceCategory: 'NORMAL',
+  feeRate: '0.0300',
+  deductedQuota: '500.00',
+  remark: '外部系统自动化推单',
+  status: 'PENDING',
+  fileName: null,
+  createdAt: '2026-08-28T14:00:00',
+  completedAt: null
+}
+
+const snippetSubmitReq = computed(() => {
+  const isSpecial = submitCategoryTab.value === 'VAT_SPECIAL'
+  const outTradeNo = isSpecial ? 'ORDER_20260828002' : 'ORDER_20260828001'
   return `curl -X POST "${currentBaseUrl.value}/open/v1/invoices" \\
   -H "Content-Type: application/json" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
+  -H "X-API-KEY: ${exampleApiKey.value}" \\
+  -H "Idempotency-Key: idem-${outTradeNo}" \\
   -d '{
-    "outTradeNo": "ORDER_20260828001",
+    "outTradeNo": "${outTradeNo}",
     "companyName": "测试企业有限公司",
     "taxNumber": "91110000MA00000000",
+    "specification": "标准版",
+    "unit": "项",
     "amount": 500.00,
     "invoiceType": "技术服务费",
-    "invoiceCategory": "NORMAL",
-    "remark": "外部系统自动化推单"
+    "invoiceCategory": "${isSpecial ? 'VAT_SPECIAL' : 'NORMAL'}",
+    "sellerCompany": "DEFAULT",
+    "remark": "${isSpecial ? '外部系统自动化推单(专票3倍扣额)' : '外部系统自动化推单'}"
   }'`
 })
 
 const snippetSubmitResp = computed(() => {
   if (submitCategoryTab.value === 'VAT_SPECIAL') {
-    return `{
-  "code": 200,
-  "message": "申请成功",
-  "data": {
-    "id": 1025,
-    "outTradeNo": "ORDER_20260828002",
-    "companyName": "测试企业有限公司",
-    "taxNumber": "91110000MA00000000",
-    "amount": 500.00,
-    "invoiceType": "技术服务费",
-    "invoiceCategory": "VAT_SPECIAL",
-    "remark": "外部系统自动化推单(专票3倍扣额)",
-    "status": "PENDING",
-    "downloadable": false,
-    "fileName": null,
-    "createdAt": "2026-08-28T14:05:00",
-    "completedAt": null
+    return buildInvoiceResp('申请成功', {
+      ...normalInvoiceExample,
+      id: 1025,
+      outTradeNo: 'ORDER_20260828002',
+      invoiceCategory: 'VAT_SPECIAL',
+      feeRate: '0.0900',
+      deductedQuota: '1500.00',
+      remark: '外部系统自动化推单(专票3倍扣额)',
+      createdAt: '2026-08-28T14:05:00'
+    })
   }
-}`
-  }
-  return `{
-  "code": 200,
-  "message": "申请成功",
-  "data": {
-    "id": 1024,
-    "outTradeNo": "ORDER_20260828001",
-    "companyName": "测试企业有限公司",
-    "taxNumber": "91110000MA00000000",
-    "amount": 500.00,
-    "invoiceType": "技术服务费",
-    "invoiceCategory": "NORMAL",
-    "remark": "外部系统自动化推单",
-    "status": "PENDING",
-    "downloadable": false,
-    "fileName": null,
-    "createdAt": "2026-08-28T14:00:00",
-    "completedAt": null
-  }
-}`
+  return buildInvoiceResp('申请成功', normalInvoiceExample)
 })
 
-const snippetQueryReq = computed(() => `curl -X GET "${currentBaseUrl.value}/open/v1/invoices/by-out-trade-no/ORDER_20260828001" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}"`)
+const snippetBatchReq = computed(() => `curl -X POST "${currentBaseUrl.value}/open/v1/invoices/batch" \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-KEY: ${exampleApiKey.value}" \\
+  -H "Idempotency-Key: batch-20260828-0001" \\
+  -d '{
+    "duplicateInvoiceRequest": false,
+    "items": [
+      {
+        "rowNumber": 1,
+        "companyName": "测试企业有限公司",
+        "taxNumber": "91110000MA00000000",
+        "specification": "标准版",
+        "unit": "项",
+        "amount": "500.00",
+        "invoiceType": "技术服务费",
+        "invoiceCategory": "NORMAL"
+      },
+      {
+        "rowNumber": 2,
+        "companyName": "示例科技有限公司",
+        "taxNumber": "91310000MA00000001",
+        "unit": "次",
+        "amount": "1200.00",
+        "invoiceType": "计算服务费",
+        "invoiceCategory": "VAT_SPECIAL"
+      }
+    ]
+  }'`)
 
-const snippetQueryResp = computed(() => `{
+const snippetBatchResp = `// HTTP 200：整批成功
+{
   "code": 200,
-  "message": "success",
+  "message": "批量申请成功",
   "data": {
-    "id": 1024,
-    "outTradeNo": "ORDER_20260828001",
-    "companyName": "测试企业有限公司",
-    "taxNumber": "91110000MA00000000",
-    "amount": 500.00,
-    "invoiceType": "技术服务费",
-    "invoiceCategory": "NORMAL",
-    "remark": "外部系统自动化推单",
-    "status": "COMPLETED",
-    "downloadable": true,
-    "fileName": "invoice_1024.png",
-    "createdAt": "2026-08-28T14:00:00",
-    "completedAt": "2026-08-28T14:15:00"
+    "batchId": 88,
+    "total": 2,
+    "successCount": 2,
+    "failureCount": 0,
+    "totalAmount": "1700.00",
+    "items": [
+      { "rowNumber": 1, "invoiceId": 1026, "status": "SUCCESS", "message": "申请成功" },
+      { "rowNumber": 2, "invoiceId": 1027, "status": "SUCCESS", "message": "申请成功" }
+    ]
   }
-}`)
+}
+
+// HTTP 422：任一行校验失败，整批回滚、不扣额度
+{
+  "code": 42202,
+  "message": "批量申请包含无效数据",
+  "data": [
+    {
+      "rowNumber": 2,
+      "field": "amount",
+      "code": 42202,
+      "message": "开票金额格式不正确，应为最多 10 位整数和 2 位小数"
+    }
+  ]
+}`
+
+const snippetQueryReq = computed(() => `curl -X GET "${currentBaseUrl.value}/open/v1/invoices/by-out-trade-no/ORDER_20260828001" \\
+  -H "X-API-KEY: ${exampleApiKey.value}"`)
+
+const snippetQueryResp = computed(() => buildInvoiceResp('success', {
+  ...normalInvoiceExample,
+  status: 'COMPLETED',
+  fileName: 'invoice_1024.png',
+  completedAt: '2026-08-28T14:15:00'
+}))
 
 const snippetDownloadReq = computed(() => `curl -X GET "${currentBaseUrl.value}/open/v1/invoices/by-out-trade-no/ORDER_20260828001/download" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
-  -O -J`)
+  -H "X-API-KEY: ${exampleApiKey.value}" \\
+  --fail -o invoice_ORDER_20260828001.png`)
 
 const snippetCancelReq = computed(() => `curl -X POST "${currentBaseUrl.value}/open/v1/invoices/by-out-trade-no/ORDER_20260828001/cancel" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}"`)
+  -H "X-API-KEY: ${exampleApiKey.value}"`)
 
 const snippetCancelByIdReq = computed(() => `curl -X POST "${currentBaseUrl.value}/open/v1/invoices/1024/cancel" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}"`)
+  -H "X-API-KEY: ${exampleApiKey.value}"`)
 
-const snippetCancelResp = computed(() => `{
-  "code": 200,
-  "message": "取消成功",
-  "data": {
-    "id": 1024,
-    "outTradeNo": "ORDER_20260828001",
-    "companyName": "测试企业有限公司",
-    "taxNumber": "91110000MA00000000",
-    "amount": 500.00,
-    "invoiceType": "技术服务费",
-    "invoiceCategory": "NORMAL",
-    "remark": "外部系统自动化推单",
-    "status": "CANCELLED",
-    "downloadable": false,
-    "fileName": null,
-    "createdAt": "2026-08-28T14:00:00",
-    "completedAt": null
-  }
-}`)
+const snippetCancelResp = computed(() => buildInvoiceResp('取消成功', {
+  ...normalInvoiceExample,
+  status: 'CANCELLED'
+}))
 
 const snippetQuotaReq = computed(() => `curl -X GET "${currentBaseUrl.value}/open/v1/quota" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}"`)
+  -H "X-API-KEY: ${exampleApiKey.value}"`)
 
 const snippetQuotaResp = computed(() => `{
   "code": 200,
@@ -1218,7 +1313,7 @@ const snippetQuotaResp = computed(() => `{
 }`)
 
 const snippetSealUploadReq = computed(() => `curl -X POST "${currentBaseUrl.value}/open/v1/documents" \\
-  -H "X-API-KEY: ${apiKeyData.value.apiKey || 'your_api_key'}" \\
+  -H "X-API-KEY: ${exampleApiKey.value}" \\
   -H "Idempotency-Key: seal-ORDER_20260828001" \\
   -F "file=@./contract.pdf"`)
 
@@ -1243,7 +1338,7 @@ const snippetSealUploadResp = computed(() => `{
 }`)
 
 const snippetSealOtherReq = computed(() => {
-  const key = apiKeyData.value.apiKey || 'your_api_key'
+  const key = exampleApiKey.value
   return `# 查询已完成的盖章文件
 curl -X GET "${currentBaseUrl.value}/open/v1/documents?status=COMPLETED" \\
   -H "X-API-KEY: ${key}"
@@ -1255,14 +1350,33 @@ curl -X POST "${currentBaseUrl.value}/open/v1/documents/501/cancel" \\
 # 下载盖章后的文件
 curl -X GET "${currentBaseUrl.value}/open/v1/documents/501/download" \\
   -H "X-API-KEY: ${key}" \\
-  -O -J`
+  --fail -o sealed_501.pdf`
 })
 
-const snippetErrorResp = computed(() => `{
+const snippetErrorResp = `// HTTP 400：发票额度不足（盖章额度不足时 message 为「盖章额度不足，请先充值」）
+{
   "code": 40002,
-  "message": "账户可用额度不足，请先充值",
-  "data": null
-}`)
+  "message": "额度不足，当前余额：200.00，需要：500.00",
+  "data": null,
+  "traceId": "fa9d2b2c-3491-4d79-9014-5efc1c911001"
+}
+
+// HTTP 409：同一 outTradeNo / Idempotency-Key 再次提交，但请求内容（含规格型号、单位）与首次不一致
+{
+  "code": 40902,
+  "message": "Idempotency-Key 已用于其他发票申请",
+  "data": null,
+  "traceId": "48b1d40c-e208-4c6c-99a6-d36e2f7b4946"
+}
+
+// HTTP 429：触发频率限制，响应头同时返回 Retry-After: 18
+// data 为建议等待的秒数，请等待后再重试，不要立即重放
+{
+  "code": 42902,
+  "message": "发票申请提交过于频繁，请稍后再试",
+  "data": 18,
+  "traceId": "79b32943-4dc3-4a16-9285-1adbe3ce8c97"
+}`
 
 const handleCopyText = async (text: string, label: string = '内容') => {
   let copied = false

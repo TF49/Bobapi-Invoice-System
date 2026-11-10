@@ -114,6 +114,64 @@ class OpenInvoiceControllerTest {
                 .andExpect(jsonPath("$.data.submissionType").value("API"));
     }
 
+    /**
+     * OPENAPI.md 的 Python 示例按字符串传金额（避免浮点），需保证服务端可接受。
+     */
+    @Test
+    void acceptsAmountAsDecimalString() throws Exception {
+        OpenInvoiceResponse response = new OpenInvoiceResponse(
+                1002L, "OUT_20260828003", "测试客户科技公司", "91110000MA00000000",
+                new BigDecimal("1888.88"), "技术服务费", "NORMAL", null, "PENDING", "API",
+                "NONE", null, null, null, null,
+                false, null, LocalDateTime.now(), null
+        );
+
+        when(invoiceService.createOpenInvoice(
+                eq(10L), eq("OUT_20260828003"), any(), eq("测试客户科技公司"),
+                any(), eq(new BigDecimal("1888.88")),
+                any(), any(), any(), any(), any(), any()
+        )).thenReturn(response);
+
+        String json = """
+                {
+                    "outTradeNo": "OUT_20260828003",
+                    "companyName": "测试客户科技公司",
+                    "amount": "1888.88"
+                }
+                """;
+
+        mockMvc.perform(post("/open/v1/invoices")
+                        .with(authentication(authUser()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value(200))
+                .andExpect(jsonPath("$.data.id").value(1002));
+    }
+
+    /**
+     * 未定义字段会被拒绝（spring.jackson.deserialization.fail-on-unknown-properties=true），文档 FAQ 依赖此行为。
+     */
+    @Test
+    void rejectsUnknownRequestField() throws Exception {
+        String json = """
+                {
+                    "outTradeNo": "OUT_20260828004",
+                    "companyName": "测试客户科技公司",
+                    "amount": 500.00,
+                    "spec": "标准版"
+                }
+                """;
+
+        mockMvc.perform(post("/open/v1/invoices")
+                        .with(authentication(authUser()))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(40001))
+                .andExpect(jsonPath("$.message").value("请求体格式不正确"));
+    }
+
     @Test
     void rejectsWhenQuotaInsufficient() throws Exception {
         when(invoiceService.createOpenInvoice(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))

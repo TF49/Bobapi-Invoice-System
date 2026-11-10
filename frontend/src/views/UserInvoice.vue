@@ -1051,6 +1051,7 @@
             <el-option label="计算服务费" value="计算服务费" />
             <el-option label="研发和技术服务" value="研发和技术服务" />
             <el-option label="信息系统服务" value="信息系统服务" />
+            <el-option label="AI算力" value="AI算力" />
           </el-select>
         </el-form-item>
         <el-form-item label="发票票种" prop="invoiceCategory">

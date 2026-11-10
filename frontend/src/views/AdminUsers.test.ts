@@ -241,6 +241,39 @@ describe('AdminUsers', () => {
     expect(quotaApi.getUserTransactions).toHaveBeenCalledWith(2)
   })
 
+  it('submits a negative manual adjustment without it being clamped by the recharge input', async () => {
+    const quota = { userId: 2, balance: 100.5, totalRecharged: 200, totalDeducted: 99.5 }
+    vi.mocked(quotaApi.getUserQuota).mockResolvedValue(quota)
+    vi.mocked(quotaApi.getUserTransactions).mockResolvedValue([])
+    vi.mocked(quotaApi.adjustQuota).mockResolvedValue({ ...quota, balance: 50.5 })
+
+    const page = await mountPage()
+    await page.find('.quota-manage-btn').trigger('click')
+    await flushPromises()
+
+    ;(document.querySelector('#tab-adjust') as HTMLElement).click()
+    await flushPromises()
+
+    const inputs = document.querySelectorAll<HTMLInputElement>('.el-dialog .el-input-number input')
+    expect(inputs).toHaveLength(1) // 只渲染当前激活 tab 的金额输入框
+    inputs[0].value = '-50'
+    inputs[0].dispatchEvent(new Event('input'))
+    inputs[0].dispatchEvent(new Event('change'))
+    await flushPromises()
+    expect(inputs[0].value).toBe('-50.00')
+
+    const confirmBtn = [...document.querySelectorAll<HTMLButtonElement>('.el-dialog button')]
+      .find(button => button.textContent?.includes('确认调整'))
+    confirmBtn!.click()
+    await flushPromises()
+
+    expect(quotaApi.adjustQuota).toHaveBeenCalledWith(
+      2,
+      expect.objectContaining({ amount: -50, walletType: 'INVOICE' }),
+      expect.any(String)
+    )
+  })
+
   it('handles remark inline editing, saving, and canceling', async () => {
     const page = await mountPage()
 

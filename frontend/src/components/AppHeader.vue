@@ -31,6 +31,10 @@
         <UserFilled />
         <span>用户管理</span>
       </router-link>
+      <router-link to="/admin/announcements" exact-active-class="is-active">
+        <Promotion />
+        <span>公告管理</span>
+      </router-link>
     </nav>
     <nav v-else-if="userStore.role === 'INVOICE_CLERK'" class="admin-nav" aria-label="开票员功能导航">
       <router-link to="/admin" exact-active-class="is-active" class="nav-with-badge">
@@ -63,6 +67,24 @@
       </router-link>
     </nav>
     <div class="header-actions">
+      <div class="announcement-action-wrapper">
+        <el-badge
+          :value="unreadAnnouncementCount"
+          :max="99"
+          :hidden="unreadAnnouncementCount === 0"
+          class="announcement-badge"
+        >
+          <el-button
+            class="header-guide-btn announcement-trigger"
+            plain
+            :icon="Promotion"
+            :aria-label="unreadAnnouncementCount > 0 ? `系统公告（${unreadAnnouncementCount} 条未读）` : '系统公告'"
+            @click="showAnnouncementHistory = true"
+          >
+            系统公告
+          </el-button>
+        </el-badge>
+      </div>
       <div class="guide-action-wrapper">
         <el-tooltip content="查看系统使用说明（弹窗）" placement="bottom" :show-after="300">
           <el-button
@@ -95,6 +117,7 @@
       <el-button :icon="SwitchButton" plain aria-label="退出登录" @click="handleLogout">退出登录</el-button>
     </div>
     <UserGuideDialog v-model="showGuideDialog" :initial-tab="guideInitialTab" />
+    <AnnouncementHistoryDialog v-model="showAnnouncementHistory" />
   </header>
 </template>
 
@@ -107,6 +130,7 @@ import {
   DataAnalysis,
   DocumentChecked,
   Files,
+  Promotion,
   QuestionFilled,
   Reading,
   SwitchButton,
@@ -119,11 +143,16 @@ import { rechargeRequestApi } from '@/api/rechargeRequest'
 import { invoiceApi } from '@/api/invoice'
 import { sealDocumentApi } from '@/api/sealDocument'
 import UserGuideDialog from '@/components/UserGuideDialog.vue'
+import AnnouncementHistoryDialog from '@/components/AnnouncementHistoryDialog.vue'
+import { useAnnouncementStore } from '@/stores/announcement'
 
 defineProps<{ title: string }>()
 
 const router = useRouter()
 const userStore = useUserStore()
+const announcementStore = useAnnouncementStore()
+const showAnnouncementHistory = ref(false)
+const unreadAnnouncementCount = computed(() => announcementStore.unread.length)
 const pendingCount = ref(0)
 const pendingRedFlushCount = ref(0)
 const pendingDocCount = ref(0)
@@ -485,6 +514,22 @@ h1 {
 .notification-bell:hover {
   color: var(--color-primary);
   background: var(--color-primary-soft);
+}
+
+.announcement-action-wrapper {
+  display: flex;
+  align-items: center;
+}
+
+.announcement-badge :deep(.el-badge__content) {
+  background-color: var(--color-danger);
+  border: 2px solid var(--color-surface, #ffffff);
+  font-weight: 700;
+  font-size: 11px;
+  height: 18px;
+  line-height: 14px;
+  min-width: 18px;
+  padding: 0 5px;
 }
 
 .bell-badge {

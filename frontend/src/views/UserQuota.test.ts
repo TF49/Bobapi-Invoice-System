@@ -114,6 +114,58 @@ describe('UserQuota', () => {
     expect(text).not.toContain('/open/v1/documents/quota')
   })
 
+  it('prefixes every OpenAPI example URL with the /api context path', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    const codeText = page.findAll('pre.code-box-content').map((pre) => pre.text()).join('\n')
+    const urls = codeText.match(/https?:\/\/[^\s"]+/g) ?? []
+    expect(urls.length).toBeGreaterThan(0)
+    for (const url of urls) {
+      expect(url).toContain('/api/open/v1/')
+    }
+    expect(page.find('.openapi-base-url-badge').text()).toMatch(/\/api$/)
+  })
+
+  it('renders specification, unit and Idempotency-Key in the submit snippet', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    const text = page.text()
+    expect(text).toContain('Idempotency-Key: idem-ORDER_20260828001')
+    expect(text).toContain('"specification": "标准版"')
+    expect(text).toContain('"unit": "项"')
+    expect(text).toContain('"deductedQuota": 500.00')
+  })
+
+  it('renders batch submit request and row-level error examples', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    const text = page.text()
+    expect(text).toContain('/api/open/v1/invoices/batch')
+    expect(text).toContain('"duplicateInvoiceRequest": false')
+    expect(text).toContain('"rowNumber": 2')
+    expect(text).toContain('"code": 42202')
+  })
+
+  it('renders rate limit error example with Retry-After', async () => {
+    const page = await mountPage()
+    const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
+    await apiTabBtn!.trigger('click')
+    await flushPromises()
+
+    const text = page.text()
+    expect(text).toContain('Retry-After')
+    expect(text).toContain('"code": 42902')
+  })
+
   it('renders invoiceCategory and allows toggling between normal and special VAT invoice snippets', async () => {
     const page = await mountPage()
     const apiTabBtn = page.findAll('.tab-btn').find((btn) => btn.text().includes('OpenAPI 开发者密钥'))
