@@ -355,10 +355,10 @@ stateDiagram-v2
 | `specification` | String | 否 | 无 | 规格型号，最大 100 字符，自动去除首尾空格，留空视为未填写 |
 | `unit`       | String | 否 | 无 | 单位（如 项、次、套），最大 20 字符，自动去除首尾空格，留空视为未填写 |
 | `amount`     | BigDecimal | **是** | 无 | 开票金额（元），最小 `0.01`，最多 10 位整数和 2 位小数 |
-| `invoiceType`| String | 否 | `技术服务费` | 开票类型。**严格白名单校验**，仅支持：<br>• `技术服务费`<br>• `AI订阅服务费`<br>• `计算服务费`<br>• `研发和技术服务`<br>• `信息系统服务`<br>• `AI算力` |
+| `invoiceType`| String | 否 | `技术服务费` | 开票类型。**严格白名单校验**，仅支持：<br>• `技术服务费`<br>• `AI订阅服务费`<br>• `计算服务费`<br>• `研发和技术服务`<br>• `信息系统服务`<br>• `AI算力`<br>• `网络技术服务` |
 | `invoiceCategory`| String | 否 | `NORMAL` | 发票票种：<br>• `NORMAL`：普通发票（普票）<br>• `VAT_SPECIAL`：增值税专用发票（专票）<br>*(支持中文别名“普票/普通发票”、“专票/专用发票”)* |
 | `sellerCompany` | String | 否 | `DEFAULT` | 出票主体公司：<br>• `DEFAULT`：普通公司（默认，普票1倍/专票3倍额度）<br>• `TECH`：科技公司（普票4/3倍/专票10/3倍额度）<br>*(支持中文别名“普通公司”、“科技公司”)* |
-| `taxRate`    | String | 否 | `EXEMPT` | 税率 / 是否免税（下拉选项）：<br>• `EXEMPT`：免税（默认）<br>• `1%`<br>• `3%`<br>• `6%`<br>*(支持别名“免税”、`1`/`0.01`、`3`/`0.03`、`6`/`0.06`；其他值返回 `40003`；税率不影响额度扣除)* |
+| `taxRate`    | String | 否 | `EXEMPT` | 税率 / 是否免税（下拉选项）：<br>• `EXEMPT`：免税（默认）<br>• `1%`<br>• `3%`<br>• `6%`<br>*(支持别名“免税”、`1`/`0.01`、`3`/`0.03`、`6`/`0.06`；其他值返回 `40003`；税率不影响额度扣除)*<br>**出票主体限制**：`sellerCompany=DEFAULT`（普通公司）**仅支持 `EXEMPT` 免税**（普票、专票均如此），传入 `1%`/`3%`/`6%` 返回 `40003 普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选`；`1%`/`3%`/`6%` 仅 `sellerCompany=TECH`（科技公司）可选 |
 | `remark`     | String | 否 | 无 | 发票备注信息，最大 500 字符 |
 
 **请求体示例**：
@@ -444,7 +444,7 @@ stateDiagram-v2
 - `invoiceType`（String，可选，默认 `技术服务费`）：开票类型白名单。
 - `invoiceCategory`（String，可选，默认 `NORMAL`）：`NORMAL` 普票 / `VAT_SPECIAL` 专票。
 - `sellerCompany`（String，可选，默认 `DEFAULT`）：`DEFAULT` 普通公司 / `TECH` 科技公司。
-- `taxRate`（String，可选，默认 `EXEMPT`）：税率 / 是否免税，`EXEMPT` 免税 / `1%` / `3%` / `6%`。
+- `taxRate`（String，可选，默认 `EXEMPT`）：税率 / 是否免税，`EXEMPT` 免税 / `1%` / `3%` / `6%`；普通公司（`DEFAULT`）仅支持 `EXEMPT`，`1%`/`3%`/`6%` 仅科技公司（`TECH`）可选。
 - `remark`（String，可选）：备注（$\le 500$ 字符）。
 
 > 批量明细**不支持 `outTradeNo`**。请保存成功响应中每行的 `items[].invoiceId`，后续通过「按内部 ID」系列接口（5.2.3 / 5.2.5 / 5.2.7）查询、取消与下载。
@@ -903,7 +903,7 @@ class BobapiClient:
             "invoiceType": invoice_type,
             "invoiceCategory": invoice_category,
             "sellerCompany": seller_company,
-            "taxRate": tax_rate,             # 税率：EXEMPT 免税（默认）/ 1% / 3% / 6%
+            "taxRate": tax_rate,             # 税率：EXEMPT 免税（默认）/ 1% / 3% / 6%（普通公司仅支持 EXEMPT）
             "remark": remark,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
@@ -1419,7 +1419,7 @@ async function main() {
     invoiceType: '技术服务费',
     invoiceCategory: 'NORMAL',
     sellerCompany: 'DEFAULT',
-    taxRate: 'EXEMPT',         // 税率：EXEMPT 免税（默认）/ 1% / 3% / 6%
+    taxRate: 'EXEMPT',         // 税率：EXEMPT 免税（默认）/ 1% / 3% / 6%（普通公司仅支持 EXEMPT）
     remark: 'API 对接测试发票',
   });
   console.log(`申请成功: id=${invoice.id}, 扣除额度=${invoice.deductedQuota}`);
@@ -1565,13 +1565,14 @@ curl --fail -o sealed_56.pdf "$BASE/documents/56/download" -H "X-API-KEY: $KEY"
 - **盖章额度不足**：盖章业务扣除独立的盖章额度（10 元/次），需单独申请充值盖章额度。
 
 ### Q3: 提示 `40003 开票类型必须为：技术服务费、AI订阅服务费...`？
-- 系统服务端对 `invoiceType` 设有严格白名单校验，必须为以下六种之一（完全匹配）：
+- 系统服务端对 `invoiceType` 设有严格白名单校验，必须为以下七种之一（完全匹配）：
   - `技术服务费`（默认）
   - `AI订阅服务费`
   - `计算服务费`
   - `研发和技术服务`
   - `信息系统服务`
   - `AI算力`
+  - `网络技术服务`
 
 ### Q4: 批量开票时提示 `42202 该行与批次内其他行完全重复`？
 - 批量申请接口默认开启批内防重保护（`duplicateInvoiceRequest = false`）。若您在同一批次中意图开具抬头、税号、金额、类型均完全相同的多张发票，请在请求体顶层设置 `"duplicateInvoiceRequest": true`。

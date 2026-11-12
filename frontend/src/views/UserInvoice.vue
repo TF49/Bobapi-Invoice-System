@@ -1063,12 +1063,13 @@
             <el-option label="研发和技术服务" value="研发和技术服务" />
             <el-option label="信息系统服务" value="信息系统服务" />
             <el-option label="AI算力" value="AI算力" />
+            <el-option label="网络技术服务" value="网络技术服务" />
           </el-select>
         </el-form-item>
         <el-form-item label="免税/税率" prop="taxRate">
           <el-select v-model="form.taxRate" placeholder="请选择是否免税" style="width: 100%" data-testid="tax-rate-select">
             <el-option
-              v-for="option in TAX_RATE_OPTIONS"
+              v-for="option in getTaxRateOptions(form.sellerCompany)"
               :key="option.value"
               :label="option.label"
               :value="option.value"
@@ -1401,7 +1402,7 @@ import {
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest, type BatchInvoiceItemRequest } from '@/api/invoice'
-import { TAX_RATE_OPTIONS, DEFAULT_TAX_RATE, formatTaxRate } from '@/utils/taxRate'
+import { getTaxRateOptions, coerceTaxRateForSeller, DEFAULT_TAX_RATE, formatTaxRate } from '@/utils/taxRate'
 import { quotaApi } from '@/api/quota'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
@@ -1719,6 +1720,11 @@ const form = reactive<InvoiceRequest & { count: number }>({
   sellerCompany: 'DEFAULT',
   taxRate: DEFAULT_TAX_RATE,
   remark: ''
+})
+
+// 普通公司仅支持免税：切换出票主体后若当前税率不可选，自动回落为免税
+watch(() => form.sellerCompany, (sellerCompany) => {
+  form.taxRate = coerceTaxRateForSeller(form.taxRate, sellerCompany)
 })
 
 const pendingCount = computed(() => invoices.value.filter(invoice => invoice.status === 'PENDING').length)

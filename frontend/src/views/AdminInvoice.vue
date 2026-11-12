@@ -1025,12 +1025,13 @@
             <el-option label="研发和技术服务" value="研发和技术服务" />
             <el-option label="信息系统服务" value="信息系统服务" />
             <el-option label="AI算力" value="AI算力" />
+            <el-option label="网络技术服务" value="网络技术服务" />
           </el-select>
         </el-form-item>
         <el-form-item label="免税/税率" prop="taxRate">
           <el-select v-model="editForm.taxRate" placeholder="请选择是否免税" class="type-select">
             <el-option
-              v-for="option in TAX_RATE_OPTIONS"
+              v-for="option in getTaxRateOptions(editForm.sellerCompany)"
               :key="option.value"
               :label="option.label"
               :value="option.value"
@@ -1474,12 +1475,13 @@
             <el-option label="研发和技术服务" value="研发和技术服务" />
             <el-option label="信息系统服务" value="信息系统服务" />
             <el-option label="AI算力" value="AI算力" />
+            <el-option label="网络技术服务" value="网络技术服务" />
           </el-select>
         </el-form-item>
         <el-form-item label="免税/税率" prop="taxRate">
           <el-select v-model="submitForm.taxRate" placeholder="请选择是否免税" class="type-select">
             <el-option
-              v-for="option in TAX_RATE_OPTIONS"
+              v-for="option in getTaxRateOptions(submitForm.sellerCompany)"
               :key="option.value"
               :label="option.label"
               :value="option.value"
@@ -1564,7 +1566,7 @@ import {
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest, type BatchInvoiceItemRequest } from '@/api/invoice'
-import { TAX_RATE_OPTIONS, DEFAULT_TAX_RATE, formatTaxRate } from '@/utils/taxRate'
+import { getTaxRateOptions, coerceTaxRateForSeller, DEFAULT_TAX_RATE, formatTaxRate } from '@/utils/taxRate'
 import { userApi } from '@/api/user'
 import AppHeader from '@/components/AppHeader.vue'
 import InvoiceBatchImportDialog from '@/components/InvoiceBatchImportDialog.vue'
@@ -2200,6 +2202,11 @@ const editForm = reactive<InvoiceRequest>({
   remark: ''
 })
 
+// 普通公司仅支持免税：切换出票主体后若当前税率不可选，自动回落为免税
+watch(() => editForm.sellerCompany, (sellerCompany) => {
+  editForm.taxRate = coerceTaxRateForSeller(editForm.taxRate, sellerCompany)
+})
+
 const editRules = {
   companyName: [{ required: true, message: '请输入公司名称', trigger: 'blur' }],
   taxNumber: [
@@ -2232,7 +2239,7 @@ const handleEditInvoice = (row: Invoice) => {
   editForm.invoiceType = row.invoiceType || '技术服务费'
   editForm.invoiceCategory = row.invoiceCategory || 'NORMAL'
   editForm.sellerCompany = row.sellerCompany || 'DEFAULT'
-  editForm.taxRate = row.taxRate || DEFAULT_TAX_RATE
+  editForm.taxRate = coerceTaxRateForSeller(row.taxRate, editForm.sellerCompany)
   editForm.remark = row.remark || ''
   editDialogVisible.value = true
 }
@@ -2503,6 +2510,10 @@ const submitForm = reactive({
   sellerCompany: 'DEFAULT',
   taxRate: DEFAULT_TAX_RATE as string,
   remark: ''
+})
+
+watch(() => submitForm.sellerCompany, (sellerCompany) => {
+  submitForm.taxRate = coerceTaxRateForSeller(submitForm.taxRate, sellerCompany)
 })
 
 const submitRules = {

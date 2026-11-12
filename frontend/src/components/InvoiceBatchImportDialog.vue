@@ -40,6 +40,7 @@
           <el-radio-button value="DEFAULT">普通公司（普 3% / 专 9%）</el-radio-button>
           <el-radio-button value="TECH">科技公司（普票 4% / 专票 10%）</el-radio-button>
         </el-radio-group>
+        <span class="seller-section-tip">普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选</span>
       </div>
 
       <!-- 状态提示 -->
@@ -249,7 +250,7 @@ import {
   type ParsedInvoiceRow
 } from '../utils/invoiceImport';
 import { invoiceApi, type BatchInvoiceRowError } from '../api/invoice';
-import { formatTaxRate } from '../utils/taxRate';
+import { formatTaxRate, isTaxRateAllowedForSeller, DEFAULT_SELLER_TAX_RATE_ERROR } from '../utils/taxRate';
 import { ApiRequestError } from '../utils/request';
 
 const visible = defineModel<boolean>({ required: true });
@@ -268,9 +269,17 @@ const batchSellerCompany = ref<'DEFAULT' | 'TECH'>('DEFAULT');
 const previewPage = ref(1);
 const previewPageSize = ref(10);
 
+// 税率是否可选取决于批次出票主体（可在解析后切换），因此在预览层动态叠加该校验
+const previewRows = computed(() => parsedData.value.map(row => {
+  if (row.error || isTaxRateAllowedForSeller(normalizeTaxRate(row.taxRate), batchSellerCompany.value)) {
+    return row;
+  }
+  return { ...row, error: DEFAULT_SELLER_TAX_RATE_ERROR };
+}));
+
 const paginatedParsedData = computed(() => {
   const start = (previewPage.value - 1) * previewPageSize.value;
-  return parsedData.value.slice(start, start + previewPageSize.value);
+  return previewRows.value.slice(start, start + previewPageSize.value);
 });
 
 // 提交相关
@@ -296,8 +305,8 @@ const paginatedResultItems = computed(() => {
 const idempotencyKey = ref('');
 
 // 计算属性
-const hasErrors = computed(() => parsedData.value.some(row => row.error));
-const errorCount = computed(() => parsedData.value.filter(row => row.error).length);
+const hasErrors = computed(() => previewRows.value.some(row => row.error));
+const errorCount = computed(() => previewRows.value.filter(row => row.error).length);
 
 // 下载模板
 const downloadTemplate = () => {
@@ -475,6 +484,11 @@ const applyServerRowErrors = (errors: BatchInvoiceRowError[]) => {
   font-weight: 600;
   color: #334155;
   white-space: nowrap;
+}
+
+.seller-section-tip {
+  font-size: 12px;
+  color: #64748b;
 }
 
 .file-section {

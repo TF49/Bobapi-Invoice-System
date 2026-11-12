@@ -656,6 +656,38 @@ describe('UserInvoice', () => {
     )
   })
 
+  it('allows submitting with 网络技术服务 invoice type', async () => {
+    const page = await mountPage()
+    const openSubmitBtn = page.findAll('button').find(button => button.text().includes('提交申请'))
+    await openSubmitBtn!.trigger('click')
+    await flushPromises()
+
+    const inputs = page.find('.submit-invoice-dialog').findAll('input')
+    await inputs[0].setValue('某某网络科技有限公司')
+    await inputs[1].setValue('91410100MAE5H38A0F')
+    await inputs[4].setValue('1800.00')
+
+    const typeSelect = page.findAllComponents({ name: 'ElSelect' }).find(c => c.classes('type-select'))
+    expect(typeSelect).toBeTruthy()
+    await typeSelect!.setValue('网络技术服务')
+    await flushPromises()
+
+    const submitButtons = page.findAll('button').filter(button => button.text().includes('提交申请'))
+    const submit = submitButtons[submitButtons.length - 1]
+    await submit!.trigger('click')
+    await flushPromises()
+
+    expect(mockedApi.createInvoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        companyName: '某某网络科技有限公司',
+        taxNumber: '91410100MAE5H38A0F',
+        amount: 1800.00,
+        invoiceType: '网络技术服务'
+      }),
+      expect.any(String)
+    )
+  })
+
   it('renders pagination and paginates items when multiple pages exist', async () => {
     const manyInvoices: Invoice[] = Array.from({ length: 25 }, (_, i) => ({
       ...completedInvoice,

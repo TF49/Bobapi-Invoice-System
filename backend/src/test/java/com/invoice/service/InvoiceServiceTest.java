@@ -138,7 +138,7 @@ class InvoiceServiceTest {
                 8L, "12345678-1234-1234-1234-123456789012",
                 "示例公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), "咨询服务费", null))
                 .isInstanceOf(BusinessException.class)
-                .hasMessage("开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务或AI算力");
+                .hasMessage("开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务、AI算力或网络技术服务");
         verify(invoiceMapper, never()).insert(any(Invoice.class));
     }
 
@@ -255,6 +255,25 @@ class InvoiceServiceTest {
         assertThat(response.id()).isEqualTo(103L);
         assertThat(response.invoiceType()).isEqualTo("AI算力");
         verify(userQuotaService).deductQuota(8L, new BigDecimal("600.00"), 103L);
+    }
+
+    @Test
+    void createsInvoiceWithNetworkTechnologyServiceType() {
+        when(invoiceMapper.insert(any(Invoice.class))).thenAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(104L);
+            return 1;
+        });
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "12345678-1234-1234-1234-123456789104",
+                "示例网络科技公司", "ABCDEFGHIJKLMNO", new BigDecimal("700.00"),
+                "网络技术服务", "网络技术服务"
+        );
+
+        assertThat(response.id()).isEqualTo(104L);
+        assertThat(response.invoiceType()).isEqualTo("网络技术服务");
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("700.00"), 104L);
     }
 
     @Test
@@ -1062,7 +1081,7 @@ class InvoiceServiceTest {
 
         InvoiceResponse response = service.createInvoice(
                 8L, "key-tax-rate-6", "测试公司", "91110000MA00000001",
-                new BigDecimal("100.00"), "技术服务费", "NORMAL", "DEFAULT", null,
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "TECH", null,
                 null, null, "0.06"
         );
 
@@ -1086,6 +1105,52 @@ class InvoiceServiceTest {
     }
 
     @Test
+    void defaultSellerCompanyRejectsNonExemptTaxRateForNormalAndSpecialInvoices() {
+        for (String category : List.of("NORMAL", "VAT_SPECIAL")) {
+            for (String taxRate : List.of("1%", "3%", "6%")) {
+                assertThatThrownBy(() -> service.createInvoice(
+                        8L, "key-default-tax-" + category + taxRate, "测试公司", "91110000MA00000001",
+                        new BigDecimal("100.00"), "技术服务费", category, "DEFAULT", null,
+                        null, null, taxRate
+                )).isInstanceOfSatisfying(BusinessException.class, ex -> {
+                    assertThat(ex.getCode()).isEqualTo(40003);
+                    assertThat(ex.getMessage()).isEqualTo("普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选");
+                });
+            }
+        }
+        verify(invoiceMapper, never()).insert(any(Invoice.class));
+    }
+
+    @Test
+    void defaultSellerCompanySpecialInvoiceAcceptsExempt() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(904L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-default-special-exempt", "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "VAT_SPECIAL", "DEFAULT", null,
+                null, null, "免税"
+        );
+
+        assertThat(response.taxRate()).isEqualTo("EXEMPT");
+    }
+
+    @Test
+    void openApiRejectsNonExemptTaxRateForDefaultSellerCompany() {
+        assertThatThrownBy(() -> service.createOpenInvoice(
+                8L, "out-default-6", null, "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "VAT_SPECIAL", "DEFAULT", null,
+                null, null, "6%"
+        )).isInstanceOfSatisfying(BusinessException.class,
+                ex -> assertThat(ex.getCode()).isEqualTo(40003));
+        verify(invoiceMapper, never()).insert(any(Invoice.class));
+    }
+
+    @Test
     void repeatedRequestWithDifferentTaxRateConflicts() {
         Invoice existing = invoice(903L, 8L, "PENDING");
         existing.setCompanyName("测试公司");
@@ -1093,13 +1158,13 @@ class InvoiceServiceTest {
         existing.setAmount(new BigDecimal("100.00"));
         existing.setInvoiceType("技术服务费");
         existing.setInvoiceCategory("NORMAL");
-        existing.setSellerCompany("DEFAULT");
+        existing.setSellerCompany("TECH");
         existing.setTaxRate("EXEMPT");
         when(invoiceMapper.selectOne(any())).thenReturn(existing);
 
         assertThatThrownBy(() -> service.createInvoice(
                 8L, "key-tax-rate-repeat", "测试公司", "91110000MA00000001",
-                new BigDecimal("100.00"), "技术服务费", "NORMAL", "DEFAULT", null,
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "TECH", null,
                 null, null, "1%"
         )).isInstanceOfSatisfying(BusinessException.class,
                 ex -> assertThat(ex.getCode()).isEqualTo(40902));
@@ -1334,6 +1399,56 @@ class InvoiceServiceTest {
         assertThat(response.id()).isEqualTo(701L);
         // 旧文件应该被清理
         assertThat(Files.exists(uploadDirectory.resolve("old-file-to-delete.png"))).isFalse();
+    }
+
+    @Test
+    void batchRejectsNonExemptTaxRateRowsForDefaultSellerCompany() {
+        BatchInvoiceItemRequest defaultRow = batchItem(2, "普通公司抬头", "ABCDE12345678901", "100.00");
+        defaultRow.setTaxRate("3%");
+        BatchInvoiceItemRequest techRow = batchItem(3, "科技公司抬头", "ABCDE12345678902", "100.00");
+        techRow.setSellerCompany("TECH");
+        techRow.setTaxRate("3%");
+
+        assertThatThrownBy(() -> service.createInvoicesBatch(
+                8L, "batch-default-tax-rate-1", List.of(defaultRow, techRow)))
+                .isInstanceOfSatisfying(BatchValidationException.class, exception ->
+                        assertThat(exception.getErrors()).singleElement().satisfies(error -> {
+                            assertThat(error.rowNumber()).isEqualTo(2);
+                            assertThat(error.field()).isEqualTo("taxRate");
+                            assertThat(error.message()).isEqualTo("普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选");
+                        }));
+        verify(invoiceMapper, never()).insertBatch(anyList());
+    }
+
+    @Test
+    void adminUpdateRejectsNonExemptTaxRateForDefaultSellerCompany() {
+        Invoice pending = invoice(705L, 8L, "PENDING");
+        pending.setSellerCompany("TECH");
+        pending.setTaxRate("6%");
+        when(invoiceMapper.selectById(705L)).thenReturn(pending);
+
+        assertThatThrownBy(() -> service.adminUpdateInvoice(
+                705L, "示例公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), "技术服务费",
+                "NORMAL", "DEFAULT", null, 1L, null, null, "6%"))
+                .isInstanceOfSatisfying(BusinessException.class,
+                        ex -> assertThat(ex.getCode()).isEqualTo(40003));
+        verify(invoiceMapper, never()).update(any(), any());
+    }
+
+    @Test
+    void adminUpdateFallsBackToExemptWhenSwitchingToDefaultSellerWithoutTaxRate() {
+        Invoice pending = invoice(706L, 8L, "PENDING");
+        pending.setSellerCompany("TECH");
+        pending.setTaxRate("6%");
+        when(invoiceMapper.selectById(706L)).thenReturn(pending);
+        when(invoiceMapper.update(any(), any())).thenReturn(1);
+
+        // 未传税率时原 6% 与普通公司不兼容，应自动回落为免税而非报错
+        service.adminUpdateInvoice(
+                706L, "示例公司", "ABCDEFGHIJKLMNO", new BigDecimal("100.00"), "技术服务费",
+                "NORMAL", "DEFAULT", null, 1L, null, null, null);
+
+        verify(invoiceMapper).update(any(), any());
     }
 
     @Test

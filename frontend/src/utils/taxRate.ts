@@ -13,6 +13,23 @@ export const TAX_RATE_OPTIONS: ReadonlyArray<{ label: string; value: TaxRate }> 
   { label: '6%', value: '6%' }
 ]
 
+/** 普通公司（DEFAULT）仅支持免税；科技公司（TECH）支持免税、1%、3%、6%。与后端 InvoiceService.validateTaxRate 保持一致。 */
+export const DEFAULT_SELLER_TAX_RATE_ERROR = '普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选'
+
+export function getTaxRateOptions(sellerCompany?: string | null): ReadonlyArray<{ label: string; value: TaxRate }> {
+  return sellerCompany === 'TECH' ? TAX_RATE_OPTIONS : TAX_RATE_OPTIONS.filter(option => option.value === 'EXEMPT')
+}
+
+export function isTaxRateAllowedForSeller(taxRate: string | null | undefined, sellerCompany?: string | null): boolean {
+  return sellerCompany === 'TECH' || !taxRate || taxRate === 'EXEMPT'
+}
+
+/** 切换出票主体时修正税率：当前税率在该主体下不可选时回落为免税 */
+export function coerceTaxRateForSeller(taxRate: string | null | undefined, sellerCompany?: string | null): TaxRate {
+  const normalized = normalizeTaxRate(taxRate)
+  return normalized && isTaxRateAllowedForSeller(normalized, sellerCompany) ? normalized : DEFAULT_TAX_RATE
+}
+
 /** 展示用：EXEMPT / 空值显示为「免税」，其余原样显示 */
 export function formatTaxRate(taxRate?: string | null): string {
   if (!taxRate || taxRate === 'EXEMPT') return '免税'

@@ -7,7 +7,7 @@ import * as XLSX from 'xlsx';
 import { normalizeTaxRate } from './taxRate';
 
 export const FIXED_INVOICE_TYPE = '技术服务费';
-export const ALLOWED_INVOICE_TYPES = ['技术服务费', 'AI订阅服务费', '计算服务费', '研发和技术服务', '信息系统服务', 'AI算力'] as const;
+export const ALLOWED_INVOICE_TYPES = ['技术服务费', 'AI订阅服务费', '计算服务费', '研发和技术服务', '信息系统服务', 'AI算力', '网络技术服务'] as const;
 
 export interface ParsedInvoiceRow {
   rowNumber: number;       // 原始文件行号（从2开始，第1行是表头）
@@ -19,7 +19,7 @@ export interface ParsedInvoiceRow {
   remark: string;          // 备注（可选）
   specification?: string;  // 规格型号（可选）
   unit?: string;           // 单位（可选）
-  taxRate?: string;        // 税率 / 是否免税（可选：免税/1%/3%/6%，默认免税）
+  taxRate?: string;        // 税率 / 是否免税（可选：免税/1%/3%/6%，默认免税；普通公司仅支持免税）
   error?: string;          // 错误信息
 }
 
@@ -456,7 +456,7 @@ export function generateTemplate(): string {
     'AI订阅服务费专票申请示例（按3倍扣除额度）',
     '',
     '',
-    '6%'
+    '免税'
   ];
   const sampleDataRow3 = [
     '示例公司C',
@@ -464,10 +464,10 @@ export function generateTemplate(): string {
     '800.00',
     '计算服务费',
     '普票',
-    '计算服务费开票申请示例',
+    '计算服务费开票申请示例（税率 1%/3%/6% 仅科技公司可填）',
     '',
     '次',
-    '1%'
+    '免税'
   ];
   const sampleDataRow4 = [
     '示例公司D',
@@ -478,7 +478,7 @@ export function generateTemplate(): string {
     '研发和技术服务开票申请示例',
     '企业版',
     '套',
-    '3%'
+    '免税'
   ];
   const sampleDataRow5 = [
     '示例公司E',
@@ -502,6 +502,17 @@ export function generateTemplate(): string {
     '项',
     '免税'
   ];
+  const sampleDataRow7 = [
+    '示例公司G',
+    '91500123456789012G',
+    '1800.00',
+    '网络技术服务',
+    '普票',
+    '网络技术服务开票申请示例',
+    '',
+    '项',
+    '免税'
+  ];
 
   return [
     headers.join(','),
@@ -510,7 +521,8 @@ export function generateTemplate(): string {
     sampleDataRow3.join(','),
     sampleDataRow4.join(','),
     sampleDataRow5.join(','),
-    sampleDataRow6.join(',')
+    sampleDataRow6.join(','),
+    sampleDataRow7.join(',')
   ].join('\n');
 }
 
