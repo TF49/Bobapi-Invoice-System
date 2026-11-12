@@ -54,6 +54,12 @@ public class InvoiceRequest {
     @Size(max = 50, message = "出票主体不能超过 50 个字符")
     private String sellerCompany = "DEFAULT";
 
+    /**
+     * 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，6%
+     */
+    @Size(max = 10, message = "税率不能超过 10 个字符")
+    private String taxRate;
+
     @Size(max = 500, message = "备注不能超过 500 个字符")
     private String remark;
 }

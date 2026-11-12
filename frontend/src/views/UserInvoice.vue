@@ -275,6 +275,13 @@
                 </div>
               </template>
             </el-table-column>
+            <el-table-column prop="taxRate" label="税率" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="!row.taxRate || row.taxRate === 'EXEMPT' ? 'success' : 'info'" size="small">
+                  {{ formatTaxRate(row.taxRate) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="amount" label="开票金额" width="155" align="right">
               <template #default="{ row }">
                 <div class="amount-cell-box">
@@ -718,6 +725,10 @@
                 </dd>
               </div>
               <div>
+                <dt>税率</dt>
+                <dd>{{ formatTaxRate(row.taxRate) }}</dd>
+              </div>
+              <div>
                 <dt>提交方式</dt>
                 <dd>
                   <el-tag :type="row.submissionType === 'API' ? 'warning' : row.submissionType === 'MANUAL' ? 'info' : 'danger'" size="small">
@@ -1054,6 +1065,16 @@
             <el-option label="AI算力" value="AI算力" />
           </el-select>
         </el-form-item>
+        <el-form-item label="免税/税率" prop="taxRate">
+          <el-select v-model="form.taxRate" placeholder="请选择是否免税" style="width: 100%" data-testid="tax-rate-select">
+            <el-option
+              v-for="option in TAX_RATE_OPTIONS"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="发票票种" prop="invoiceCategory">
           <el-radio-group v-model="form.invoiceCategory" class="invoice-category-group">
             <el-radio value="NORMAL">
@@ -1380,6 +1401,7 @@ import {
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest, type BatchInvoiceItemRequest } from '@/api/invoice'
+import { TAX_RATE_OPTIONS, DEFAULT_TAX_RATE, formatTaxRate } from '@/utils/taxRate'
 import { quotaApi } from '@/api/quota'
 import AppHeader from '@/components/AppHeader.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
@@ -1695,6 +1717,7 @@ const form = reactive<InvoiceRequest & { count: number }>({
   invoiceType: '技术服务费',
   invoiceCategory: 'NORMAL',
   sellerCompany: 'DEFAULT',
+  taxRate: DEFAULT_TAX_RATE,
   remark: ''
 })
 
@@ -1862,6 +1885,7 @@ let aiParseSessionId = 0
 const showSubmitDialog = () => {
   form.count = 1
   form.sellerCompany = 'DEFAULT'
+  form.taxRate = DEFAULT_TAX_RATE
   submitDialogVisible.value = true
 }
 
@@ -2045,6 +2069,7 @@ const handleSubmit = async () => {
         invoiceType: form.invoiceType,
         invoiceCategory: form.invoiceCategory || 'NORMAL',
         sellerCompany: form.sellerCompany || 'DEFAULT',
+        taxRate: form.taxRate || DEFAULT_TAX_RATE,
         remark: form.remark?.trim() || undefined
       }))
       await invoiceApi.createInvoicesBatch(items, idempotencyKey, true)
@@ -2059,6 +2084,7 @@ const handleSubmit = async () => {
         invoiceType: form.invoiceType,
         invoiceCategory: form.invoiceCategory || 'NORMAL',
         sellerCompany: form.sellerCompany || 'DEFAULT',
+        taxRate: form.taxRate || DEFAULT_TAX_RATE,
         remark: form.remark?.trim() || undefined
       }, idempotencyKey)
       ElMessage.success('提交成功')

@@ -48,6 +48,11 @@ public class BatchInvoiceItemRequest {
     private String sellerCompany = "DEFAULT";
 
     /**
+     * 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，6%
+     */
+    private String taxRate;
+
+    /**
      * 备注（可选）
      */
     private String remark;

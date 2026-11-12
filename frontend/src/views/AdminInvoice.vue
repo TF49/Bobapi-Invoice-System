@@ -247,6 +247,13 @@
                 </div>
               </template>
             </el-table-column>
+            <el-table-column prop="taxRate" label="税率" width="80" align="center">
+              <template #default="{ row }">
+                <el-tag :type="!row.taxRate || row.taxRate === 'EXEMPT' ? 'success' : 'info'" size="small">
+                  {{ formatTaxRate(row.taxRate) }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column prop="amount" label="金额" width="155" align="right">
               <template #default="{ row }">
                 <div class="amount-cell-box">
@@ -710,6 +717,10 @@
                   </el-button>
                 </dd>
               </div>
+              <div>
+                <dt>税率</dt>
+                <dd>{{ formatTaxRate(row.taxRate) }}</dd>
+              </div>
               <div class="mobile-detail-with-copy">
                 <dt>金额</dt>
                 <dd class="money-cell">
@@ -1014,6 +1025,16 @@
             <el-option label="研发和技术服务" value="研发和技术服务" />
             <el-option label="信息系统服务" value="信息系统服务" />
             <el-option label="AI算力" value="AI算力" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="免税/税率" prop="taxRate">
+          <el-select v-model="editForm.taxRate" placeholder="请选择是否免税" class="type-select">
+            <el-option
+              v-for="option in TAX_RATE_OPTIONS"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
           </el-select>
         </el-form-item>
         <el-form-item label="发票票种" prop="invoiceCategory">
@@ -1455,6 +1476,16 @@
             <el-option label="AI算力" value="AI算力" />
           </el-select>
         </el-form-item>
+        <el-form-item label="免税/税率" prop="taxRate">
+          <el-select v-model="submitForm.taxRate" placeholder="请选择是否免税" class="type-select">
+            <el-option
+              v-for="option in TAX_RATE_OPTIONS"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </el-form-item>
         <el-form-item label="发票票种" prop="invoiceCategory">
           <el-radio-group v-model="submitForm.invoiceCategory" class="invoice-category-group">
             <el-radio value="NORMAL">
@@ -1533,6 +1564,7 @@ import {
   ZoomIn
 } from '@element-plus/icons-vue'
 import { invoiceApi, type Invoice, type InvoiceRequest, type BatchInvoiceItemRequest } from '@/api/invoice'
+import { TAX_RATE_OPTIONS, DEFAULT_TAX_RATE, formatTaxRate } from '@/utils/taxRate'
 import { userApi } from '@/api/user'
 import AppHeader from '@/components/AppHeader.vue'
 import InvoiceBatchImportDialog from '@/components/InvoiceBatchImportDialog.vue'
@@ -2164,6 +2196,7 @@ const editForm = reactive<InvoiceRequest>({
   invoiceType: '技术服务费',
   invoiceCategory: 'NORMAL',
   sellerCompany: 'DEFAULT',
+  taxRate: DEFAULT_TAX_RATE,
   remark: ''
 })
 
@@ -2199,6 +2232,7 @@ const handleEditInvoice = (row: Invoice) => {
   editForm.invoiceType = row.invoiceType || '技术服务费'
   editForm.invoiceCategory = row.invoiceCategory || 'NORMAL'
   editForm.sellerCompany = row.sellerCompany || 'DEFAULT'
+  editForm.taxRate = row.taxRate || DEFAULT_TAX_RATE
   editForm.remark = row.remark || ''
   editDialogVisible.value = true
 }
@@ -2223,6 +2257,7 @@ const handleEditSubmit = async () => {
       invoiceType: editForm.invoiceType,
       invoiceCategory: editForm.invoiceCategory || 'NORMAL',
       sellerCompany: editForm.sellerCompany || 'DEFAULT',
+      taxRate: editForm.taxRate || DEFAULT_TAX_RATE,
       remark: editForm.remark?.trim() || undefined
     })
     ElMessage.success('修改成功')
@@ -2466,6 +2501,7 @@ const submitForm = reactive({
   invoiceType: '技术服务费',
   invoiceCategory: 'NORMAL',
   sellerCompany: 'DEFAULT',
+  taxRate: DEFAULT_TAX_RATE as string,
   remark: ''
 })
 
@@ -2624,6 +2660,7 @@ const showSubmitDialog = () => {
   submitForm.invoiceType = '技术服务费'
   submitForm.invoiceCategory = 'NORMAL'
   submitForm.sellerCompany = 'DEFAULT'
+  submitForm.taxRate = DEFAULT_TAX_RATE
   submitForm.remark = ''
   submitPendingIdempotencyKey.value = null
   resetAiParseState()
@@ -2675,6 +2712,7 @@ const handleSubmitInvoice = async () => {
         invoiceType: submitForm.invoiceType,
         invoiceCategory: submitForm.invoiceCategory || 'NORMAL',
         sellerCompany: submitForm.sellerCompany || 'DEFAULT',
+        taxRate: submitForm.taxRate || DEFAULT_TAX_RATE,
         remark: submitForm.remark?.trim() || undefined
       }))
       await invoiceApi.createInvoicesBatch(items, idempotencyKey, true)
@@ -2689,6 +2727,7 @@ const handleSubmitInvoice = async () => {
         invoiceType: submitForm.invoiceType,
         invoiceCategory: submitForm.invoiceCategory || 'NORMAL',
         sellerCompany: submitForm.sellerCompany || 'DEFAULT',
+        taxRate: submitForm.taxRate || DEFAULT_TAX_RATE,
         remark: submitForm.remark?.trim() || undefined
       }, idempotencyKey)
       ElMessage.success('成功以管理员身份提交发票申请，已从用户 [user] 扣除额度')

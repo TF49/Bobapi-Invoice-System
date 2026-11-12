@@ -56,6 +56,11 @@ public class Invoice {
     private String sellerCompany;
 
     /**
+     * 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，6%
+     */
+    private String taxRate;
+
+    /**
      * 实际执行费率：普通普票0.03/专票0.09，科技普票0.04/专票0.10
      */
     private BigDecimal feeRate;

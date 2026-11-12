@@ -1,5 +1,6 @@
 import request from '@/utils/request'
 import type { AxiosResponse } from 'axios'
+import type { TaxRate } from '@/utils/taxRate'
 
 export interface Invoice {
   id: number
@@ -11,6 +12,7 @@ export interface Invoice {
   invoiceType: string
   invoiceCategory?: 'NORMAL' | 'VAT_SPECIAL'
   sellerCompany?: 'DEFAULT' | 'TECH' | string
+  taxRate?: TaxRate | string
   feeRate?: number
   deductedQuota?: number
   remark?: string
@@ -42,6 +44,7 @@ export interface InvoiceRequest {
   invoiceType: string
   invoiceCategory?: string
   sellerCompany?: string
+  taxRate?: TaxRate | string
   remark?: string
 }
 
@@ -55,6 +58,7 @@ export interface BatchInvoiceItemRequest {
   invoiceType: string
   invoiceCategory?: string
   sellerCompany?: string
+  taxRate?: TaxRate | string
   remark?: string
 }
 

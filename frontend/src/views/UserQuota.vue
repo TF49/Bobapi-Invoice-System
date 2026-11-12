@@ -596,8 +596,8 @@
                 <div class="api-sub-tip">
                   <div class="api-sub-tip-title">📎 选填字段与防重说明：</div>
                   <div class="api-sub-tip-desc">
-                    <code class="inline-code">specification</code>（规格型号，≤100 字符）与 <code class="inline-code">unit</code>（单位，如 项/次/套，≤20 字符）均为选填，留空视为未填写；提交后 OpenAPI 不支持修改，填错请在待开票状态下取消后重新提交。
-                    建议同时传 <code class="inline-code">outTradeNo</code> 与 <code class="inline-code">Idempotency-Key</code>（16–64 位）：超时重试时沿用原值不会重复扣额度；若内容（含规格型号、单位）与首次不一致将返回 <code class="inline-code">40902</code>。
+                    <code class="inline-code">specification</code>（规格型号，≤100 字符）与 <code class="inline-code">unit</code>（单位，如 项/次/套，≤20 字符）均为选填，留空视为未填写；<code class="inline-code">taxRate</code>（税率 / 是否免税）可选 <code class="inline-code">EXEMPT</code>（免税，默认）、<code class="inline-code">1%</code>、<code class="inline-code">3%</code>、<code class="inline-code">6%</code>；提交后 OpenAPI 不支持修改，填错请在待开票状态下取消后重新提交。
+                    建议同时传 <code class="inline-code">outTradeNo</code> 与 <code class="inline-code">Idempotency-Key</code>（16–64 位）：超时重试时沿用原值不会重复扣额度；若内容（含规格型号、单位、税率）与首次不一致将返回 <code class="inline-code">40902</code>。
                     两者都不传时每次请求都会新建申请，重试会重复扣额度。
                   </div>
                 </div>
@@ -1145,6 +1145,7 @@ const buildInvoiceResp = (message: string, invoice: InvoiceExample) => {
     "invoiceType": "技术服务费",
     "invoiceCategory": "${invoice.invoiceCategory}",
     "sellerCompany": "DEFAULT",
+    "taxRate": "EXEMPT",
     "feeRate": ${invoice.feeRate},
     "deductedQuota": ${invoice.deductedQuota},
     "remark": "${invoice.remark}",
@@ -1194,6 +1195,7 @@ const snippetSubmitReq = computed(() => {
     "invoiceType": "技术服务费",
     "invoiceCategory": "${isSpecial ? 'VAT_SPECIAL' : 'NORMAL'}",
     "sellerCompany": "DEFAULT",
+    "taxRate": "EXEMPT",
     "remark": "${isSpecial ? '外部系统自动化推单(专票3倍扣额)' : '外部系统自动化推单'}"
   }'`
 })

@@ -86,7 +86,7 @@ class OpenInvoiceControllerTest {
                 eq(10L), eq("OUT_20260828001"), any(), eq("测试客户科技公司"),
                 eq("91110000MA00000000"), eq(new BigDecimal("500.00")),
                 eq("技术服务费"), eq("NORMAL"), eq("DEFAULT"), eq("自动化推单"),
-                eq("标准版"), eq("项")
+                eq("标准版"), eq("项"), eq("3%")
         )).thenReturn(response);
 
         String json = """
@@ -98,6 +98,7 @@ class OpenInvoiceControllerTest {
                     "unit": "项",
                     "amount": 500.00,
                     "invoiceType": "技术服务费",
+                    "taxRate": "3%",
                     "remark": "自动化推单"
                 }
                 """;
@@ -129,7 +130,7 @@ class OpenInvoiceControllerTest {
         when(invoiceService.createOpenInvoice(
                 eq(10L), eq("OUT_20260828003"), any(), eq("测试客户科技公司"),
                 any(), eq(new BigDecimal("1888.88")),
-                any(), any(), any(), any(), any(), any()
+                any(), any(), any(), any(), any(), any(), any()
         )).thenReturn(response);
 
         String json = """
@@ -174,7 +175,7 @@ class OpenInvoiceControllerTest {
 
     @Test
     void rejectsWhenQuotaInsufficient() throws Exception {
-        when(invoiceService.createOpenInvoice(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(invoiceService.createOpenInvoice(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenThrow(new BusinessException(HttpStatus.BAD_REQUEST, 40002, "额度不足，当前余额：100，需要：500"));
 
         String json = """

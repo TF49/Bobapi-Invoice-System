@@ -169,7 +169,7 @@ stateDiagram-v2
   - 发票创建接口推荐传递。若未传，系统将自动使用 `open_<outTradeNo>` 作为幂等键兜底。
   - ⚠️ **`Idempotency-Key` 与 `outTradeNo` 都不传时，系统为每次请求生成随机幂等键，此时请求不具备任何防重能力**：超时后重试会创建新的申请并再次扣减额度。生产环境请至少传入其中之一。
   - 批量接口未传 `Idempotency-Key` 时同样会生成随机键，整批重试会重复建单，建议每个批次固定一个幂等键。
-- **重复请求的内容比对**：命中已有记录（相同 `outTradeNo` 或相同幂等键）时，系统会比对以下字段：`companyName`、`taxNumber`、`specification`、`unit`、`amount`、`invoiceType`、`invoiceCategory`、`sellerCompany`。全部一致则直接返回首次创建的记录（不重复扣费）；任一字段不一致则返回 `40902`。`remark` 不参与比对。
+- **重复请求的内容比对**：命中已有记录（相同 `outTradeNo` 或相同幂等键）时，系统会比对以下字段：`companyName`、`taxNumber`、`specification`、`unit`、`amount`、`invoiceType`、`invoiceCategory`、`sellerCompany`、`taxRate`。全部一致则直接返回首次创建的记录（不重复扣费）；任一字段不一致则返回 `40902`。`remark` 不参与比对。
 - **冲突判断与错误码**：
   - **内容被篡改**：同一商户使用相同的幂等键提交了不同的请求内容（金额、公司名称等不一致），系统抛出 HTTP `409 Conflict`（业务 Code: `40902` 发票，`40903` 盖章）。
   - **并发到达**：毫秒级同时到达的同幂等键并发请求，系统利用唯一索引排他防护，后到达的请求返回 `409`（业务 Code: `40904`），调用方稍候查询即可。
@@ -358,6 +358,7 @@ stateDiagram-v2
 | `invoiceType`| String | 否 | `技术服务费` | 开票类型。**严格白名单校验**，仅支持：<br>• `技术服务费`<br>• `AI订阅服务费`<br>• `计算服务费`<br>• `研发和技术服务`<br>• `信息系统服务`<br>• `AI算力` |
 | `invoiceCategory`| String | 否 | `NORMAL` | 发票票种：<br>• `NORMAL`：普通发票（普票）<br>• `VAT_SPECIAL`：增值税专用发票（专票）<br>*(支持中文别名“普票/普通发票”、“专票/专用发票”)* |
 | `sellerCompany` | String | 否 | `DEFAULT` | 出票主体公司：<br>• `DEFAULT`：普通公司（默认，普票1倍/专票3倍额度）<br>• `TECH`：科技公司（普票4/3倍/专票10/3倍额度）<br>*(支持中文别名“普通公司”、“科技公司”)* |
+| `taxRate`    | String | 否 | `EXEMPT` | 税率 / 是否免税（下拉选项）：<br>• `EXEMPT`：免税（默认）<br>• `1%`<br>• `3%`<br>• `6%`<br>*(支持别名“免税”、`1`/`0.01`、`3`/`0.03`、`6`/`0.06`；其他值返回 `40003`；税率不影响额度扣除)* |
 | `remark`     | String | 否 | 无 | 发票备注信息，最大 500 字符 |
 
 **请求体示例**：
@@ -372,6 +373,7 @@ stateDiagram-v2
   "invoiceType": "技术服务费",
   "invoiceCategory": "NORMAL",
   "sellerCompany": "DEFAULT",
+  "taxRate": "EXEMPT",
   "remark": "项目一期开发技术服务费"
 }
 ```
@@ -392,6 +394,7 @@ stateDiagram-v2
     "invoiceType": "技术服务费",
     "invoiceCategory": "NORMAL",
     "sellerCompany": "DEFAULT",
+    "taxRate": "EXEMPT",
     "feeRate": 0.0300,
     "deductedQuota": 1000.00,
     "remark": "项目一期开发技术服务费",
@@ -441,6 +444,7 @@ stateDiagram-v2
 - `invoiceType`（String，可选，默认 `技术服务费`）：开票类型白名单。
 - `invoiceCategory`（String，可选，默认 `NORMAL`）：`NORMAL` 普票 / `VAT_SPECIAL` 专票。
 - `sellerCompany`（String，可选，默认 `DEFAULT`）：`DEFAULT` 普通公司 / `TECH` 科技公司。
+- `taxRate`（String，可选，默认 `EXEMPT`）：税率 / 是否免税，`EXEMPT` 免税 / `1%` / `3%` / `6%`。
 - `remark`（String，可选）：备注（$\le 500$ 字符）。
 
 > 批量明细**不支持 `outTradeNo`**。请保存成功响应中每行的 `items[].invoiceId`，后续通过「按内部 ID」系列接口（5.2.3 / 5.2.5 / 5.2.7）查询、取消与下载。
@@ -546,6 +550,7 @@ stateDiagram-v2
     "invoiceType": "技术服务费",
     "invoiceCategory": "NORMAL",
     "sellerCompany": "DEFAULT",
+    "taxRate": "EXEMPT",
     "feeRate": 0.0300,
     "deductedQuota": 1000.00,
     "remark": "项目一期开发技术服务费",
@@ -570,6 +575,7 @@ stateDiagram-v2
 | 字段 | 说明 |
 | :--- | :--- |
 | `specification` / `unit` | 规格型号 / 单位，提交时未填写则为 `null` |
+| `taxRate` | 税率 / 是否免税：`EXEMPT` 免税（默认）/ `1%` / `3%` / `6%`；历史记录统一返回 `EXEMPT` |
 | `feeRate` | 本单执行费率（由 `sellerCompany` + `invoiceCategory` 决定） |
 | `deductedQuota` | 本单实际扣除的额度，取消时按此金额原路退还 |
 | `status` | `PENDING` 待开票 / `COMPLETED` 已开票 / `CANCELLED` 已取消 |
@@ -611,6 +617,7 @@ stateDiagram-v2
     "amount": 1000.00,
     "invoiceCategory": "NORMAL",
     "sellerCompany": "DEFAULT",
+    "taxRate": "EXEMPT",
     "deductedQuota": 1000.00,
     "status": "CANCELLED",
     "downloadable": false,
@@ -884,6 +891,7 @@ class BobapiClient:
                        invoice_type: str = "技术服务费",
                        invoice_category: str = "NORMAL",
                        seller_company: str = "DEFAULT",
+                       tax_rate: str = "EXEMPT",
                        remark: Optional[str] = None) -> dict:
         payload = {
             "outTradeNo": out_trade_no,
@@ -895,6 +903,7 @@ class BobapiClient:
             "invoiceType": invoice_type,
             "invoiceCategory": invoice_category,
             "sellerCompany": seller_company,
+            "taxRate": tax_rate,             # 税率：EXEMPT 免税（默认）/ 1% / 3% / 6%
             "remark": remark,
         }
         payload = {k: v for k, v in payload.items() if v is not None}
@@ -1410,6 +1419,7 @@ async function main() {
     invoiceType: '技术服务费',
     invoiceCategory: 'NORMAL',
     sellerCompany: 'DEFAULT',
+    taxRate: 'EXEMPT',         // 税率：EXEMPT 免税（默认）/ 1% / 3% / 6%
     remark: 'API 对接测试发票',
   });
   console.log(`申请成功: id=${invoice.id}, 扣除额度=${invoice.deductedQuota}`);
@@ -1579,7 +1589,7 @@ curl --fail -o sealed_56.pdf "$BASE/documents/56/download" -H "X-API-KEY: $KEY"
 - 服务端对请求字段做严格校验，请对照 5.2.1 / 5.2.2 的字段表逐一核对字段名（区分大小写）。
 
 ### Q8: 重试提交时提示 `40902 Idempotency-Key 已用于其他发票申请`？
-- 相同 `outTradeNo` 或相同 `Idempotency-Key` 已存在一笔申请，但本次请求的内容与首次不一致。比对字段包括 `companyName`、`taxNumber`、`specification`、`unit`、`amount`、`invoiceType`、`invoiceCategory`、`sellerCompany`。
+- 相同 `outTradeNo` 或相同 `Idempotency-Key` 已存在一笔申请，但本次请求的内容与首次不一致。比对字段包括 `companyName`、`taxNumber`、`specification`、`unit`、`amount`、`invoiceType`、`invoiceCategory`、`sellerCompany`、`taxRate`。
 - 如果是网络重试，请确保重试报文与首次完全一致；如果确实是一笔新申请，请使用新的 `outTradeNo` 与新的幂等键。
 
 ### Q9: 规格型号 / 单位填错了，能通过接口修改吗？

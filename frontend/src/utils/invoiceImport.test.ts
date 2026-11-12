@@ -6,6 +6,7 @@ import {
   findDuplicateRows,
   normalizeAmount,
   normalizeInvoiceCategory,
+  normalizeTaxRate,
   parseInvoiceFile,
   validateAllRows,
   validateRow,
@@ -20,6 +21,28 @@ const row = (overrides: Partial<ParsedInvoiceRow> = {}): ParsedInvoiceRow => ({
   invoiceType: '技术服务费',
   remark: '',
   ...overrides
+})
+
+describe('invoice tax rate import', () => {
+  it('parses the optional 税率 column and defaults to 免税', async () => {
+    const file = new File([
+      '公司名称,税号,开票金额,开票类型,税率\n示例公司A,,100.00,技术服务费,3%\n示例公司B,,200.00,技术服务费,'
+    ], 'invoices.csv', { type: 'text/csv' })
+
+    const result = await parseInvoiceFile(file)
+
+    expect(result.success).toBe(true)
+    expect(result.data.map(item => normalizeTaxRate(item.taxRate))).toEqual(['3%', 'EXEMPT'])
+  })
+
+  it('normalizes aliases and rejects unsupported tax rates', () => {
+    expect(normalizeTaxRate('免税')).toBe('EXEMPT')
+    expect(normalizeTaxRate('0.06')).toBe('6%')
+    expect(normalizeTaxRate('1')).toBe('1%')
+    expect(normalizeTaxRate('13%')).toBeNull()
+    expect(validateRow(row({ taxRate: '13%' }))).toBe('税率必须为免税、1%、3% 或 6%')
+    expect(validateRow(row({ taxRate: '6%' }))).toBeNull()
+  })
 })
 
 describe('invoice batch import validation', () => {

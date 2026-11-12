@@ -1,5 +1,5 @@
 -- 发票管理系统数据库初始化脚本
--- 已整合 Flyway V1-V31 的最终完整数据库结构，适用于全新安装或彻底重置。
+-- 已整合 Flyway V1-V32 的最终完整数据库结构，适用于全新安装或彻底重置。
 -- 警告：执行本脚本会删除 invoice_system 数据库及其中的全部数据。
 -- 推荐部署方式：创建空数据库后直接启动后端，由 Flyway 自动按版本迁移初始化。
 -- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 31。
@@ -80,6 +80,7 @@ CREATE TABLE `invoice` (
     `batch_id` BIGINT DEFAULT NULL COMMENT '批次ID（批量申请时关联）',
     `batch_row_number` INT DEFAULT NULL COMMENT '批次内原始行号（用于审计）',
     `seller_company` VARCHAR(50) NOT NULL DEFAULT 'DEFAULT' COMMENT '出票主体公司：DEFAULT-普通公司，TECH-科技公司',
+    `tax_rate` VARCHAR(10) NOT NULL DEFAULT 'EXEMPT' COMMENT '税率：EXEMPT-免税（默认），1%，3%，6%',
     `fee_rate` DECIMAL(5, 4) NOT NULL DEFAULT 0.0300 COMMENT '实际执行费率：普通普票0.03/专票0.09，科技普票0.04/专票0.10',
     `deducted_quota` DECIMAL(12, 2) NOT NULL DEFAULT 0.00 COMMENT '实际扣除额度（用于发票取消或红冲时精准原样退还）',
     `submission_type` VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN' COMMENT '提交方式：API-API提交，MANUAL-网页手动提交，UNKNOWN-历史无法确认',

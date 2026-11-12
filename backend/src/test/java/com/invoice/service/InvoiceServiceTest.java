@@ -1033,6 +1033,79 @@ class InvoiceServiceTest {
     }
 
     @Test
+    void createInvoiceDefaultsTaxRateToExempt() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(901L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-tax-rate-default", "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "普票备注"
+        );
+
+        assertThat(response.taxRate()).isEqualTo("EXEMPT");
+        // 税率不影响额度扣除
+        verify(userQuotaService).deductQuota(8L, new BigDecimal("100.00"), 901L);
+    }
+
+    @Test
+    void createInvoiceAcceptsTaxRateAndAliases() {
+        when(invoiceMapper.selectOne(any())).thenReturn(null);
+        doAnswer(invocation -> {
+            Invoice inv = invocation.getArgument(0);
+            inv.setId(902L);
+            return 1;
+        }).when(invoiceMapper).insert(any(Invoice.class));
+
+        InvoiceResponse response = service.createInvoice(
+                8L, "key-tax-rate-6", "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "DEFAULT", null,
+                null, null, "0.06"
+        );
+
+        assertThat(response.taxRate()).isEqualTo("6%");
+        assertThat(service.normalizeTaxRate("免税")).isEqualTo("EXEMPT");
+        assertThat(service.normalizeTaxRate("1")).isEqualTo("1%");
+        assertThat(service.normalizeTaxRate(" 3％ ")).isEqualTo("3%");
+    }
+
+    @Test
+    void createInvoiceRejectsUnsupportedTaxRate() {
+        assertThatThrownBy(() -> service.createInvoice(
+                8L, "key-tax-rate-bad", "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "DEFAULT", null,
+                null, null, "13%"
+        )).isInstanceOfSatisfying(BusinessException.class, ex -> {
+            assertThat(ex.getCode()).isEqualTo(40003);
+            assertThat(ex.getMessage()).contains("税率");
+        });
+        verify(invoiceMapper, never()).insert(any(Invoice.class));
+    }
+
+    @Test
+    void repeatedRequestWithDifferentTaxRateConflicts() {
+        Invoice existing = invoice(903L, 8L, "PENDING");
+        existing.setCompanyName("测试公司");
+        existing.setTaxNumber("91110000MA00000001");
+        existing.setAmount(new BigDecimal("100.00"));
+        existing.setInvoiceType("技术服务费");
+        existing.setInvoiceCategory("NORMAL");
+        existing.setSellerCompany("DEFAULT");
+        existing.setTaxRate("EXEMPT");
+        when(invoiceMapper.selectOne(any())).thenReturn(existing);
+
+        assertThatThrownBy(() -> service.createInvoice(
+                8L, "key-tax-rate-repeat", "测试公司", "91110000MA00000001",
+                new BigDecimal("100.00"), "技术服务费", "NORMAL", "DEFAULT", null,
+                null, null, "1%"
+        )).isInstanceOfSatisfying(BusinessException.class,
+                ex -> assertThat(ex.getCode()).isEqualTo(40902));
+    }
+
+    @Test
     void specialVatInvoiceDeducts3xQuota() {
         when(invoiceMapper.selectOne(any())).thenReturn(null);
         doAnswer(invocation -> {

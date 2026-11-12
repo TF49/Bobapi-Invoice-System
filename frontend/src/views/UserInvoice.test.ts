@@ -138,6 +138,7 @@ describe('UserInvoice', () => {
         invoiceType: '技术服务费',
         invoiceCategory: 'NORMAL',
         sellerCompany: 'DEFAULT',
+        taxRate: 'EXEMPT',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
@@ -174,6 +175,7 @@ describe('UserInvoice', () => {
         invoiceType: '技术服务费',
         invoiceCategory: 'NORMAL',
         sellerCompany: 'DEFAULT',
+        taxRate: 'EXEMPT',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)
@@ -997,6 +999,7 @@ describe('UserInvoice', () => {
           invoiceType: '技术服务费',
           invoiceCategory: 'NORMAL',
           sellerCompany: 'DEFAULT',
+          taxRate: 'EXEMPT',
           remark: undefined
         },
         {
@@ -1007,6 +1010,7 @@ describe('UserInvoice', () => {
           invoiceType: '技术服务费',
           invoiceCategory: 'NORMAL',
           sellerCompany: 'DEFAULT',
+          taxRate: 'EXEMPT',
           remark: undefined
         },
         {
@@ -1017,6 +1021,7 @@ describe('UserInvoice', () => {
           invoiceType: '技术服务费',
           invoiceCategory: 'NORMAL',
           sellerCompany: 'DEFAULT',
+          taxRate: 'EXEMPT',
           remark: undefined
         }
       ],
@@ -1087,6 +1092,7 @@ describe('UserInvoice', () => {
         invoiceType: '技术服务费',
         invoiceCategory: 'NORMAL',
         sellerCompany: 'TECH',
+        taxRate: 'EXEMPT',
         remark: undefined
       },
       expect.stringMatching(/^invoice-[a-z0-9]+-[a-z0-9]+$/)

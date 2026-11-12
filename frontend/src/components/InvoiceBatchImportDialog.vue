@@ -93,6 +93,11 @@
               <span>{{ row.unit || '-' }}</span>
             </template>
           </el-table-column>
+          <el-table-column prop="taxRate" label="税率" width="70" align="center">
+            <template #default="{ row }">
+              <span>{{ formatTaxRate(normalizeTaxRate(row.taxRate) ?? row.taxRate) }}</span>
+            </template>
+          </el-table-column>
           <el-table-column prop="amount" label="开票金额" width="110" />
           <el-table-column label="出票主体" width="105" align="center">
             <template #default>
@@ -239,10 +244,12 @@ import {
   findDuplicateRows,
   normalizeAmount,
   normalizeInvoiceCategory,
+  normalizeTaxRate,
   downloadTemplate as downloadTemplateUtil,
   type ParsedInvoiceRow
 } from '../utils/invoiceImport';
 import { invoiceApi, type BatchInvoiceRowError } from '../api/invoice';
+import { formatTaxRate } from '../utils/taxRate';
 import { ApiRequestError } from '../utils/request';
 
 const visible = defineModel<boolean>({ required: true });
@@ -368,6 +375,7 @@ const handleSubmit = async () => {
       invoiceType: row.invoiceType.trim(),
       invoiceCategory: normalizeInvoiceCategory(row.invoiceCategory),
       sellerCompany: batchSellerCompany.value,
+      taxRate: normalizeTaxRate(row.taxRate) ?? row.taxRate,
       remark: row.remark?.trim() || undefined
     }));
 

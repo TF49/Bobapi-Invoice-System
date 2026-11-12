@@ -4,6 +4,7 @@
  */
 
 import * as XLSX from 'xlsx';
+import { normalizeTaxRate } from './taxRate';
 
 export const FIXED_INVOICE_TYPE = '技术服务费';
 export const ALLOWED_INVOICE_TYPES = ['技术服务费', 'AI订阅服务费', '计算服务费', '研发和技术服务', '信息系统服务', 'AI算力'] as const;
@@ -18,6 +19,7 @@ export interface ParsedInvoiceRow {
   remark: string;          // 备注（可选）
   specification?: string;  // 规格型号（可选）
   unit?: string;           // 单位（可选）
+  taxRate?: string;        // 税率 / 是否免税（可选：免税/1%/3%/6%，默认免税）
   error?: string;          // 错误信息
 }
 
@@ -36,11 +38,12 @@ const HEADERS = {
   INVOICE_CATEGORY: '发票票种',
   REMARK: '备注',
   SPECIFICATION: '规格型号',
-  UNIT: '单位'
+  UNIT: '单位',
+  TAX_RATE: '税率'
 };
 
 // 第 5 列起的可选列：按表头名称识别，顺序任意，不可重复
-const OPTIONAL_HEADERS = [HEADERS.INVOICE_CATEGORY, HEADERS.REMARK, HEADERS.SPECIFICATION, HEADERS.UNIT];
+const OPTIONAL_HEADERS = [HEADERS.INVOICE_CATEGORY, HEADERS.REMARK, HEADERS.SPECIFICATION, HEADERS.UNIT, HEADERS.TAX_RATE];
 
 export const MAX_SPECIFICATION_LENGTH = 100;
 export const MAX_UNIT_LENGTH = 20;
@@ -55,6 +58,11 @@ export function normalizeInvoiceCategory(value?: string): 'NORMAL' | 'VAT_SPECIA
   }
   return 'NORMAL';
 }
+
+/**
+ * 标准化税率（实现见 ./taxRate，此处重新导出以兼容导入工具调用方）
+ */
+export { normalizeTaxRate };
 
 /**
  * 解析发票导入文件
@@ -252,6 +260,7 @@ function processSheetData(data: any[][]): ParseResult {
     const remark = optionalCell(HEADERS.REMARK);
     const specification = optionalCell(HEADERS.SPECIFICATION);
     const unit = optionalCell(HEADERS.UNIT);
+    const taxRate = optionalCell(HEADERS.TAX_RATE);
 
     rows.push({
       rowNumber,
@@ -262,7 +271,8 @@ function processSheetData(data: any[][]): ParseResult {
       invoiceCategory,
       remark,
       specification,
-      unit
+      unit,
+      taxRate
     });
   }
 
@@ -349,6 +359,11 @@ export function validateRow(row: ParsedInvoiceRow): string | null {
     }
   }
 
+  // 税率校验（选填，默认免税）
+  if (normalizeTaxRate(row.taxRate) === null) {
+    return '税率必须为免税、1%、3% 或 6%';
+  }
+
   // 备注校验（可选）
   if (row.remark && row.remark.length > 500) {
     return '备注不能超过 500 个字符';
@@ -404,7 +419,8 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
     const normalizedAmount = normalizeAmount(row.amount) || row.amount.trim();
     const normalizedTaxNumber = row.taxNumber ? row.taxNumber.trim().toUpperCase() : '';
     const normalizedCategory = normalizeInvoiceCategory(row.invoiceCategory);
-    const key = `${row.companyName.trim()}|${normalizedTaxNumber}|${row.specification?.trim() ?? ''}|${row.unit?.trim() ?? ''}|${normalizedAmount}|${row.invoiceType.trim()}|${normalizedCategory}`;
+    const normalizedTaxRate = normalizeTaxRate(row.taxRate) ?? '';
+    const key = `${row.companyName.trim()}|${normalizedTaxNumber}|${row.specification?.trim() ?? ''}|${row.unit?.trim() ?? ''}|${normalizedAmount}|${row.invoiceType.trim()}|${normalizedCategory}|${normalizedTaxRate}`;
     if (seen.has(key)) {
       duplicates.push(row.rowNumber);
     } else {
@@ -419,7 +435,7 @@ export function findDuplicateRows(rows: ParsedInvoiceRow[]): number[] {
  * 生成标准导入模板（CSV 格式）
  */
 export function generateTemplate(): string {
-  const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE, HEADERS.INVOICE_CATEGORY, HEADERS.REMARK, HEADERS.SPECIFICATION, HEADERS.UNIT];
+  const headers = [HEADERS.COMPANY_NAME, HEADERS.TAX_NUMBER, HEADERS.AMOUNT, HEADERS.INVOICE_TYPE, HEADERS.INVOICE_CATEGORY, HEADERS.REMARK, HEADERS.SPECIFICATION, HEADERS.UNIT, HEADERS.TAX_RATE];
   const sampleDataRow1 = [
     '示例公司A',
     '91500123456789012A',
@@ -428,7 +444,8 @@ export function generateTemplate(): string {
     '普票',
     '技术服务费普票申请示例',
     '标准版',
-    '项'
+    '项',
+    '免税'
   ];
   const sampleDataRow2 = [
     '示例公司B',
@@ -438,7 +455,8 @@ export function generateTemplate(): string {
     '专票',
     'AI订阅服务费专票申请示例（按3倍扣除额度）',
     '',
-    ''
+    '',
+    '6%'
   ];
   const sampleDataRow3 = [
     '示例公司C',
@@ -448,7 +466,8 @@ export function generateTemplate(): string {
     '普票',
     '计算服务费开票申请示例',
     '',
-    '次'
+    '次',
+    '1%'
   ];
   const sampleDataRow4 = [
     '示例公司D',
@@ -458,7 +477,8 @@ export function generateTemplate(): string {
     '普票',
     '研发和技术服务开票申请示例',
     '企业版',
-    '套'
+    '套',
+    '3%'
   ];
   const sampleDataRow5 = [
     '示例公司E',
@@ -468,7 +488,8 @@ export function generateTemplate(): string {
     '普票',
     '信息系统服务开票申请示例',
     '',
-    '项'
+    '项',
+    '免税'
   ];
   const sampleDataRow6 = [
     '示例公司F',
@@ -478,7 +499,8 @@ export function generateTemplate(): string {
     '普票',
     'AI算力开票申请示例',
     '',
-    '项'
+    '项',
+    '免税'
   ];
 
   return [

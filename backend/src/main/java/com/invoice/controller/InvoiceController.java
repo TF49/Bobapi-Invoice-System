@@ -87,12 +87,12 @@ public class InvoiceController {
                         principal.userId(), principal.role(), idempotencyKey, request.getCompanyName(),
                         request.getTaxNumber(), request.getAmount(),
                         request.getInvoiceType(), request.getInvoiceCategory(), request.getSellerCompany(), request.getRemark(),
-                        request.getSpecification(), request.getUnit())
+                        request.getSpecification(), request.getUnit(), request.getTaxRate())
                 : invoiceService.createInvoice(
                         principal.userId(), idempotencyKey, request.getCompanyName(),
                         request.getTaxNumber(), request.getAmount(),
                         request.getInvoiceType(), request.getInvoiceCategory(), request.getSellerCompany(), request.getRemark(),
-                        request.getSpecification(), request.getUnit());
+                        request.getSpecification(), request.getUnit(), request.getTaxRate());
         return ApiResponse.success("申请成功", invoice);
     }
 
@@ -166,7 +166,8 @@ public class InvoiceController {
                 request.getRemark(),
                 principal.userId(),
                 request.getSpecification(),
-                request.getUnit());
+                request.getUnit(),
+                request.getTaxRate());
         return ApiResponse.success("修改成功", invoice);
     }
 
