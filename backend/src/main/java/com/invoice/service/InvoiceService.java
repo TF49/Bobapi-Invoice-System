@@ -9,7 +9,9 @@ import com.invoice.dto.BatchInvoiceRowError;
 import com.invoice.dto.InvoiceResponse;
 import com.invoice.entity.Invoice;
 import com.invoice.entity.InvoiceBatch;
+import com.invoice.entity.InvoiceEvent;
 import com.invoice.entity.User;
+import com.invoice.entity.UserQuotaTransaction;
 import com.invoice.exception.BatchValidationException;
 import com.invoice.exception.BusinessException;
 import com.invoice.mapper.InvoiceBatchMapper;
@@ -94,6 +96,12 @@ public class InvoiceService {
     private final UserQuotaTransactionMapper userQuotaTransactionMapper;
     private final SupplierSettlementMapper supplierSettlementMapper;
     private final Path uploadRoot;
+    private InvoiceEventService invoiceEventService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setInvoiceEventService(InvoiceEventService invoiceEventService) {
+        this.invoiceEventService = invoiceEventService;
+    }
 
     @Value("${file.image.max-width:8000}")
     private int maxImageWidth = 8000;
@@ -281,24 +289,27 @@ public class InvoiceService {
         try {
             invoiceMapper.insert(invoice);
             // 插入发票成功后扣除额度并关联发票ID（在流水中明确标注主体与费率）
+            UserQuotaTransaction deductTx;
             if (isAdmin) {
                 String deductRemark = "TECH".equals(normalizedSellerCompany)
                         ? ("VAT_SPECIAL".equals(normalizedInvoiceCategory) ? "开票扣除 (管理员代提交, 科技公司专票10%费率)" : "开票扣除 (管理员代提交, 科技公司普票4%费率)")
                         : ("VAT_SPECIAL".equals(normalizedInvoiceCategory) ? "开票扣除 (管理员代提交, 专票3倍额度)" : "开票扣除 (管理员代提交)");
-                userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), deductRemark,
+                deductTx = userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), deductRemark,
                         operatorUserId, "ADMIN");
             } else {
                 if ("TECH".equals(normalizedSellerCompany)) {
                     String deductRemark = "VAT_SPECIAL".equals(normalizedInvoiceCategory)
                             ? "开票扣除 (科技公司专票, 费率10%)"
                             : "开票扣除 (科技公司普票, 费率4%)";
-                    userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), deductRemark);
+                    deductTx = userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), deductRemark);
                 } else if ("VAT_SPECIAL".equals(normalizedInvoiceCategory)) {
-                    userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
+                    deductTx = userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
                 } else {
-                    userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId());
+                    deductTx = userQuotaService.deductQuota(effectiveUserId, deductAmount, invoice.getId());
                 }
             }
+            recordSubmission(invoice, isAdmin ? "ADMIN" : "USER", operatorUserId,
+                    isAdmin ? "管理员代提交" : "网页提交", deductAmount, deductTx);
             return InvoiceResponse.from(invoice);
         } catch (DuplicateKeyException exception) {
             Invoice concurrentlyCreated = findByIdempotencyKey(effectiveUserId, idempotencyKey);
@@ -421,16 +432,20 @@ public class InvoiceService {
         try {
             invoiceMapper.insert(invoice);
             // 插入发票成功后扣除额度并关联发票ID（在流水中明确标注主体与费率）
+            UserQuotaTransaction deductTx;
             if ("TECH".equals(normalizedSellerCompany)) {
                 String deductRemark = "VAT_SPECIAL".equals(normalizedInvoiceCategory)
                         ? "API开票扣除 (科技公司专票, 费率10%)"
                         : "API开票扣除 (科技公司普票, 费率4%)";
-                userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), deductRemark);
+                deductTx = userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), deductRemark);
             } else if ("VAT_SPECIAL".equals(normalizedInvoiceCategory)) {
-                userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
+                deductTx = userQuotaService.deductQuota(userId, deductAmount, invoice.getId(), "开票扣除 (专票3倍额度)");
             } else {
-                userQuotaService.deductQuota(userId, deductAmount, invoice.getId());
+                deductTx = userQuotaService.deductQuota(userId, deductAmount, invoice.getId());
             }
+            recordSubmission(invoice, "API", userId,
+                    normalizedOutTradeNo != null ? "OpenAPI 提交（商户单号 " + normalizedOutTradeNo + "）" : "OpenAPI 提交",
+                    deductAmount, deductTx);
             return com.invoice.dto.OpenInvoiceResponse.from(invoice, uploadRoot);
         } catch (DuplicateKeyException exception) {
             if (normalizedOutTradeNo != null) {
@@ -468,7 +483,7 @@ public class InvoiceService {
 
     @Transactional
     public com.invoice.dto.OpenInvoiceResponse cancelOpenInvoice(Long userId, Long invoiceId) {
-        cancelInvoice(invoiceId, userId, false);
+        cancelInvoice(invoiceId, userId, false, "API");
         Invoice cancelled = requireInvoice(invoiceId);
         return com.invoice.dto.OpenInvoiceResponse.from(cancelled, uploadRoot);
     }
@@ -833,6 +848,7 @@ public class InvoiceService {
             return invoice;
         }).toList();
 
+        List<Invoice> createdInvoices;
         try {
             if (invoiceMapper.insertBatch(invoices) != invoices.size()) {
                 throw new IllegalStateException("批量写入数量不一致");
@@ -841,12 +857,18 @@ public class InvoiceService {
             BigDecimal totalDeductAmount = normalizedItems.stream()
                     .map(NormalizedBatchItem::deductAmount)
                     .reduce(BigDecimal.ZERO.setScale(2), BigDecimal::add);
+            UserQuotaTransaction batchTx;
             if (isAdmin) {
-                userQuotaService.deductBatchQuota(effectiveUserId, totalDeductAmount, batch.getId(),
+                batchTx = userQuotaService.deductBatchQuota(effectiveUserId, totalDeductAmount, batch.getId(),
                         operatorUserId, "ADMIN");
             } else {
-                userQuotaService.deductBatchQuota(effectiveUserId, totalDeductAmount, batch.getId());
+                batchTx = userQuotaService.deductBatchQuota(effectiveUserId, totalDeductAmount, batch.getId());
             }
+            createdInvoices = invoiceMapper.selectByBatchId(batch.getId());
+            String batchOperatorType = isAdmin ? "ADMIN" : ("API".equals(normalizedSubmissionType) ? "API" : "USER");
+            String batchSource = isAdmin ? "管理员代批量提交" : ("API".equals(normalizedSubmissionType) ? "OpenAPI 批量提交" : "批量提交");
+            recordBatchSubmission(createdInvoices, batch, batchOperatorType, operatorUserId, batchSource,
+                    batchTx, totalDeductAmount);
         } catch (BusinessException exception) {
             throw exception;
         } catch (RuntimeException exception) {
@@ -854,7 +876,7 @@ public class InvoiceService {
                     "批量创建失败，已回滚所有记录");
         }
 
-        return buildBatchResponse(batch, invoiceMapper.selectByBatchId(batch.getId()));
+        return buildBatchResponse(batch, createdInvoices);
     }
 
     private InvoiceBatch findBatchByIdempotencyKey(Long userId, String idempotencyKey) {
@@ -1278,13 +1300,20 @@ public class InvoiceService {
                 : calculateDeductAmount(invoice.getAmount(), existingCategory, existingSeller);
         BigDecimal newDeductAmount = calculateDeductAmount(normalizedAmount, normalizedInvoiceCategory, normalizedSellerCompany);
         BigDecimal newFeeRate = calculateFeeRate(normalizedInvoiceCategory, normalizedSellerCompany);
+        List<String> changes = describeAdminChanges(invoice, normalizedCompanyName, normalizedTaxNumber,
+                normalizedAmount, normalizedInvoiceType, existingCategory, normalizedInvoiceCategory,
+                existingSeller, normalizedSellerCompany, existingTaxRate, normalizedTaxRate,
+                normalizedSpecification, normalizedUnit, remark == null ? null : remark.trim());
+        UserQuotaTransaction adjustTx = null;
+        BigDecimal quotaDiff = BigDecimal.ZERO;
         if (oldDeductAmount.compareTo(newDeductAmount) != 0) {
             log.info("[Admin] Invoice #{} deduct amount changed: {} -> {} (userId={})",
                     invoiceId, oldDeductAmount.toPlainString(),
                     newDeductAmount.toPlainString(), invoice.getUserId());
 
             BigDecimal diff = newDeductAmount.subtract(oldDeductAmount);
-            userQuotaService.adjustQuotaForInvoiceAmountChange(
+            quotaDiff = diff;
+            adjustTx = userQuotaService.adjustQuotaForInvoiceAmountChange(
                     invoice.getUserId(), diff, invoiceId, operatorId);
         }
 
@@ -1307,6 +1336,17 @@ public class InvoiceService {
         invoiceMapper.update(null, update);
 
         Invoice updated = requireInvoice(invoiceId);
+        if (!changes.isEmpty() || quotaDiff.signum() != 0) {
+            String quotaNote = quotaDiff.signum() > 0
+                    ? "补扣额度 ¥" + quotaDiff.toPlainString()
+                    : (quotaDiff.signum() < 0 ? "退还额度 ¥" + quotaDiff.abs().toPlainString() : null);
+            List<String> parts = new ArrayList<>(changes);
+            if (quotaNote != null) {
+                parts.add(quotaNote);
+            }
+            recordEvent(updated, InvoiceEvent.ADMIN_UPDATED, "ADMIN", operatorId,
+                    quotaDiff.signum() != 0 ? quotaDiff.negate() : null, adjustTx, String.join("；", parts));
+        }
         User user = userMapper.selectById(updated.getUserId());
         String username = user != null ? user.getUsername() : null;
         log.info("[Admin] Invoice #{} updated successfully (userId={})", invoiceId, invoice.getUserId());
@@ -1372,6 +1412,14 @@ public class InvoiceService {
      */
     @Transactional
     public InvoiceResponse cancelInvoice(Long invoiceId, Long userId, boolean isAdmin) {
+        return cancelInvoice(invoiceId, userId, isAdmin, "USER");
+    }
+
+    /**
+     * @param channel 非管理员取消时的操作来源：USER（网页）或 API（OpenAPI），用于发票流转记录
+     */
+    @Transactional
+    public InvoiceResponse cancelInvoice(Long invoiceId, Long userId, boolean isAdmin, String channel) {
         Invoice invoice = requireInvoice(invoiceId);
         
         // 验证权限：非管理员只能取消自己的发票
@@ -1401,7 +1449,9 @@ public class InvoiceService {
         BigDecimal cancelRefundAmount = invoice.getDeductedQuota() != null && invoice.getDeductedQuota().compareTo(BigDecimal.ZERO) > 0
                 ? invoice.getDeductedQuota()
                 : calculateDeductAmount(invoice.getAmount(), invoice.getInvoiceCategory(), invoice.getSellerCompany());
-        userQuotaService.refundQuota(invoice.getUserId(), cancelRefundAmount, invoiceId, "取消发票申请");
+        UserQuotaTransaction cancelTx = userQuotaService.refundQuota(invoice.getUserId(), cancelRefundAmount, invoiceId, "取消发票申请");
+        recordEvent(invoice, InvoiceEvent.CANCELLED, isAdmin ? "ADMIN" : channel, userId,
+                cancelRefundAmount, cancelTx, isAdmin ? "管理员取消申请，退还额度" : "取消申请，退还额度");
         
         log.info("[Invoice] Invoice #{} cancelled by user {} (owner={}, amount={})",
                 invoiceId, userId, invoice.getUserId(), invoice.getAmount());
@@ -1470,6 +1520,8 @@ public class InvoiceService {
         }
 
         log.info("[Invoice] Invoice #{} applied red flush by user {} (reason: {})", invoiceId, userId, trimmedReason);
+        recordEvent(invoice, InvoiceEvent.RED_FLUSH_APPLIED, "USER", userId, null, null,
+                ("REJECTED".equals(currentRedFlushStatus) ? "再次申请红冲，原因：" : "申请红冲，原因：") + trimmedReason);
 
         Invoice updatedInvoice = requireInvoice(invoiceId);
         User user = userMapper.selectById(updatedInvoice.getUserId());
@@ -1531,7 +1583,10 @@ public class InvoiceService {
                 ? invoice.getDeductedQuota()
                 : calculateDeductAmount(invoice.getAmount(), invoice.getInvoiceCategory(), invoice.getSellerCompany());
         String refundRemark = "发票红冲退还额度" + (StringUtils.hasText(trimmedRemark) ? " (" + trimmedRemark + ")" : "");
-        userQuotaService.refundQuota(invoice.getUserId(), flushRefundAmount, invoiceId, refundRemark, operatorId, "ADMIN");
+        UserQuotaTransaction flushTx = userQuotaService.refundQuota(invoice.getUserId(), flushRefundAmount, invoiceId, refundRemark, operatorId, "ADMIN");
+        String confirmDetail = ("PENDING".equals(currentRedFlushStatus) ? "确认红冲申请" : "管理员主动红冲")
+                + "，退还额度" + (StringUtils.hasText(trimmedRemark) ? "，备注：" + trimmedRemark : "");
+        recordEvent(invoice, InvoiceEvent.RED_FLUSH_CONFIRMED, "ADMIN", operatorId, flushRefundAmount, flushTx, confirmDetail);
 
         log.info("[Invoice] Invoice #{} red flush confirmed by operator {} (owner={}, amount={})",
                 invoiceId, operatorId, invoice.getUserId(), invoice.getAmount());
@@ -1581,6 +1636,7 @@ public class InvoiceService {
 
         log.info("[Invoice] Invoice #{} red flush rejected by operator {} (reason: {})",
                 invoiceId, operatorId, trimmedReason);
+        recordEvent(invoice, InvoiceEvent.RED_FLUSH_REJECTED, "ADMIN", operatorId, null, null, "驳回红冲，原因：" + trimmedReason);
 
         Invoice updatedInvoice = requireInvoice(invoiceId);
         User user = userMapper.selectById(updatedInvoice.getUserId());
@@ -1921,6 +1977,10 @@ public class InvoiceService {
     }
 
     public InvoiceResponse uploadInvoiceFile(Long invoiceId, MultipartFile file) {
+        return uploadInvoiceFile(invoiceId, file, null);
+    }
+
+    public InvoiceResponse uploadInvoiceFile(Long invoiceId, MultipartFile file, Long operatorId) {
         Invoice invoice = requireInvoice(invoiceId);
         if (!"PENDING".equals(invoice.getStatus()) && !"COMPLETED".equals(invoice.getStatus())) {
             throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201, "当前发票状态不允许上传发票文件");
@@ -1956,6 +2016,10 @@ public class InvoiceService {
                 throw new BusinessException(HttpStatus.UNPROCESSABLE_ENTITY, 42201,
                         "该发票已被处理，请刷新后重试");
             }
+
+            boolean firstIssue = "PENDING".equals(invoice.getStatus());
+            recordEvent(invoice, firstIssue ? InvoiceEvent.ISSUED : InvoiceEvent.FILE_REPLACED, "ADMIN", operatorId,
+                    null, null, (firstIssue ? "上传发票文件，开票完成：" : "替换发票文件：") + validatedFile.originalFileName());
 
             if (oldFilePath != null && !oldFilePath.isBlank() && !oldFilePath.equals(storedFileName)) {
                 try {
@@ -2233,5 +2297,95 @@ public class InvoiceService {
             }
             return true;
         }
+    }
+
+    // ==================== 发票流转事件（税号数据流） ====================
+
+    private void recordEvent(Invoice invoice, String eventType, String operatorType, Long operatorId,
+                             BigDecimal quotaDelta, UserQuotaTransaction transaction, String detail) {
+        if (invoiceEventService != null) {
+            invoiceEventService.record(invoice, eventType, operatorType, operatorId, quotaDelta, transaction, detail);
+        }
+    }
+
+    private void recordSubmission(Invoice invoice, String operatorType, Long operatorId, String source,
+                                  BigDecimal deductAmount, UserQuotaTransaction deductTx) {
+        recordEvent(invoice, InvoiceEvent.SUBMITTED, operatorType, operatorId, null, null,
+                source + "，开票金额 ¥" + invoice.getAmount().toPlainString());
+        recordEvent(invoice, InvoiceEvent.QUOTA_DEDUCTED, operatorType, operatorId, deductAmount.negate(), deductTx,
+                deductTx != null && StringUtils.hasText(deductTx.getRemark()) ? deductTx.getRemark() : "开票扣除");
+    }
+
+    private void recordBatchSubmission(List<Invoice> invoices, InvoiceBatch batch, String operatorType, Long operatorId,
+                                       String source, UserQuotaTransaction batchTx, BigDecimal totalDeductAmount) {
+        if (invoiceEventService == null || invoices == null || invoices.isEmpty()) {
+            return;
+        }
+        String txRef = batchTx != null && batchTx.getId() != null ? "（流水 #" + batchTx.getId() + "）" : "";
+        List<InvoiceEvent> events = new ArrayList<>(invoices.size() * 2);
+        for (Invoice created : invoices) {
+            String rowRef = "批次 #" + batch.getId()
+                    + (created.getBatchRowNumber() != null ? " 第 " + created.getBatchRowNumber() + " 行" : "");
+            events.add(InvoiceEventService.build(created, InvoiceEvent.SUBMITTED, operatorType, operatorId, null,
+                    source + "（" + rowRef + "），开票金额 ¥" + created.getAmount().toPlainString()));
+            BigDecimal share = created.getDeductedQuota();
+            InvoiceEvent deduct = InvoiceEventService.build(created, InvoiceEvent.QUOTA_DEDUCTED, operatorType, operatorId,
+                    share != null ? share.negate() : null,
+                    "批次 #" + batch.getId() + " 合并扣除 ¥" + totalDeductAmount.toPlainString() + txRef
+                            + (share != null ? "，本票占 ¥" + share.toPlainString() : ""));
+            if (batchTx != null) {
+                deduct.setQuotaTransactionId(batchTx.getId());
+            }
+            events.add(deduct);
+        }
+        invoiceEventService.recordAll(events);
+    }
+
+    private List<String> describeAdminChanges(Invoice before, String companyName, String taxNumber, BigDecimal amount,
+                                              String invoiceType, String oldCategory, String newCategory,
+                                              String oldSeller, String newSeller, String oldTaxRate, String newTaxRate,
+                                              String specification, String unit, String remark) {
+        List<String> changes = new ArrayList<>();
+        addChange(changes, "公司名称", before.getCompanyName(), companyName);
+        addChange(changes, "税号", before.getTaxNumber(), taxNumber);
+        if (before.getAmount() == null || amount == null || before.getAmount().compareTo(amount) != 0) {
+            addChange(changes, "金额", plain(before.getAmount()), plain(amount));
+        }
+        addChange(changes, "开票类型", before.getInvoiceType(), invoiceType);
+        addChange(changes, "票种", categoryLabel(oldCategory), categoryLabel(newCategory));
+        addChange(changes, "开票主体", sellerLabel(oldSeller), sellerLabel(newSeller));
+        addChange(changes, "税率", taxRateLabel(oldTaxRate), taxRateLabel(newTaxRate));
+        addChange(changes, "规格型号", before.getSpecification(), specification);
+        addChange(changes, "单位", before.getUnit(), unit);
+        String oldRemark = before.getRemark() == null || before.getRemark().isBlank() ? null : before.getRemark().trim();
+        String newRemark = remark == null || remark.isBlank() ? null : remark;
+        if (!Objects.equals(oldRemark, newRemark)) {
+            changes.add("备注已修改");
+        }
+        return changes;
+    }
+
+    private static void addChange(List<String> changes, String label, String oldValue, String newValue) {
+        String from = oldValue == null || oldValue.isBlank() ? null : oldValue;
+        String to = newValue == null || newValue.isBlank() ? null : newValue;
+        if (!Objects.equals(from, to)) {
+            changes.add(label + " " + (from == null ? "空" : from) + " → " + (to == null ? "空" : to));
+        }
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? null : value.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private static String categoryLabel(String category) {
+        return "VAT_SPECIAL".equals(category) ? "专票" : "普票";
+    }
+
+    private static String sellerLabel(String seller) {
+        return "TECH".equals(seller) ? "科技公司" : "普通公司";
+    }
+
+    private static String taxRateLabel(String taxRate) {
+        return taxRate == null || "EXEMPT".equals(taxRate) ? "免税" : taxRate;
     }
 }

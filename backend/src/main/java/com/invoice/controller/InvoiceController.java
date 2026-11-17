@@ -265,7 +265,7 @@ public class InvoiceController {
         enforceRateLimit(
                 "invoice-upload:ip:" + WebUtils.extractClientIp(request),
                 40, Duration.ofMinutes(5), 42903, "当前网络上传过于频繁，请稍后再试");
-        return ApiResponse.success("上传成功", invoiceService.uploadInvoiceFile(id, file));
+        return ApiResponse.success("上传成功", invoiceService.uploadInvoiceFile(id, file, principal.userId()));
     }
 
     @GetMapping("/{id}/preview")

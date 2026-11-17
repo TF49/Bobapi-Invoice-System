@@ -1,5 +1,5 @@
 -- 发票管理系统数据库初始化脚本
--- 已整合 Flyway V1-V32 的最终完整数据库结构，适用于全新安装或彻底重置。
+-- 已整合 Flyway V1-V33 的最终完整数据库结构，适用于全新安装或彻底重置。
 -- 警告：执行本脚本会删除 invoice_system 数据库及其中的全部数据。
 -- 推荐部署方式：创建空数据库后直接启动后端，由 Flyway 自动按版本迁移初始化。
 -- 如果手工执行本脚本，首次启动后端时需将 SPRING_FLYWAY_BASELINE_VERSION 临时设为 31。
@@ -104,6 +104,7 @@ CREATE TABLE `invoice` (
     KEY `idx_batch_id` (`batch_id`),
     KEY `idx_seller_company` (`seller_company`),
     KEY `idx_invoice_red_flush` (`is_red_flushed`),
+    KEY `idx_invoice_user_tax_number` (`user_id`, `tax_number`),
     CONSTRAINT `fk_invoice_user` FOREIGN KEY (`user_id`) REFERENCES `user` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB
   DEFAULT CHARSET=utf8mb4
@@ -305,6 +306,26 @@ CREATE TABLE `announcement_read` (
   DEFAULT CHARSET=utf8mb4
   COLLATE=utf8mb4_unicode_ci
   COMMENT='公告已读记录表';
+
+-- 发票流转事件表（税号数据流）
+CREATE TABLE `invoice_event` (
+    `id` BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '事件ID',
+    `invoice_id` BIGINT NOT NULL COMMENT '发票ID',
+    `user_id` BIGINT NOT NULL COMMENT '发票所属用户ID',
+    `event_type` VARCHAR(32) NOT NULL COMMENT '事件类型：SUBMITTED/QUOTA_DEDUCTED/ADMIN_UPDATED/ISSUED/FILE_REPLACED/CANCELLED/RED_FLUSH_APPLIED/RED_FLUSH_CONFIRMED/RED_FLUSH_REJECTED',
+    `operator_type` VARCHAR(20) NOT NULL DEFAULT 'SYSTEM' COMMENT '操作方：USER/ADMIN/API/SYSTEM',
+    `operator_id` BIGINT NULL COMMENT '操作人ID',
+    `quota_delta` DECIMAL(15,2) NULL COMMENT '本事件对该发票额度的影响（负数扣除，正数退还）',
+    `balance_after` DECIMAL(15,2) NULL COMMENT '额度变动后用户余额（批量合并扣除时为空）',
+    `quota_transaction_id` BIGINT NULL COMMENT '关联额度流水ID',
+    `detail` VARCHAR(500) NULL COMMENT '事件说明',
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '发生时间',
+    INDEX `idx_invoice_event_invoice_time` (`invoice_id`, `created_at`),
+    INDEX `idx_invoice_event_user` (`user_id`)
+) ENGINE=InnoDB
+  DEFAULT CHARSET=utf8mb4
+  COLLATE=utf8mb4_unicode_ci
+  COMMENT='发票流转事件表';
 
 -- 默认账号：admin（高强度密码），user / user123
 INSERT INTO `user` (`id`, `username`, `password`, `role`) VALUES

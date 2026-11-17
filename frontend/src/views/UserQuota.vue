@@ -137,6 +137,15 @@
           </div>
 
           <div class="panel-right-actions">
+            <!-- 税号数据流搜索 -->
+            <TaxFlowSearch
+              v-if="activeTab === 'transactions'"
+              class="tax-flow-entry"
+              :scope="taxFlowScope"
+              width="240px"
+              @select="openTaxFlow"
+            />
+
             <!-- 额度流水筛选 -->
             <div v-if="activeTab === 'transactions'" class="filter-control">
               <span class="filter-label"><Filter /> 筛选类型</span>
@@ -870,6 +879,12 @@
       v-model="showRechargeDialog"
       @success="handleRechargeSuccess"
     />
+
+    <TaxFlowDrawer
+      v-model="taxFlowVisible"
+      :tax-number="taxFlowTaxNumber"
+      :scope="taxFlowScope"
+    />
   </div>
 </template>
 
@@ -887,6 +902,9 @@ import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import RechargeRequestDialog from '@/components/RechargeRequestDialog.vue'
+import TaxFlowSearch from '@/components/TaxFlowSearch.vue'
+import TaxFlowDrawer from '@/components/TaxFlowDrawer.vue'
+import type { TaxFlowScope } from '@/api/invoiceFlow'
 
 const openGuide = (tab: 'quota' | 'invoice' | 'faq' = 'quota') => {
   window.dispatchEvent(new CustomEvent('open-user-guide', { detail: { tab } }))
@@ -927,6 +945,15 @@ const myRequests = ref<RechargeRequest[]>([])
 const filterType = ref('')
 const requestFilterStatus = ref('')
 const showRechargeDialog = ref(false)
+
+// 税号数据流
+const taxFlowScope: TaxFlowScope = { mode: 'user' }
+const taxFlowVisible = ref(false)
+const taxFlowTaxNumber = ref<string | null>(null)
+const openTaxFlow = (taxNumber: string) => {
+  taxFlowTaxNumber.value = taxNumber
+  taxFlowVisible.value = true
+}
 
 const page = ref(1)
 const pageSize = ref(10)
@@ -2266,6 +2293,11 @@ onBeforeUnmount(() => {
 
   .panel-right-actions .filter-control {
     flex: 1;
+  }
+
+  .panel-right-actions .tax-flow-entry {
+    flex: 1 1 100%;
+    width: 100% !important;
   }
 
   .panel-right-actions .filter-control .el-select {

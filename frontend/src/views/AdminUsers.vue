@@ -587,6 +587,15 @@
                 <el-radio-button value="INVOICE" label="INVOICE">开票额度记录</el-radio-button>
                 <el-radio-button value="SEAL" label="SEAL">盖章额度记录</el-radio-button>
               </el-radio-group>
+              <TaxFlowSearch
+                v-if="quotaHistoryWalletType === 'INVOICE' && quotaTarget"
+                :key="quotaTarget.id"
+                class="history-tax-flow"
+                :scope="quotaTaxFlowScope"
+                placeholder="搜索该用户的税号数据流"
+                width="230px"
+                @select="openTaxFlow"
+              />
             </div>
             <el-table :data="paginatedQuotaTransactions" stripe max-height="300" style="margin-top: 12px">
               <el-table-column prop="transactionType" label="类型" width="100">
@@ -711,6 +720,12 @@
         <el-button @click="apiKeyDialogVisible = false">关闭</el-button>
       </template>
     </el-dialog>
+
+    <TaxFlowDrawer
+      v-model="taxFlowVisible"
+      :tax-number="taxFlowTaxNumber"
+      :scope="quotaTaxFlowScope"
+    />
   </div>
 </template>
 
@@ -739,6 +754,9 @@ import {
 import { userApi, type ManagedUser, type UserQuery, type UserRole, type UserStats } from '@/api/user'
 import { quotaApi, type UserQuota, type QuotaTransaction, type RechargeQuotaRequest, type AdjustQuotaRequest } from '@/api/quota'
 import AppHeader from '@/components/AppHeader.vue'
+import TaxFlowSearch from '@/components/TaxFlowSearch.vue'
+import TaxFlowDrawer from '@/components/TaxFlowDrawer.vue'
+import type { TaxFlowScope } from '@/api/invoiceFlow'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
@@ -801,6 +819,15 @@ const quotaTransactions = ref<QuotaTransaction[]>([])
 const quotaActiveTab = ref('recharge')
 const quotaWalletType = ref<'INVOICE' | 'SEAL'>('INVOICE')
 const quotaHistoryWalletType = ref<'INVOICE' | 'SEAL'>('INVOICE')
+
+// 税号数据流（限定为当前管理的用户）
+const quotaTaxFlowScope = computed<TaxFlowScope>(() => ({ mode: 'admin', userId: quotaTarget.value?.id }))
+const taxFlowVisible = ref(false)
+const taxFlowTaxNumber = ref<string | null>(null)
+const openTaxFlow = (taxNumber: string) => {
+  taxFlowTaxNumber.value = taxNumber
+  taxFlowVisible.value = true
+}
 const quotaForm = reactive<{ amount: number; remark: string }>({
   amount: 0,
   remark: ''
@@ -1832,7 +1859,13 @@ onMounted(loadUsers)
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 12px;
   margin-bottom: 4px;
+}
+
+.history-tax-flow {
+  margin-left: auto;
 }
 
 .user-action-cell {

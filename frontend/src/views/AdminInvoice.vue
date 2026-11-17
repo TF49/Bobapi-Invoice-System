@@ -81,6 +81,13 @@
               clearable
               class="search-input"
             />
+            <TaxFlowSearch
+              class="tax-flow-entry"
+              :scope="taxFlowScope"
+              placeholder="税号数据流"
+              width="200px"
+              @select="openTaxFlow"
+            />
             <div class="filter-control">
               <span class="filter-label"><Filter />状态</span>
               <el-select v-model="statusFilter" aria-label="筛选发票状态" class="status-select">
@@ -204,6 +211,18 @@
                       @click.stop="handleCopyField(row.taxNumber, `tax-${row.id}`, '税号')"
                     >
                       <el-icon><DocumentCopy /></el-icon>
+                    </el-button>
+                  </el-tooltip>
+                  <el-tooltip v-if="row.taxNumber" content="查看税号数据流" placement="top">
+                    <el-button
+                      link
+                      type="primary"
+                      size="small"
+                      class="inline-copy-btn"
+                      :aria-label="`查看税号 ${row.taxNumber} 的数据流`"
+                      @click.stop="openTaxFlow(row.taxNumber)"
+                    >
+                      <el-icon><DataLine /></el-icon>
                     </el-button>
                   </el-tooltip>
                 </div>
@@ -680,6 +699,17 @@
                     @click.stop="handleCopyField(row.taxNumber, `tax-${row.id}`, '税号')"
                   >
                     <el-icon><DocumentCopy /></el-icon>
+                  </el-button>
+                  <el-button
+                    v-if="row.taxNumber"
+                    link
+                    type="primary"
+                    size="small"
+                    class="mobile-inline-copy-btn"
+                    :aria-label="`查看税号 ${row.taxNumber} 的数据流`"
+                    @click.stop="openTaxFlow(row.taxNumber)"
+                  >
+                    <el-icon><DataLine /></el-icon>
                   </el-button>
                 </dd>
               </div>
@@ -1525,6 +1555,12 @@
         </div>
       </template>
     </el-dialog>
+
+    <TaxFlowDrawer
+      v-model="taxFlowVisible"
+      :tax-number="taxFlowTaxNumber"
+      :scope="taxFlowScope"
+    />
   </div>
 </template>
 
@@ -1540,6 +1576,7 @@ import {
   Close,
   Connection,
   CopyDocument,
+  DataLine,
   Document,
   DocumentCopy,
   DocumentDelete,
@@ -1570,6 +1607,9 @@ import { getTaxRateOptions, coerceTaxRateForSeller, DEFAULT_TAX_RATE, formatTaxR
 import { userApi } from '@/api/user'
 import AppHeader from '@/components/AppHeader.vue'
 import InvoiceBatchImportDialog from '@/components/InvoiceBatchImportDialog.vue'
+import TaxFlowSearch from '@/components/TaxFlowSearch.vue'
+import TaxFlowDrawer from '@/components/TaxFlowDrawer.vue'
+import type { TaxFlowScope } from '@/api/invoiceFlow'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SpotlightCard from '@/components/bits/SpotlightCard.vue'
@@ -1619,6 +1659,15 @@ const calculateSingleQuotaDeduct = (amount: number, category?: string, sellerCom
   return Math.round((amount * feeRate / 0.03) * 100) / 100
 }
 const searchKeyword = ref('')
+
+// 税号数据流（跨用户）
+const taxFlowScope: TaxFlowScope = { mode: 'admin' }
+const taxFlowVisible = ref(false)
+const taxFlowTaxNumber = ref<string | null>(null)
+const openTaxFlow = (taxNumber: string) => {
+  taxFlowTaxNumber.value = taxNumber
+  taxFlowVisible.value = true
+}
 
 watch(() => route?.query?.status, (newStatus) => {
   if (typeof newStatus === 'string' && VALID_STATUSES.includes(newStatus)) {
@@ -3197,8 +3246,9 @@ const handleBatchSuccess = async () => {
     gap: 10px;
   }
 
-  .search-input {
-    width: 100%;
+  .search-input,
+  .tax-flow-entry {
+    width: 100% !important;
   }
 
   .table-tools .filter-control {

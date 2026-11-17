@@ -402,4 +402,59 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
             Long techSpecialCount,
             BigDecimal techSpecialDeductedQuota
     ) {}
+
+    /**
+     * 税号数据流：按税号片段模糊匹配候选税号（pattern 需已转义 LIKE 通配符），userId 为空时跨用户查询
+     */
+    @Select({
+            "<script>",
+            "SELECT tax_number AS taxNumber, ",
+            "SUBSTRING_INDEX(GROUP_CONCAT(company_name ORDER BY created_at DESC SEPARATOR '||'), '||', 1) AS companyName, ",
+            "COUNT(*) AS invoiceCount, MAX(created_at) AS lastCreatedAt ",
+            "FROM invoice WHERE deleted = 0 AND tax_number IS NOT NULL ",
+            "AND tax_number LIKE CONCAT('%', #{pattern}, '%') ",
+            "<if test='userId != null'>AND user_id = #{userId} </if>",
+            "GROUP BY tax_number ORDER BY lastCreatedAt DESC LIMIT #{limit}",
+            "</script>"
+    })
+    List<TaxNumberSuggestionRow> selectTaxNumberSuggestions(@Param("pattern") String pattern,
+                                                           @Param("userId") Long userId,
+                                                           @Param("limit") int limit);
+
+    /**
+     * 税号数据流：指定税号的发票汇总，userId 为空时跨用户统计
+     */
+    @Select({
+            "<script>",
+            "SELECT COUNT(*) AS invoiceCount, COALESCE(SUM(amount), 0) AS totalAmount, ",
+            "COALESCE(SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END), 0) AS pendingCount, ",
+            "COALESCE(SUM(CASE WHEN status = 'COMPLETED' AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED') THEN 1 ELSE 0 END), 0) AS completedCount, ",
+            "COALESCE(SUM(CASE WHEN status = 'CANCELLED' THEN 1 ELSE 0 END), 0) AS cancelledCount, ",
+            "COALESCE(SUM(CASE WHEN red_flush_status = 'COMPLETED' THEN 1 ELSE 0 END), 0) AS redFlushedCount, ",
+            "COALESCE(SUM(CASE WHEN status != 'CANCELLED' AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED') ",
+            "THEN COALESCE(deducted_quota, 0) ELSE 0 END), 0) AS activeDeducted ",
+            "FROM invoice WHERE deleted = 0 AND tax_number = #{taxNumber} ",
+            "<if test='userId != null'>AND user_id = #{userId} </if>",
+            "</script>"
+    })
+    TaxFlowSummaryRow selectTaxFlowSummary(@Param("taxNumber") String taxNumber, @Param("userId") Long userId);
+
+    @lombok.Data
+    class TaxNumberSuggestionRow {
+        private String taxNumber;
+        private String companyName;
+        private Long invoiceCount;
+        private java.time.LocalDateTime lastCreatedAt;
+    }
+
+    @lombok.Data
+    class TaxFlowSummaryRow {
+        private Long invoiceCount;
+        private BigDecimal totalAmount;
+        private Long pendingCount;
+        private Long completedCount;
+        private Long cancelledCount;
+        private Long redFlushedCount;
+        private BigDecimal activeDeducted;
+    }
 }

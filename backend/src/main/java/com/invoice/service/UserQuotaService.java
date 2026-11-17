@@ -261,23 +261,23 @@ public class UserQuotaService {
      * 扣除额度（开票时调用）
      */
     @Transactional
-    public void deductQuota(Long userId, BigDecimal amount, Long invoiceId) {
-        deductQuota(userId, amount, invoiceId, "开票扣除");
+    public UserQuotaTransaction deductQuota(Long userId, BigDecimal amount, Long invoiceId) {
+        return deductQuota(userId, amount, invoiceId, "开票扣除");
     }
 
     /**
      * 扣除额度（支持自定义流水说明）
      */
     @Transactional
-    public void deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
-        deductQuota(userId, amount, invoiceId, remark, null, "SYSTEM");
+    public UserQuotaTransaction deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
+        return deductQuota(userId, amount, invoiceId, remark, null, "SYSTEM");
     }
 
     /**
      * 扣除额度（支持自定义流水说明及操作人）
      */
     @Transactional
-    public void deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark,
+    public UserQuotaTransaction deductQuota(Long userId, BigDecimal amount, Long invoiceId, String remark,
                             Long operatorId, String operatorType) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
@@ -300,7 +300,7 @@ public class UserQuotaService {
         userQuotaMapper.updateById(quota);
         
         // 记录交易历史
-        createTransaction(userId, "DEDUCT", amount.negate(), balanceBefore, balanceAfter,
+        return createTransaction(userId, "DEDUCT", amount.negate(), balanceBefore, balanceAfter,
                          operatorId, operatorType != null ? operatorType : "SYSTEM", invoiceId, remark != null ? remark : "开票扣除", null);
     }
 
@@ -308,15 +308,15 @@ public class UserQuotaService {
      * 批量扣除额度（批量开票时调用）
      */
     @Transactional
-    public void deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId) {
-        deductBatchQuota(userId, totalAmount, batchId, null, "SYSTEM");
+    public UserQuotaTransaction deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId) {
+        return deductBatchQuota(userId, totalAmount, batchId, null, "SYSTEM");
     }
 
     /**
      * 批量扣除额度（支持指定操作人）
      */
     @Transactional
-    public void deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId,
+    public UserQuotaTransaction deductBatchQuota(Long userId, BigDecimal totalAmount, Long batchId,
                                  Long operatorId, String operatorType) {
         if (totalAmount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "扣除金额必须大于0");
@@ -339,7 +339,7 @@ public class UserQuotaService {
         userQuotaMapper.updateById(quota);
 
         // 记录交易历史
-        createTransaction(userId, "DEDUCT", totalAmount.negate(), balanceBefore, balanceAfter,
+        return createTransaction(userId, "DEDUCT", totalAmount.negate(), balanceBefore, balanceAfter,
                          operatorId, operatorType != null ? operatorType : "SYSTEM", null,
                          "ADMIN".equals(operatorType) ? "批量开票扣除(批次#" + batchId + ", 管理员代提交)" : "批量开票扣除(批次#" + batchId + ")", null);
     }
@@ -348,15 +348,15 @@ public class UserQuotaService {
      * 退还额度（取消发票或系统退还时调用）
      */
     @Transactional
-    public void refundQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
-        refundQuota(userId, amount, invoiceId, remark, null, "SYSTEM");
+    public UserQuotaTransaction refundQuota(Long userId, BigDecimal amount, Long invoiceId, String remark) {
+        return refundQuota(userId, amount, invoiceId, remark, null, "SYSTEM");
     }
 
     /**
      * 退还额度（支持指定操作人审计）
      */
     @Transactional
-    public void refundQuota(Long userId, BigDecimal amount, Long invoiceId, String remark,
+    public UserQuotaTransaction refundQuota(Long userId, BigDecimal amount, Long invoiceId, String remark,
                             Long operatorId, String operatorType) {
         if (amount.compareTo(BigDecimal.ZERO) <= 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, 40001, "退还金额必须大于0");
@@ -376,7 +376,7 @@ public class UserQuotaService {
         userQuotaMapper.updateById(quota);
         
         // 记录交易历史
-        createTransaction(userId, "ADJUST", amount, balanceBefore, balanceAfter,
+        return createTransaction(userId, "ADJUST", amount, balanceBefore, balanceAfter,
                          operatorId, operatorType != null ? operatorType : "SYSTEM", invoiceId, remark, null);
     }
 
@@ -388,9 +388,9 @@ public class UserQuotaService {
      * @param operatorId 操作管理员ID
      */
     @Transactional
-    public void adjustQuotaForInvoiceAmountChange(Long userId, BigDecimal amountDiff, Long invoiceId, Long operatorId) {
+    public UserQuotaTransaction adjustQuotaForInvoiceAmountChange(Long userId, BigDecimal amountDiff, Long invoiceId, Long operatorId) {
         if (amountDiff == null || amountDiff.compareTo(BigDecimal.ZERO) == 0) {
-            return;
+            return null;
         }
 
         requireUserRoleForUpdate(userId);
@@ -410,7 +410,7 @@ public class UserQuotaService {
             quota.setUpdatedAt(LocalDateTime.now());
             userQuotaMapper.updateById(quota);
 
-            createTransaction(userId, "DEDUCT", amountDiff.negate(), balanceBefore, balanceAfter,
+            return createTransaction(userId, "DEDUCT", amountDiff.negate(), balanceBefore, balanceAfter,
                     operatorId, "ADMIN", invoiceId, "管理员调整发票补扣额度", null);
         } else {
             // 发票调低或改为普票，退还差额额度
@@ -422,7 +422,7 @@ public class UserQuotaService {
             quota.setUpdatedAt(LocalDateTime.now());
             userQuotaMapper.updateById(quota);
 
-            createTransaction(userId, "ADJUST", refundAmount, balanceBefore, balanceAfter,
+            return createTransaction(userId, "ADJUST", refundAmount, balanceBefore, balanceAfter,
                     operatorId, "ADMIN", invoiceId, "管理员调整发票退还额度", null);
         }
     }
@@ -577,7 +577,7 @@ public class UserQuotaService {
     /**
      * 创建交易记录
      */
-    private void createTransaction(Long userId, String transactionType, BigDecimal amount,
+    private UserQuotaTransaction createTransaction(Long userId, String transactionType, BigDecimal amount,
                                    BigDecimal balanceBefore, BigDecimal balanceAfter,
                                    Long operatorId, String operatorType, Long invoiceId, String remark,
                                    String idempotencyKey) {
@@ -595,6 +595,7 @@ public class UserQuotaService {
         transaction.setCreatedAt(LocalDateTime.now());
         
         userQuotaTransactionMapper.insert(transaction);
+        return transaction;
     }
 
     private UserQuotaTransaction findByIdempotencyKey(Long userId, String idempotencyKey) {

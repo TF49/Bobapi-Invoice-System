@@ -39,7 +39,7 @@ class InvoiceControllerTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting("code")
                 .isEqualTo(42903);
-        verify(invoiceService, times(20)).uploadInvoiceFile(1L, file);
+        verify(invoiceService, times(20)).uploadInvoiceFile(1L, file, 1L);
     }
 
     @Test
