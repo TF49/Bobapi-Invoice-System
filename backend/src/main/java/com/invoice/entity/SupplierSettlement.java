@@ -21,6 +21,16 @@ public class SupplierSettlement {
     private BigDecimal settlementAmount;
 
     /**
+     * 结算通道-出票主体：DEFAULT-普通公司，TECH-科技公司
+     */
+    private String sellerCompany;
+
+    /**
+     * 结算通道-票种：NORMAL-普通发票，VAT_SPECIAL-增值税专用发票
+     */
+    private String invoiceCategory;
+
+    /**
      * 结算备注
      */
     private String remark;
@@ -39,6 +49,26 @@ public class SupplierSettlement {
      * 结算请求幂等键
      */
     private String idempotencyKey;
+
+    /**
+     * 作废时间，NULL 表示有效。作废记录不计入任何已结算汇总
+     */
+    private LocalDateTime voidedAt;
+
+    /**
+     * 作废操作人ID
+     */
+    private Long voidedBy;
+
+    /**
+     * 作废操作人用户名（冗余存储）
+     */
+    private String voidedByName;
+
+    /**
+     * 作废原因
+     */
+    private String voidReason;
 
     @TableField(fill = FieldFill.INSERT)
     private LocalDateTime createdAt;

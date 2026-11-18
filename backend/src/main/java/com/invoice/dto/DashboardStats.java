@@ -391,7 +391,10 @@ public record DashboardStats(
             String month,
             BigDecimal invoicedAmount,
             BigDecimal settledAmount,
-            BigDecimal unsettledBalance
+            BigDecimal unsettledBalance,     // 月末累计净额 = 待付款 - 预结待抵扣（兼容旧字段）
+            BigDecimal payableBalance,       // 月末累计待付款 = 各通道正数余额之和（通道预结不跨通道抵扣）
+            BigDecimal preSettledBalance,    // 月末累计预结待抵扣 = 各通道负数余额绝对值之和
+            java.util.Map<String, BigDecimal> settledByChannel // 当月各通道结算额，key 同 SellerCategoryStat.key
     ) {}
 
     /**
@@ -408,6 +411,8 @@ public record DashboardStats(
             Long completedCount,        // 已开票单数
             BigDecimal deductedQuota,   // 实际消耗额度
             BigDecimal feeRate,         // 基准费率 (0.03, 0.09, 0.04, 0.10)
-            Double amountRatio          // 占已开总额百分比 (0.0 - 100.0)
+            Double amountRatio,         // 占已开总额百分比 (0.0 - 100.0)
+            BigDecimal settledAmount,   // 该通道累计已结算金额
+            BigDecimal unsettledAmount  // 该通道未结金额 = 已开票面金额 - 已结算（可为负，表示预结待抵扣）
     ) {}
 }

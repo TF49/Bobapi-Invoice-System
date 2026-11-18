@@ -11,8 +11,15 @@ import java.time.OffsetDateTime;
 public record SupplierSettlementResponse(
         Long id,
         BigDecimal settlementAmount,
+        String sellerCompany,
+        String invoiceCategory,
         String remark,
         String operatorName,
-        OffsetDateTime createdAt
+        OffsetDateTime createdAt,
+        /* 是否已作废；作废记录不计入已结算汇总 */
+        boolean voided,
+        OffsetDateTime voidedAt,
+        String voidedByName,
+        String voidReason
 ) {
 }

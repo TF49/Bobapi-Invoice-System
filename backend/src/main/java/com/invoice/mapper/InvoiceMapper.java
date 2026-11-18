@@ -296,17 +296,29 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
     FulfillmentSummary selectFulfillmentSummary();
 
     /**
-     * 查询最近 6 个月已开票月度汇总（用于供应商对账走势）
+     * 查询最近 6 个月已开票月度汇总，按结算通道（出票主体 × 票种）拆分（用于供应商分通道对账走势）。
+     * 通道归一规则与 selectSellerCategorySummary 保持一致：非 TECH 视为 DEFAULT，非 VAT_SPECIAL 视为 NORMAL。
      */
-    @Select("SELECT DATE_FORMAT(created_at, '%Y-%m') as month, " +
-            "COALESCE(SUM(amount), 0) as amount, " +
-            "COUNT(*) as count " +
+    @Select("SELECT DATE_FORMAT(created_at, '%Y-%m') AS month, " +
+            "CASE WHEN UPPER(TRIM(COALESCE(seller_company, 'DEFAULT'))) = 'TECH' THEN 'TECH' ELSE 'DEFAULT' END AS sellerCompany, " +
+            "CASE WHEN UPPER(TRIM(COALESCE(invoice_category, 'NORMAL'))) = 'VAT_SPECIAL' THEN 'VAT_SPECIAL' ELSE 'NORMAL' END AS invoiceCategory, " +
+            "COALESCE(SUM(amount), 0) AS amount " +
             "FROM invoice " +
             "WHERE deleted = 0 AND status = 'COMPLETED' AND (red_flush_status IS NULL OR red_flush_status != 'COMPLETED') " +
             "  AND created_at >= DATE_SUB(CURDATE(), INTERVAL 6 MONTH) " +
-            "GROUP BY DATE_FORMAT(created_at, '%Y-%m') " +
+            "GROUP BY month, sellerCompany, invoiceCategory " +
             "ORDER BY month ASC")
-    List<MonthlyInvoicedStat> selectRecentMonthlyInvoicedStats();
+    List<MonthlyChannelAmountStat> selectRecentMonthlyInvoicedByChannel();
+
+    /**
+     * 月度 × 结算通道金额汇总
+     */
+    record MonthlyChannelAmountStat(
+            String month,
+            String sellerCompany,
+            String invoiceCategory,
+            BigDecimal amount
+    ) {}
 
     /**
      * 查询出票主体公司与票种四大细分维度已开票额度与统计（普通公司普票/专票、科技公司普票/专票）
@@ -382,11 +394,6 @@ public interface InvoiceMapper extends BaseMapper<Invoice> {
             Double avgMinutes
     ) {}
 
-    record MonthlyInvoicedStat(
-            String month,
-            BigDecimal amount,
-            Long count
-    ) {}
 
     record SellerCategorySummary(
             BigDecimal defaultNormalAmount,

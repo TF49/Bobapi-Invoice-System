@@ -105,7 +105,14 @@ export interface SettlementTrendStat {
   month: string
   invoicedAmount: number
   settledAmount: number
+  /** 月末累计净额 = 待付款 - 预结待抵扣（兼容旧字段） */
   unsettledBalance: number
+  /** 月末累计待付款 = 各通道正数余额之和 */
+  payableBalance?: number
+  /** 月末累计预结待抵扣 = 各通道负数余额绝对值之和 */
+  preSettledBalance?: number
+  /** 当月各通道结算额，key 同 SellerCategoryStat.key */
+  settledByChannel?: Record<string, number>
 }
 
 export interface SellerCategoryStat {
@@ -120,6 +127,10 @@ export interface SellerCategoryStat {
   deductedQuota: number
   feeRate: number
   amountRatio: number
+  /** 该通道累计已结算金额 */
+  settledAmount?: number
+  /** 该通道未结金额（已开票面 - 已结算），负数表示预结待抵扣 */
+  unsettledAmount?: number
 }
 
 export interface DashboardStats {

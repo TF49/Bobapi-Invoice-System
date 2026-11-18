@@ -554,6 +554,102 @@ class InvoiceServiceTest {
     }
 
     @Test
+    void dashboardStats_ComputesSettledAndUnsettledPerSellerChannel() {
+        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
+                3L, 0L, 3L, new BigDecimal("1600.00"), BigDecimal.ZERO));
+        when(supplierSettlementService.getTotalSettledAmount()).thenReturn(new BigDecimal("1300.00"));
+        when(supplierSettlementService.getSettledAmountByChannel()).thenReturn(java.util.Map.of(
+                "DEFAULT:NORMAL", new BigDecimal("800.00"),
+                "TECH:VAT_SPECIAL", new BigDecimal("500.00")));
+        when(invoiceMapper.selectSellerCategorySummary()).thenReturn(new InvoiceMapper.SellerCategorySummary(
+                new BigDecimal("1000.00"), 1L, new BigDecimal("1000.00"),
+                new BigDecimal("400.00"), 1L, new BigDecimal("1200.00"),
+                BigDecimal.ZERO, 0L, BigDecimal.ZERO,
+                new BigDecimal("200.00"), 1L, new BigDecimal("666.67")));
+        when(invoiceMapper.selectUserInvoiceStats()).thenReturn(List.of());
+        when(invoiceMapper.selectAllTimelineStats()).thenReturn(List.of());
+        when(invoiceMapper.selectInvoiceTypeStats()).thenReturn(List.of());
+        when(invoiceMapper.selectTopCompanyStats()).thenReturn(List.of());
+        when(invoiceMapper.selectHourDistributionStats()).thenReturn(List.of());
+        when(invoiceMapper.selectDailyTrendStats()).thenReturn(List.of());
+        when(invoiceMapper.selectAmountRangeSummary()).thenReturn(
+                new InvoiceMapper.AmountRangeSummary(
+                        0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO,
+                        0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO));
+        when(userQuotaMapper.selectQuotaPoolSummary()).thenReturn(
+                new UserQuotaMapper.QuotaPoolSummary(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(rechargeRequestMapper.countPendingRequests()).thenReturn(0L);
+
+        DashboardStats stats = service.getDashboardStats();
+
+        assertThat(stats.sellerCategoryStats()).hasSize(4);
+        var byKey = stats.sellerCategoryStats().stream()
+                .collect(java.util.stream.Collectors.toMap(DashboardStats.SellerCategoryStat::key, s -> s));
+        assertThat(byKey.get("default_normal").settledAmount()).isEqualByComparingTo("800.00");
+        assertThat(byKey.get("default_normal").unsettledAmount()).isEqualByComparingTo("200.00");
+        assertThat(byKey.get("default_special").settledAmount()).isEqualByComparingTo("0");
+        assertThat(byKey.get("default_special").unsettledAmount()).isEqualByComparingTo("400.00");
+        assertThat(byKey.get("tech_normal").unsettledAmount()).isEqualByComparingTo("0");
+        // 通道预结超出已开：未结为负数，且不会被其他通道抵扣
+        assertThat(byKey.get("tech_special").settledAmount()).isEqualByComparingTo("500.00");
+        assertThat(byKey.get("tech_special").unsettledAmount()).isEqualByComparingTo("-300.00");
+        // 总未结 = 各通道未结之和
+        assertThat(stats.unsettledAmount()).isEqualByComparingTo("300.00");
+    }
+
+    @Test
+    void dashboardStats_SettlementTrendRollsBalancePerChannelWithoutCrossOffset() {
+        String thisMonth = java.time.YearMonth.now().toString();
+        String lastMonth = java.time.YearMonth.now().minusMonths(1).toString();
+        when(invoiceMapper.selectOverallStat()).thenReturn(new InvoiceMapper.OverallStat(
+                3L, 0L, 3L, new BigDecimal("1600.00"), BigDecimal.ZERO));
+        when(supplierSettlementService.getTotalSettledAmount()).thenReturn(new BigDecimal("1300.00"));
+        when(supplierSettlementService.getSettledAmountByChannel()).thenReturn(java.util.Map.of(
+                "DEFAULT:NORMAL", new BigDecimal("800.00"),
+                "TECH:VAT_SPECIAL", new BigDecimal("500.00")));
+        when(invoiceMapper.selectSellerCategorySummary()).thenReturn(new InvoiceMapper.SellerCategorySummary(
+                new BigDecimal("1000.00"), 1L, new BigDecimal("1000.00"),
+                new BigDecimal("400.00"), 1L, new BigDecimal("1200.00"),
+                BigDecimal.ZERO, 0L, BigDecimal.ZERO,
+                new BigDecimal("200.00"), 1L, new BigDecimal("666.67")));
+        // 本月：普通公司普票开 100，科技公司专票开 50（小写/空格也应归一）
+        when(invoiceMapper.selectRecentMonthlyInvoicedByChannel()).thenReturn(List.of(
+                new InvoiceMapper.MonthlyChannelAmountStat(thisMonth, "DEFAULT", "NORMAL", new BigDecimal("100.00")),
+                new InvoiceMapper.MonthlyChannelAmountStat(thisMonth, " tech ", "vat_special", new BigDecimal("50.00"))));
+        when(invoiceMapper.selectUserInvoiceStats()).thenReturn(List.of());
+        when(invoiceMapper.selectAllTimelineStats()).thenReturn(List.of());
+        when(invoiceMapper.selectInvoiceTypeStats()).thenReturn(List.of());
+        when(invoiceMapper.selectTopCompanyStats()).thenReturn(List.of());
+        when(invoiceMapper.selectHourDistributionStats()).thenReturn(List.of());
+        when(invoiceMapper.selectDailyTrendStats()).thenReturn(List.of());
+        when(invoiceMapper.selectAmountRangeSummary()).thenReturn(
+                new InvoiceMapper.AmountRangeSummary(
+                        0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO,
+                        0L, BigDecimal.ZERO, 0L, BigDecimal.ZERO));
+        when(userQuotaMapper.selectQuotaPoolSummary()).thenReturn(
+                new UserQuotaMapper.QuotaPoolSummary(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO));
+        when(rechargeRequestMapper.countPendingRequests()).thenReturn(0L);
+
+        DashboardStats stats = service.getDashboardStats();
+
+        var trends = stats.settlementTrends();
+        assertThat(trends).hasSizeGreaterThanOrEqualTo(6);
+        var current = trends.get(trends.size() - 1);
+        assertThat(current.month()).isEqualTo(thisMonth);
+        assertThat(current.invoicedAmount()).isEqualByComparingTo("150.00");
+        // 月末余额与通道卡片一致：普票 200 + 专票 400 待付，科技专票预结 300，不互相抵扣
+        assertThat(current.payableBalance()).isEqualByComparingTo("600.00");
+        assertThat(current.preSettledBalance()).isEqualByComparingTo("300.00");
+        assertThat(current.unsettledBalance()).isEqualByComparingTo("300.00");
+        // 上月末：普票 100、专票 400 待付；科技专票预结 350
+        var previous = trends.get(trends.size() - 2);
+        assertThat(previous.month()).isEqualTo(lastMonth);
+        assertThat(previous.payableBalance()).isEqualByComparingTo("500.00");
+        assertThat(previous.preSettledBalance()).isEqualByComparingTo("350.00");
+        assertThat(current.settledByChannel()).containsKeys("default_normal", "default_special", "tech_normal", "tech_special");
+    }
+
+    @Test
     void rejectsAFileWhoseContentDoesNotMatchItsDeclaredType() {
         when(invoiceMapper.selectById(3L)).thenReturn(invoice(3L, 8L, "PENDING"));
         // 声称是 PNG但内容不匹配

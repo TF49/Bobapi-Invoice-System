@@ -2,46 +2,11 @@
   <el-dialog
     v-model="visible"
     title="供应商结算"
-    width="480px"
+    width="560px"
     :close-on-click-modal="false"
     destroy-on-close
     @close="handleClose"
   >
-    <!-- 显示当前未结款项供管理员参考，支持提前结款与负数抵扣 -->
-    <el-alert
-      v-if="unsettledAmount !== undefined"
-      :type="unsettledAmount < 0 ? 'warning' : 'info'"
-      :closable="false"
-      class="unsettled-hint"
-    >
-      <template #default>
-        <span>当前未结款项：</span>
-        <strong class="unsettled-amount">{{ formatDisplayAmount(unsettledAmount) }}</strong>
-        <span v-if="unsettledAmount < 0" class="unsettled-sub">（当前已提前预结，后续开票将自动抵扣）</span>
-        <span v-else class="unsettled-sub">（支持提前结款，超出未结金额部分将计为负数自动抵扣）</span>
-      </template>
-    </el-alert>
-
-    <!-- 四大出票通道额度快捷参考与填充 -->
-    <div v-if="channels && channels.length" class="channels-ref-box">
-      <div class="channels-ref-title">
-        <span>各出票通道已开额度参考 (点击快速带入):</span>
-      </div>
-      <div class="channels-tag-group">
-        <el-tag
-          v-for="ch in channels"
-          :key="ch.key"
-          size="small"
-          class="channel-quick-tag"
-          :type="ch.sellerCompany === 'TECH' ? 'primary' : 'success'"
-          effect="plain"
-          @click="handleSelectChannel(ch)"
-        >
-          {{ ch.label }}: ¥{{ formatAmount(ch.completedAmount) }}
-        </el-tag>
-      </div>
-    </div>
-
     <el-form
       ref="formRef"
       :model="form"
@@ -49,6 +14,43 @@
       label-width="80px"
       @submit.prevent="handleSubmit"
     >
+      <!-- 结算通道（出票主体 × 票种）必选：每笔结算只计入所选通道的已结金额 -->
+      <el-form-item label="结算通道" prop="channelKey">
+        <el-radio-group v-model="form.channelKey" class="channel-radio-group" @change="handleChannelChange">
+          <el-radio
+            v-for="ch in channelOptions"
+            :key="ch.key"
+            :value="ch.key"
+            border
+            class="channel-radio"
+            :data-channel="ch.key"
+          >
+            <span class="channel-radio-name">{{ ch.label }}</span>
+            <span class="channel-radio-unsettled" :class="{ negative: channelUnsettled(ch) < 0 }">
+              未结 {{ formatDisplayAmount(channelUnsettled(ch)) }}
+            </span>
+          </el-radio>
+        </el-radio-group>
+      </el-form-item>
+
+      <!-- 所选通道的未结款项；支持提前结款，负数仅在本通道后续开票中抵扣 -->
+      <el-alert
+        v-if="selectedChannel"
+        :type="channelUnsettled(selectedChannel) < 0 ? 'warning' : 'info'"
+        :closable="false"
+        class="unsettled-hint"
+      >
+        <template #default>
+          <span>
+            [{{ selectedChannel.label }}] 已开 ¥{{ formatAmount(selectedChannel.completedAmount) }}，
+            已结 ¥{{ formatAmount(selectedChannel.settledAmount || 0) }}，当前未结：
+          </span>
+          <strong class="unsettled-amount">{{ formatDisplayAmount(channelUnsettled(selectedChannel)) }}</strong>
+          <span v-if="channelUnsettled(selectedChannel) < 0" class="unsettled-sub">（该通道已提前预结，后续该通道开票将自动抵扣）</span>
+          <span v-else class="unsettled-sub">（支持提前结款，超出部分计为负数，仅在本通道后续开票中抵扣）</span>
+        </template>
+      </el-alert>
+
       <el-form-item label="结算金额" prop="amount">
         <el-input-number
           v-model="form.amount"
@@ -87,19 +89,22 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { ElMessage, type FormInstance, type FormRules } from 'element-plus'
-import { createSettlement, type SupplierSettlementRequest } from '@/api/supplierSettlement'
+import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import {
+  createSettlement,
+  type SettlementInvoiceCategory,
+  type SettlementSellerCompany,
+  type SupplierSettlementRequest
+} from '@/api/supplierSettlement'
 import { generateIdempotencyKey } from '@/utils/idempotency'
 import type { SellerCategoryStat } from '@/api/dashboard'
 
 interface Props {
   modelValue: boolean
-  /** 当前未结款项金额，用于动态限制最大结算额并在对话框内展示（修复 #2 / #8） */
-  unsettledAmount?: number
-  /** 四大通道细分统计数据供快捷参考与选择 */
+  /** 四大结算通道（出票主体 × 票种）统计，含各通道已开 / 已结 / 未结 */
   channels?: SellerCategoryStat[]
-  /** 默认初始备注（如快捷从通道子卡片点击发起） */
-  initialRemark?: string
+  /** 默认选中的通道 key（如从通道子卡片点击「结算」发起） */
+  initialChannelKey?: string
   /** 默认初始金额 */
   initialAmount?: number
 }
@@ -120,13 +125,30 @@ const visible = computed({
 const formRef = ref<FormInstance>()
 const submitting = ref(false)
 const pendingIdempotencyKey = ref<string>('')
+/** 最近一次由系统自动带入的金额；用于判断用户是否手动改过金额，切换通道时只覆盖自动带入的值 */
+const lastAutoFilledAmount = ref<number | undefined>(undefined)
 
-const form = reactive<SupplierSettlementRequest>({
-  amount: undefined as any,
+const form = reactive<{ channelKey: string; amount: number | undefined; remark: string }>({
+  channelKey: '',
+  amount: undefined,
   remark: ''
 })
 
+const channelOptions = computed(() => props.channels ?? [])
+const selectedChannel = computed(() => channelOptions.value.find((ch) => ch.key === form.channelKey))
+
+/** 通道未结 = 已开票面 - 已结算；后端未返回时前端兜底计算 */
+function channelUnsettled(ch: SellerCategoryStat): number {
+  if (ch.unsettledAmount !== undefined && ch.unsettledAmount !== null) {
+    return Number(ch.unsettledAmount)
+  }
+  return Number(ch.completedAmount || 0) - Number(ch.settledAmount || 0)
+}
+
 const rules: FormRules = {
+  channelKey: [
+    { required: true, message: '请选择结算通道', trigger: 'change' }
+  ],
   amount: [
     { required: true, message: '请输入结算金额', trigger: 'blur' },
     {
@@ -148,30 +170,44 @@ const rules: FormRules = {
 
 const resetForm = () => {
   formRef.value?.resetFields()
-  form.amount = undefined as any
+  form.channelKey = ''
+  form.amount = undefined
   form.remark = ''
   pendingIdempotencyKey.value = ''
+  lastAutoFilledAmount.value = undefined
 }
 
 watch(
   () => props.modelValue,
   (val) => {
     if (val) {
+      if (props.initialChannelKey) {
+        form.channelKey = props.initialChannelKey
+      }
       if (props.initialAmount !== undefined && props.initialAmount > 0) {
         form.amount = props.initialAmount
-      }
-      if (props.initialRemark) {
-        form.remark = props.initialRemark
+        lastAutoFilledAmount.value = props.initialAmount
       }
     }
-  }
+  },
+  { immediate: true }
 )
 
-function handleSelectChannel(ch: SellerCategoryStat) {
-  if (ch.completedAmount > 0 && (!form.amount || form.amount <= 0)) {
-    form.amount = ch.completedAmount
-  }
-  form.remark = `[${ch.label}] 款项结算`
+/**
+ * 切换通道时自动带入该通道的未结金额：
+ * - 金额为空，或仍是上一次自动带入的值（用户未手动修改）时，覆盖为新通道的未结金额；
+ * - 新通道未结 <= 0（无欠款或已预结）时清空金额，由用户自行填写预结金额；
+ * - 用户手动改过的金额保持不动。
+ */
+function handleChannelChange() {
+  const ch = selectedChannel.value
+  if (!ch) return
+  const amountIsAuto = !form.amount || form.amount <= 0 || form.amount === lastAutoFilledAmount.value
+  if (!amountIsAuto) return
+  const unsettled = channelUnsettled(ch)
+  const next = unsettled > 0 ? Math.round(unsettled * 100) / 100 : undefined
+  form.amount = next
+  lastAutoFilledAmount.value = next
 }
 
 const handleClose = () => {
@@ -184,6 +220,23 @@ const handleSubmit = async () => {
 
   await formRef.value.validate(async (valid) => {
     if (!valid) return
+    const ch = selectedChannel.value
+    if (!ch || form.amount === undefined) return
+
+    // 二次确认：明确展示通道、金额与结算后的通道未结，降低选错通道 / 填错金额的概率
+    const after = Math.round((channelUnsettled(ch) - form.amount) * 100) / 100
+    const afterText = after < 0
+      ? `结算后该通道将预结 ${formatDisplayAmount(-after)}（后续该通道开票自动抵扣）`
+      : `结算后该通道未结将变为 ${formatDisplayAmount(after)}`
+    try {
+      await ElMessageBox.confirm(
+        `确认向【${ch.label}】结算 ${formatDisplayAmount(form.amount)}？${afterText}。`,
+        '确认结算',
+        { confirmButtonText: '确认结算', cancelButtonText: '再看看', type: 'warning' }
+      )
+    } catch {
+      return
+    }
 
     const idempotencyKey = pendingIdempotencyKey.value || generateIdempotencyKey('settlement')
     pendingIdempotencyKey.value = idempotencyKey
@@ -192,6 +245,8 @@ const handleSubmit = async () => {
     try {
       const payload: SupplierSettlementRequest = {
         amount: form.amount,
+        sellerCompany: ch.sellerCompany as SettlementSellerCompany,
+        invoiceCategory: ch.invoiceCategory as SettlementInvoiceCategory,
         remark: form.remark?.trim() || undefined
       }
 
@@ -230,40 +285,43 @@ function formatDisplayAmount(val: number): string {
 
 /* 修复 #8：未结款项提示样式 */
 .unsettled-hint {
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   border-radius: 8px;
 }
 
-.channels-ref-box {
-  background: #f8fafc;
-  border: 1px dashed #cbd5e1;
-  border-radius: 6px;
-  padding: 10px 12px;
-  margin-bottom: 16px;
+.channel-radio-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
 }
 
-.channels-ref-title {
-  font-size: 12px;
-  color: #64748b;
-  margin-bottom: 6px;
-  font-weight: 500;
+.channel-radio {
+  margin-right: 0 !important;
+  height: auto !important;
+  padding: 8px 12px !important;
+  width: 100%;
 }
 
-.channels-tag-group {
+.channel-radio :deep(.el-radio__label) {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
 }
 
-.channel-quick-tag {
-  cursor: pointer;
-  transition: all 0.2s;
-  user-select: none;
+.channel-radio-name {
+  font-weight: 600;
+  color: #1e293b;
 }
 
-.channel-quick-tag:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+.channel-radio-unsettled {
+  font-size: 12px;
+  color: #e6a23c;
+}
+
+.channel-radio-unsettled.negative {
+  color: #67c23a;
 }
 
 .unsettled-amount {
@@ -278,4 +336,3 @@ function formatDisplayAmount(val: number): string {
   margin-left: 4px;
 }
 </style>
-

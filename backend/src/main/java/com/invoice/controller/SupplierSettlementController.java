@@ -3,6 +3,7 @@ package com.invoice.controller;
 import com.invoice.dto.ApiResponse;
 import com.invoice.dto.SupplierSettlementRequest;
 import com.invoice.dto.SupplierSettlementResponse;
+import com.invoice.dto.SupplierSettlementVoidRequest;
 import com.invoice.security.JwtUserPrincipal;
 import com.invoice.service.SupplierSettlementService;
 import jakarta.validation.Valid;
@@ -39,11 +40,24 @@ public class SupplierSettlementController {
             @AuthenticationPrincipal JwtUserPrincipal principal) {
         SupplierSettlementResponse response = supplierSettlementService.createSettlement(
                 request.getAmount(),
+                request.getSellerCompany(),
+                request.getInvoiceCategory(),
                 request.getRemark(),
                 principal.userId(),
                 idempotencyKey
         );
         return ApiResponse.success(response);
+    }
+
+    /**
+     * 作废结算记录（纠错：选错通道 / 填错金额后作废并重新登记）
+     */
+    @PostMapping("/{id}/void")
+    public ApiResponse<SupplierSettlementResponse> voidSettlement(
+            @PathVariable Long id,
+            @Valid @RequestBody SupplierSettlementVoidRequest request,
+            @AuthenticationPrincipal JwtUserPrincipal principal) {
+        return ApiResponse.success(supplierSettlementService.voidSettlement(id, request.getReason(), principal.userId()));
     }
 
     /**

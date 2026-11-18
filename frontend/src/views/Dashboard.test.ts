@@ -1,12 +1,13 @@
 // @vitest-environment happy-dom
 
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import ElementPlus, { ElMessage } from 'element-plus'
+import ElementPlus, { ElMessage, ElMessageBox } from 'element-plus'
 import { createPinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Dashboard from './Dashboard.vue'
 import { dashboardApi, type DashboardStats } from '@/api/dashboard'
 import { useUserStore } from '@/stores/user'
+import { getSettlementHistory, voidSettlement, type SupplierSettlementResponse } from '@/api/supplierSettlement'
 
 const chartMocks = vi.hoisted(() => ({
   init: vi.fn(),
@@ -53,8 +54,10 @@ vi.mock('@/api/dashboard', () => ({
   }
 }))
 
-vi.mock('@/api/supplierSettlement', () => ({
-  getSettlementHistory: vi.fn(() => Promise.resolve([]))
+vi.mock('@/api/supplierSettlement', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/supplierSettlement')>()),
+  getSettlementHistory: vi.fn(() => Promise.resolve([])),
+  voidSettlement: vi.fn(() => Promise.resolve({}))
 }))
 
 const emptyStats: DashboardStats = {
@@ -354,9 +357,10 @@ describe('Dashboard', () => {
 
     const page = await mountPage()
 
+    // 待付款与预结拆开展示：净额为负时待付款为 0，预结金额单独标注
     expect(page.text()).toContain('供应商未结款项')
-    expect(page.text()).toContain('-¥700.00')
-    expect(page.text()).toContain('预结待抵扣')
+    expect(page.text()).toContain('预结待抵扣 ¥700.00')
+    expect(page.text()).not.toContain('-¥700.00')
   })
 
   it('switches category distribution to rank list mode and clearly renders category percentages', async () => {
@@ -456,7 +460,9 @@ describe('Dashboard', () => {
           completedCount: 5,
           deductedQuota: 1000.0,
           feeRate: 0.03,
-          amountRatio: 43.5
+          amountRatio: 43.5,
+          settledAmount: 600.0,
+          unsettledAmount: 400.0
         },
         {
           key: 'default_special',
@@ -495,7 +501,9 @@ describe('Dashboard', () => {
           completedCount: 1,
           deductedQuota: 669.17,
           feeRate: 0.1,
-          amountRatio: 8.7
+          amountRatio: 8.7,
+          settledAmount: 500.0,
+          unsettledAmount: -299.25
         }
       ]
     }
@@ -516,6 +524,140 @@ describe('Dashboard', () => {
     expect(page.text()).toContain('¥800.00')
     expect(page.text()).toContain('¥300.00')
     expect(page.text()).toContain('¥200.75')
+
+    // 分类型结算：每个通道独立展示已结 / 未结，负数显示为预结待抵扣
+    const normalSettle = cards[0].find('.subcard-settle-row').text()
+    expect(normalSettle).toContain('已结 ¥600.00')
+    expect(normalSettle).toContain('未结 ¥400.00')
+    const techSpecialSettle = cards[3].find('.subcard-settle-row').text()
+    expect(techSpecialSettle).toContain('已结 ¥500.00')
+    expect(techSpecialSettle).toContain('预结待抵扣 ¥299.25')
+    // 未返回通道已结数据时兜底：已结 0，未结 = 已开
+    expect(cards[1].find('.subcard-settle-row').text()).toContain('未结 ¥800.00')
+
+    // 顶部待付款 = 各通道正数未结之和（400 + 800 + 300），科技专票的预结不抵扣其他通道
+    const payable = page.find('.settlement-payable').text()
+    expect(payable).toContain('¥1,500.00')
+    expect(payable).toContain('预结待抵扣 ¥299.25')
+  })
+
+  function findChartOption(predicate: (option: any) => boolean) {
+    for (const chart of chartMocks.instances) {
+      for (const call of chart.setOption.mock.calls) {
+        if (predicate(call[0])) return call[0]
+      }
+    }
+    return undefined
+  }
+
+  it('splits the settlement trend into payable and pre-settled lines per channel', async () => {
+    mockedApi.getStats.mockResolvedValue({
+      ...populatedStats,
+      settlementTrends: [
+        { month: '2026-10', invoicedAmount: 1000, settledAmount: 600, unsettledBalance: 100, payableBalance: 400, preSettledBalance: 300, settledByChannel: { default_normal: 100, tech_special: 500 } },
+        { month: '2026-11', invoicedAmount: 200, settledAmount: 0, unsettledBalance: 300, payableBalance: 600, preSettledBalance: 300, settledByChannel: {} }
+      ]
+    })
+
+    await mountPage('ADMIN')
+
+    const option = findChartOption(o => Array.isArray(o?.series) && o.series.some((x: any) => x.name === '累计待付款 (¥)'))
+    expect(option).toBeTruthy()
+    const byName = Object.fromEntries(option.series.map((x: any) => [x.name, x.data]))
+    expect(byName['累计待付款 (¥)']).toEqual([400, 600])
+    expect(byName['预结待抵扣 (¥)']).toEqual([300, 300])
+    expect(byName['当月结算额 (¥)']).toEqual([600, 0])
+
+    const tooltip = option.tooltip.formatter([{ axisValue: '2026-10' }])
+    expect(tooltip).toContain('普通公司·普票: ¥100.00')
+    expect(tooltip).toContain('科技公司·专票: ¥500.00')
+    expect(tooltip).toContain('月末累计待付款: <b>¥400.00')
+    expect(tooltip).toContain('月末预结待抵扣: <b>¥300.00')
+  })
+
+  it('falls back to net balance and hides the pre-settled line for legacy trend data', async () => {
+    mockedApi.getStats.mockResolvedValue({
+      ...populatedStats,
+      settlementTrends: [
+        { month: '2026-10', invoicedAmount: 1000, settledAmount: 600, unsettledBalance: 400 },
+        { month: '2026-11', invoicedAmount: 200, settledAmount: 0, unsettledBalance: 600 }
+      ]
+    })
+
+    await mountPage('ADMIN')
+
+    const option = findChartOption(o => Array.isArray(o?.series) && o.series.some((x: any) => x.name === '累计待付款 (¥)'))
+    const names = option.series.map((x: any) => x.name)
+    expect(names).not.toContain('预结待抵扣 (¥)')
+    expect(option.series.find((x: any) => x.name === '累计待付款 (¥)').data).toEqual([400, 600])
+  })
+
+  describe('settlement history void', () => {
+    const activeRow: SupplierSettlementResponse = {
+      id: 21,
+      settlementAmount: 500,
+      sellerCompany: 'TECH',
+      invoiceCategory: 'VAT_SPECIAL',
+      remark: '首笔',
+      operatorName: 'admin',
+      createdAt: '2026-11-18T10:00:00+08:00',
+      voided: false,
+      voidedAt: null,
+      voidedByName: null,
+      voidReason: null
+    }
+    const voidedRow: SupplierSettlementResponse = {
+      ...activeRow,
+      id: 20,
+      settlementAmount: 300,
+      voided: true,
+      voidedAt: '2026-11-18T11:00:00+08:00',
+      voidedByName: 'boss',
+      voidReason: '选错通道'
+    }
+
+    it('marks voided rows and only offers void on active rows', async () => {
+      mockedApi.getStats.mockResolvedValue(populatedStats)
+      vi.mocked(getSettlementHistory).mockResolvedValue([activeRow, voidedRow])
+
+      const page = await mountPage('ADMIN')
+
+      expect(page.text()).toContain('科技公司·专票')
+      expect(page.text()).toContain('已作废（boss')
+      expect(page.text()).toContain('选错通道')
+      expect(page.findAll('.settlement-void-btn')).toHaveLength(1)
+      expect(page.find('.amount-voided').text()).toContain('¥300.00')
+    })
+
+    it('voids a settlement with a reason and refreshes stats and history', async () => {
+      mockedApi.getStats.mockResolvedValue(populatedStats)
+      vi.mocked(getSettlementHistory).mockResolvedValue([activeRow])
+      const prompt = vi.spyOn(ElMessageBox, 'prompt').mockResolvedValue({ value: ' 选错通道 ', action: 'confirm' } as never)
+      vi.spyOn(ElMessage, 'success').mockImplementation(() => ({ close: vi.fn() }) as never)
+
+      const page = await mountPage('ADMIN')
+      const statsCalls = mockedApi.getStats.mock.calls.length
+      const historyCalls = vi.mocked(getSettlementHistory).mock.calls.length
+
+      await page.find('.settlement-void-btn').trigger('click')
+      await flushPromises()
+
+      expect(prompt).toHaveBeenCalledTimes(1)
+      expect(vi.mocked(voidSettlement)).toHaveBeenCalledWith(21, '选错通道')
+      expect(mockedApi.getStats.mock.calls.length).toBeGreaterThan(statsCalls)
+      expect(vi.mocked(getSettlementHistory).mock.calls.length).toBeGreaterThan(historyCalls)
+    })
+
+    it('does nothing when the void prompt is cancelled', async () => {
+      mockedApi.getStats.mockResolvedValue(populatedStats)
+      vi.mocked(getSettlementHistory).mockResolvedValue([activeRow])
+      vi.spyOn(ElMessageBox, 'prompt').mockRejectedValue('cancel')
+
+      const page = await mountPage('ADMIN')
+      await page.find('.settlement-void-btn').trigger('click')
+      await flushPromises()
+
+      expect(vi.mocked(voidSettlement)).not.toHaveBeenCalled()
+    })
   })
 })
-

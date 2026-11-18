@@ -1829,12 +1829,12 @@ public class InvoiceService {
                 dailyFlows, appCount, rejCount, pendCount, appAmount, approvalRate
         );
 
-        // 16. 供应商开票与结算月度对账走势
-        List<com.invoice.dto.DashboardStats.SettlementTrendStat> settlementTrends = buildSettlementTrends(totalAmount, totalSettledAmount);
-
-        // 17. 供应商主体公司与票种开票细分统计（普通/科技 x 普票/专票四大已开额度）
+        // 16. 供应商主体公司与票种开票细分统计（普通/科技 x 普票/专票四大已开额度，含各通道已结 / 未结）
         InvoiceMapper.SellerCategorySummary dbSellerCategory = invoiceMapper.selectSellerCategorySummary();
         List<com.invoice.dto.DashboardStats.SellerCategoryStat> sellerCategoryStats = buildSellerCategoryStats(dbSellerCategory, totalAmount);
+
+        // 17. 供应商开票与结算月度对账走势（按通道独立累计余额，月末余额与通道卡片一致）
+        List<com.invoice.dto.DashboardStats.SettlementTrendStat> settlementTrends = buildSettlementTrends(sellerCategoryStats);
 
         return new com.invoice.dto.DashboardStats(
                 overallStat != null && overallStat.totalInvoices() != null ? overallStat.totalInvoices() : 0L,
@@ -1863,31 +1863,34 @@ public class InvoiceService {
 
     private List<com.invoice.dto.DashboardStats.SellerCategoryStat> buildSellerCategoryStats(
             InvoiceMapper.SellerCategorySummary summary, BigDecimal totalAmount) {
-        if (summary == null) {
-            return List.of(
-                    createSellerCategoryStat("default_normal", "普通公司·普票", "DEFAULT", "普通公司", "NORMAL", "普通发票", BigDecimal.ZERO, 0L, BigDecimal.ZERO, new BigDecimal("0.0300"), totalAmount),
-                    createSellerCategoryStat("default_special", "普通公司·专票", "DEFAULT", "普通公司", "VAT_SPECIAL", "增值税专用发票", BigDecimal.ZERO, 0L, BigDecimal.ZERO, new BigDecimal("0.0900"), totalAmount),
-                    createSellerCategoryStat("tech_normal", "科技公司·普票", "TECH", "科技公司", "NORMAL", "普通发票", BigDecimal.ZERO, 0L, BigDecimal.ZERO, new BigDecimal("0.0400"), totalAmount),
-                    createSellerCategoryStat("tech_special", "科技公司·专票", "TECH", "科技公司", "VAT_SPECIAL", "增值税专用发票", BigDecimal.ZERO, 0L, BigDecimal.ZERO, new BigDecimal("0.1000"), totalAmount)
-            );
+        // 各通道已结算金额（按出票主体 × 票种分类型结算），通道未结 = 通道已开票面金额 - 通道已结
+        Map<String, BigDecimal> settledByChannel = supplierSettlementService != null
+                ? supplierSettlementService.getSettledAmountByChannel()
+                : Map.of();
+        if (settledByChannel == null) {
+            settledByChannel = Map.of();
         }
+        InvoiceMapper.SellerCategorySummary s = summary != null
+                ? summary
+                : new InvoiceMapper.SellerCategorySummary(null, null, null, null, null, null, null, null, null, null, null, null);
 
         return List.of(
                 createSellerCategoryStat("default_normal", "普通公司·普票", "DEFAULT", "普通公司", "NORMAL", "普通发票",
-                        summary.defaultNormalAmount(), summary.defaultNormalCount(), summary.defaultNormalDeductedQuota(), new BigDecimal("0.0300"), totalAmount),
+                        s.defaultNormalAmount(), s.defaultNormalCount(), s.defaultNormalDeductedQuota(), new BigDecimal("0.0300"), totalAmount, settledByChannel),
                 createSellerCategoryStat("default_special", "普通公司·专票", "DEFAULT", "普通公司", "VAT_SPECIAL", "增值税专用发票",
-                        summary.defaultSpecialAmount(), summary.defaultSpecialCount(), summary.defaultSpecialDeductedQuota(), new BigDecimal("0.0900"), totalAmount),
+                        s.defaultSpecialAmount(), s.defaultSpecialCount(), s.defaultSpecialDeductedQuota(), new BigDecimal("0.0900"), totalAmount, settledByChannel),
                 createSellerCategoryStat("tech_normal", "科技公司·普票", "TECH", "科技公司", "NORMAL", "普通发票",
-                        summary.techNormalAmount(), summary.techNormalCount(), summary.techNormalDeductedQuota(), new BigDecimal("0.0400"), totalAmount),
+                        s.techNormalAmount(), s.techNormalCount(), s.techNormalDeductedQuota(), new BigDecimal("0.0400"), totalAmount, settledByChannel),
                 createSellerCategoryStat("tech_special", "科技公司·专票", "TECH", "科技公司", "VAT_SPECIAL", "增值税专用发票",
-                        summary.techSpecialAmount(), summary.techSpecialCount(), summary.techSpecialDeductedQuota(), new BigDecimal("0.1000"), totalAmount)
+                        s.techSpecialAmount(), s.techSpecialCount(), s.techSpecialDeductedQuota(), new BigDecimal("0.1000"), totalAmount, settledByChannel)
         );
     }
 
     private com.invoice.dto.DashboardStats.SellerCategoryStat createSellerCategoryStat(
             String key, String label, String sellerCompany, String sellerCompanyName,
             String invoiceCategory, String categoryName, BigDecimal amount, Long count,
-            BigDecimal deductedQuota, BigDecimal feeRate, BigDecimal totalAmount) {
+            BigDecimal deductedQuota, BigDecimal feeRate, BigDecimal totalAmount,
+            Map<String, BigDecimal> settledByChannel) {
         BigDecimal safeAmount = amount != null ? amount : BigDecimal.ZERO;
         Long safeCount = count != null ? count : 0L;
         BigDecimal safeQuota = deductedQuota != null ? deductedQuota : BigDecimal.ZERO;
@@ -1897,34 +1900,37 @@ public class InvoiceService {
                     .divide(totalAmount, 1, RoundingMode.HALF_UP)
                     .doubleValue();
         }
+        BigDecimal settled = settledByChannel.getOrDefault(
+                SupplierSettlementService.channelKey(sellerCompany, invoiceCategory), BigDecimal.ZERO);
         return new com.invoice.dto.DashboardStats.SellerCategoryStat(
                 key, label, sellerCompany, sellerCompanyName, invoiceCategory, categoryName,
-                safeAmount, safeCount, safeQuota, feeRate, ratio
+                safeAmount, safeCount, safeQuota, feeRate, ratio,
+                settled, safeAmount.subtract(settled)
         );
     }
 
-    private List<com.invoice.dto.DashboardStats.SettlementTrendStat> buildSettlementTrends(BigDecimal allTimeInvoiced, BigDecimal allTimeSettled) {
-        Map<String, BigDecimal> invoicedMap = new HashMap<>();
-        List<InvoiceMapper.MonthlyInvoicedStat> dbInvoiced = invoiceMapper.selectRecentMonthlyInvoicedStats();
-        if (dbInvoiced != null) {
-            for (InvoiceMapper.MonthlyInvoicedStat stat : dbInvoiced) {
-                if (stat.month() != null) {
-                    invoicedMap.put(stat.month(), stat.amount() != null ? stat.amount() : BigDecimal.ZERO);
-                }
-            }
+    /**
+     * 供应商月度对账走势：按结算通道独立累计余额。
+     * 通道预结只在本通道内抵扣，因此月末「待付款」= 各通道正数余额之和，「预结待抵扣」= 各通道负数余额绝对值之和，
+     * 不能把各通道余额直接相加（否则某通道预结会错误地抵消其他通道的应付）。
+     * 以各通道当前余额（与通道卡片一致）为终点，倒推窗口期前的期初余额，再逐月滚动。
+     */
+    private List<com.invoice.dto.DashboardStats.SettlementTrendStat> buildSettlementTrends(
+            List<com.invoice.dto.DashboardStats.SellerCategoryStat> channels) {
+        // channelKey(DEFAULT:NORMAL) -> 卡片 key(default_normal)
+        Map<String, String> cardKeyByChannel = new HashMap<>();
+        Map<String, BigDecimal> balanceByCardKey = new java.util.LinkedHashMap<>();
+        for (com.invoice.dto.DashboardStats.SellerCategoryStat ch : channels) {
+            cardKeyByChannel.put(SupplierSettlementService.channelKey(ch.sellerCompany(), ch.invoiceCategory()), ch.key());
+            balanceByCardKey.put(ch.key(), ch.unsettledAmount() != null ? ch.unsettledAmount() : BigDecimal.ZERO);
         }
 
-        Map<String, BigDecimal> settledMap = new HashMap<>();
-        if (supplierSettlementMapper != null) {
-            List<SupplierSettlementMapper.MonthlySettlementStat> dbSettled = supplierSettlementMapper.selectRecentMonthlySettlementStats();
-            if (dbSettled != null) {
-                for (SupplierSettlementMapper.MonthlySettlementStat stat : dbSettled) {
-                    if (stat.month() != null) {
-                        settledMap.put(stat.month(), stat.amount() != null ? stat.amount() : BigDecimal.ZERO);
-                    }
-                }
-            }
-        }
+        // month -> cardKey -> amount
+        Map<String, Map<String, BigDecimal>> invoicedByMonth = groupMonthlyByChannel(
+                invoiceMapper.selectRecentMonthlyInvoicedByChannel(), cardKeyByChannel);
+        Map<String, Map<String, BigDecimal>> settledByMonth = supplierSettlementMapper != null
+                ? groupMonthlyByChannel(supplierSettlementMapper.selectRecentMonthlySettledByChannel(), cardKeyByChannel)
+                : new HashMap<>();
 
         // 汇总所有涉及的月份并排序，至少包含近 6 个月连续月份
         Set<String> allMonths = new TreeSet<>();
@@ -1932,27 +1938,75 @@ public class InvoiceService {
         for (int i = 5; i >= 0; i--) {
             allMonths.add(currentMonth.minusMonths(i).toString());
         }
-        allMonths.addAll(invoicedMap.keySet());
-        allMonths.addAll(settledMap.keySet());
+        allMonths.addAll(invoicedByMonth.keySet());
+        allMonths.addAll(settledByMonth.keySet());
 
-        BigDecimal sumRecentInvoiced = invoicedMap.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal sumRecentSettled = settledMap.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
-        BigDecimal safeAllTimeInvoiced = allTimeInvoiced != null ? allTimeInvoiced : BigDecimal.ZERO;
-        BigDecimal safeAllTimeSettled = allTimeSettled != null ? allTimeSettled : BigDecimal.ZERO;
-        BigDecimal priorInvoiced = safeAllTimeInvoiced.subtract(sumRecentInvoiced);
-        BigDecimal priorSettled = safeAllTimeSettled.subtract(sumRecentSettled);
-        BigDecimal cumulativeBalance = priorInvoiced.subtract(priorSettled);
+        // 期初余额 = 当前余额 - 窗口期内（开票 - 结算）
+        Map<String, BigDecimal> running = new java.util.LinkedHashMap<>(balanceByCardKey);
+        for (String month : allMonths) {
+            for (String cardKey : running.keySet()) {
+                BigDecimal delta = monthlyAmount(invoicedByMonth, month, cardKey)
+                        .subtract(monthlyAmount(settledByMonth, month, cardKey));
+                running.put(cardKey, running.get(cardKey).subtract(delta));
+            }
+        }
 
         List<com.invoice.dto.DashboardStats.SettlementTrendStat> result = new ArrayList<>();
         for (String month : allMonths) {
-            BigDecimal invoiced = invoicedMap.getOrDefault(month, BigDecimal.ZERO);
-            BigDecimal settled = settledMap.getOrDefault(month, BigDecimal.ZERO);
-            cumulativeBalance = cumulativeBalance.add(invoiced).subtract(settled);
+            BigDecimal monthInvoiced = BigDecimal.ZERO;
+            BigDecimal monthSettled = BigDecimal.ZERO;
+            BigDecimal payable = BigDecimal.ZERO;
+            BigDecimal preSettled = BigDecimal.ZERO;
+            Map<String, BigDecimal> settledByChannel = new java.util.LinkedHashMap<>();
+            for (String cardKey : running.keySet()) {
+                BigDecimal invoiced = monthlyAmount(invoicedByMonth, month, cardKey);
+                BigDecimal settled = monthlyAmount(settledByMonth, month, cardKey);
+                monthInvoiced = monthInvoiced.add(invoiced);
+                monthSettled = monthSettled.add(settled);
+                settledByChannel.put(cardKey, settled);
+                BigDecimal balance = running.get(cardKey).add(invoiced).subtract(settled);
+                running.put(cardKey, balance);
+                if (balance.signum() > 0) {
+                    payable = payable.add(balance);
+                } else {
+                    preSettled = preSettled.add(balance.negate());
+                }
+            }
             result.add(new com.invoice.dto.DashboardStats.SettlementTrendStat(
-                    month, invoiced, settled, cumulativeBalance
+                    month, monthInvoiced, monthSettled, payable.subtract(preSettled),
+                    payable, preSettled, settledByChannel
             ));
         }
         return result;
+    }
+
+    private static Map<String, Map<String, BigDecimal>> groupMonthlyByChannel(
+            List<InvoiceMapper.MonthlyChannelAmountStat> rows, Map<String, String> cardKeyByChannel) {
+        Map<String, Map<String, BigDecimal>> result = new HashMap<>();
+        if (rows == null) {
+            return result;
+        }
+        for (InvoiceMapper.MonthlyChannelAmountStat row : rows) {
+            if (row == null || row.month() == null || row.sellerCompany() == null || row.invoiceCategory() == null) {
+                continue;
+            }
+            String cardKey = cardKeyByChannel.get(SupplierSettlementService.channelKey(
+                    row.sellerCompany().trim().toUpperCase(Locale.ROOT), row.invoiceCategory().trim().toUpperCase(Locale.ROOT)));
+            if (cardKey == null) {
+                continue;
+            }
+            BigDecimal amount = row.amount() != null ? row.amount() : BigDecimal.ZERO;
+            result.computeIfAbsent(row.month(), k -> new HashMap<>()).merge(cardKey, amount, BigDecimal::add);
+        }
+        return result;
+    }
+
+    private static BigDecimal monthlyAmount(Map<String, Map<String, BigDecimal>> byMonth, String month, String cardKey) {
+        Map<String, BigDecimal> m = byMonth.get(month);
+        if (m == null) {
+            return BigDecimal.ZERO;
+        }
+        return m.getOrDefault(cardKey, BigDecimal.ZERO);
     }
 
     private List<com.invoice.dto.DashboardStats.AmountRangeStat> buildAmountRangeStats(InvoiceMapper.AmountRangeSummary summary) {

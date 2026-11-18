@@ -159,18 +159,19 @@
           </div>
         </SpotlightCard>
 
-        <!-- 7. 供应商未结款项 -->
+        <!-- 7. 供应商未结款项（待付款 = 各通道正数未结之和；通道预结不跨通道抵扣，单独展示） -->
         <SpotlightCard class="stat-card stat-card-unsettled">
           <div class="stat-card-content">
             <span class="stat-icon warning"><Clock /></span>
             <div class="stat-copy">
               <span class="stat-label">供应商未结款项</span>
               <strong class="stat-value warning-text">
-                <CountUp :value="stats?.unsettledAmount || 0" :decimals="2" prefix="¥" />
+                <CountUp :value="settlementBalance.payable" :decimals="2" prefix="¥" />
               </strong>
             </div>
             <div class="stat-footer-pill warning-pill">
-              <span>{{ (stats?.unsettledAmount || 0) < 0 ? '预结待抵扣' : '待结算' }}</span>
+              <span v-if="settlementBalance.preSettled > 0">预结待抵扣 ¥{{ formatMoney(settlementBalance.preSettled) }}</span>
+              <span v-else>待结算</span>
             </div>
           </div>
         </SpotlightCard>
@@ -519,12 +520,20 @@
                 </div>
                 <div class="settlement-kpi-divider"></div>
                 <div class="settlement-kpi-item">
-                  <span class="kpi-sub-label">当前待结/结余</span>
-                  <span class="kpi-sub-val" :class="(stats?.unsettledAmount || 0) < 0 ? 'accent' : 'warning'">
-                    ¥{{ formatMoney(stats?.unsettledAmount || 0) }}
-                    <el-tag size="small" :type="(stats?.unsettledAmount || 0) < 0 ? 'success' : 'warning'" effect="plain">
-                      {{ (stats?.unsettledAmount || 0) < 0 ? '预结待抵扣' : '待付款' }}
+                  <span class="kpi-sub-label">当前待付款</span>
+                  <span class="kpi-sub-val warning settlement-payable">
+                    ¥{{ formatMoney(settlementBalance.payable) }}
+                    <el-tag
+                      v-if="settlementBalance.preSettled > 0"
+                      size="small"
+                      type="success"
+                      effect="plain"
+                      class="settlement-presettled-tag"
+                      title="部分通道已提前预结，仅在该通道后续开票中抵扣，不抵扣其他通道的待付款"
+                    >
+                      预结待抵扣 ¥{{ formatMoney(settlementBalance.preSettled) }}
                     </el-tag>
+                    <el-tag v-else size="small" type="warning" effect="plain">待付款</el-tag>
                   </span>
                 </div>
                 <div class="settlement-kpi-divider"></div>
@@ -594,6 +603,20 @@
                       </span>
                     </div>
 
+                    <!-- 该通道分类型结算：已结 / 未结（负数为预结待抵扣，仅在本通道内抵扣） -->
+                    <div class="subcard-settle-row">
+                      <span class="settle-cell settled">
+                        已结 <b>¥{{ formatMoney(item.settledAmount || 0) }}</b>
+                      </span>
+                      <span
+                        class="settle-cell unsettled"
+                        :class="{ negative: channelUnsettledAmount(item) < 0 }"
+                      >
+                        {{ channelUnsettledAmount(item) < 0 ? '预结待抵扣' : '未结' }}
+                        <b>¥{{ formatMoney(Math.abs(channelUnsettledAmount(item))) }}</b>
+                      </span>
+                    </div>
+
                     <div class="subcard-progress-track">
                       <div
                         class="subcard-progress-bar"
@@ -611,7 +634,7 @@
                   <div class="settlement-chart-panel">
                     <div class="panel-sub-header">
                       <span class="sub-title">月度开票 vs 结算结款走势</span>
-                      <span class="sub-hint">近 6 个月开票金额与结算结款对照</span>
+                      <span class="sub-hint">近 6 个月开票与结算对照；待付款按通道独立累计，预结不跨通道抵扣</span>
                     </div>
                     <div v-show="hasSettlementTrends" ref="settlementTrendChartRef" class="chart-container settlement-chart"></div>
                     <div v-show="!hasSettlementTrends" class="chart-empty settlement-chart">
@@ -633,25 +656,56 @@
                       stripe
                       size="small"
                       class="settlement-compact-table"
+                      :row-class-name="settlementRowClassName"
                     >
-                      <el-table-column prop="createdAt" label="结算时间" width="145">
+                      <el-table-column prop="createdAt" label="结算时间" width="140">
                         <template #default="{ row }">
                           <span class="time-cell">{{ formatDate(row.createdAt) }}</span>
                         </template>
                       </el-table-column>
-                      <el-table-column prop="settlementAmount" label="结算金额" width="130">
+                      <el-table-column prop="settlementAmount" label="结算金额" width="125">
                         <template #default="{ row }">
-                          <span class="amount-badge">¥{{ formatMoney(row.settlementAmount) }}</span>
+                          <span class="amount-badge" :class="{ 'amount-voided': row.voided }">¥{{ formatMoney(row.settlementAmount) }}</span>
                         </template>
                       </el-table-column>
-                      <el-table-column prop="operatorName" label="操作人" width="90">
+                      <el-table-column label="结算通道" width="115">
+                        <template #default="{ row }">
+                          <el-tag
+                            size="small"
+                            effect="plain"
+                            :type="row.voided ? 'info' : row.sellerCompany === 'TECH' ? 'primary' : 'success'"
+                          >
+                            {{ settlementChannelLabel(row.sellerCompany, row.invoiceCategory) }}
+                          </el-tag>
+                        </template>
+                      </el-table-column>
+                      <el-table-column prop="operatorName" label="操作人" width="85">
                         <template #default="{ row }">
                           <el-tag size="small" type="info" effect="light">{{ row.operatorName || '管理员' }}</el-tag>
                         </template>
                       </el-table-column>
                       <el-table-column prop="remark" label="备注" min-width="110" show-overflow-tooltip>
                         <template #default="{ row }">
-                          <span class="remark-cell">{{ row.remark || '-' }}</span>
+                          <span v-if="row.voided" class="remark-cell void-remark">
+                            已作废（{{ row.voidedByName || '管理员' }}{{ row.voidedAt ? ' ' + formatDate(row.voidedAt) : '' }}）：{{ row.voidReason || '-' }}
+                          </span>
+                          <span v-else class="remark-cell">{{ row.remark || '-' }}</span>
+                        </template>
+                      </el-table-column>
+                      <el-table-column label="操作" width="70" fixed="right">
+                        <template #default="{ row }">
+                          <el-tag v-if="row.voided" size="small" type="info" effect="plain">已作废</el-tag>
+                          <el-button
+                            v-else
+                            type="danger"
+                            link
+                            size="small"
+                            class="settlement-void-btn"
+                            :loading="voidingSettlementId === row.id"
+                            @click="handleVoidSettlement(row)"
+                          >
+                            作废
+                          </el-button>
                         </template>
                       </el-table-column>
                     </el-table>
@@ -679,9 +733,8 @@
     <!-- 供应商结算对话框 -->
     <SupplierSettlementDialog
       v-model="showSettlementDialog"
-      :unsettled-amount="stats?.unsettledAmount"
       :channels="sellerCategoryStatsList"
-      :initial-remark="quickSettlementRemark"
+      :initial-channel-key="quickSettlementChannelKey"
       :initial-amount="quickSettlementAmount"
       @success="handleSettlementSuccess"
     />
@@ -726,7 +779,9 @@ import SpotlightCard from '@/components/bits/SpotlightCard.vue'
 import AnimatedContent from '@/components/bits/AnimatedContent.vue'
 import CountUp from '@/components/bits/CountUp.vue'
 import SupplierSettlementDialog from '@/components/SupplierSettlementDialog.vue'
-import { getSettlementHistory, type SupplierSettlementResponse } from '@/api/supplierSettlement'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getSettlementHistory, settlementChannelLabel, voidSettlement, type SupplierSettlementResponse } from '@/api/supplierSettlement'
+import type { SellerCategoryStat, SettlementTrendStat } from '@/api/dashboard'
 
 // 注册 ECharts 核心组件
 use([
@@ -771,22 +826,100 @@ const userMetricMode = ref<'count' | 'amount'>('count')
 
 // 供应商结算相关状态
 const showSettlementDialog = ref(false)
-const quickSettlementRemark = ref('')
+const quickSettlementChannelKey = ref<string | undefined>(undefined)
 const quickSettlementAmount = ref<number | undefined>(undefined)
 const settlementHistory = ref<SupplierSettlementResponse[]>([])
 const loadingSettlementHistory = ref(false)
 const settlementCurrentPage = ref(1)
 
 function openGeneralSettlement() {
-  quickSettlementRemark.value = ''
+  quickSettlementChannelKey.value = undefined
   quickSettlementAmount.value = undefined
   showSettlementDialog.value = true
 }
 
-function triggerChannelSettlement(item: any) {
-  quickSettlementRemark.value = `[${item.label}] 款项结算`
-  quickSettlementAmount.value = item.completedAmount > 0 ? item.completedAmount : undefined
+/** 通道未结 = 已开票面 - 已结算；后端未返回时前端兜底计算 */
+function channelUnsettledAmount(item: SellerCategoryStat): number {
+  if (item.unsettledAmount !== undefined && item.unsettledAmount !== null) {
+    return Number(item.unsettledAmount)
+  }
+  return Number(item.completedAmount || 0) - Number(item.settledAmount || 0)
+}
+
+function triggerChannelSettlement(item: SellerCategoryStat) {
+  const unsettled = channelUnsettledAmount(item)
+  quickSettlementChannelKey.value = item.key
+  quickSettlementAmount.value = unsettled > 0 ? Math.round(unsettled * 100) / 100 : undefined
   showSettlementDialog.value = true
+}
+
+/**
+ * 供应商待付款 / 预结拆分：通道预结不跨通道抵扣，因此不能直接把各通道未结相加。
+ * - payable：各通道正数未结之和（真正还需要付给供应商的钱）
+ * - preSettled：各通道负数未结的绝对值之和（已预付、待各自通道后续开票抵扣）
+ * 后端未返回通道明细时，退回到总净额口径。
+ */
+const settlementBalance = computed(() => {
+  const list = stats.value?.sellerCategoryStats
+  if (!list || list.length === 0) {
+    const net = Number(stats.value?.unsettledAmount || 0)
+    return { payable: Math.max(net, 0), preSettled: Math.max(-net, 0) }
+  }
+  let payable = 0
+  let preSettled = 0
+  for (const item of list) {
+    const unsettled = channelUnsettledAmount(item)
+    if (unsettled > 0) payable += unsettled
+    else preSettled += -unsettled
+  }
+  return {
+    payable: Math.round(payable * 100) / 100,
+    preSettled: Math.round(preSettled * 100) / 100
+  }
+})
+
+// 作废记录行样式
+function settlementRowClassName({ row }: { row: SupplierSettlementResponse }) {
+  return row.voided ? 'settlement-row-voided' : ''
+}
+
+// 作废结算记录（纠错：选错通道 / 填错金额后作废并重新登记）
+const voidingSettlementId = ref<number | null>(null)
+
+async function handleVoidSettlement(row: SupplierSettlementResponse) {
+  let reason: string
+  try {
+    const result = await ElMessageBox.prompt(
+      `作废后该笔 ¥${formatMoney(row.settlementAmount)}（${settlementChannelLabel(row.sellerCompany, row.invoiceCategory)}）将不再计入已结金额，记录保留可追溯。如需更正请作废后重新发起结算。`,
+      '作废结算记录',
+      {
+        confirmButtonText: '确认作废',
+        cancelButtonText: '取消',
+        type: 'warning',
+        inputPlaceholder: '请填写作废原因，如：选错通道 / 金额填错',
+        inputValidator: (value: string) => {
+          const v = (value || '').trim()
+          if (!v) return '作废原因不能为空'
+          if (v.length > 200) return '作废原因不能超过 200 个字符'
+          return true
+        }
+      }
+    )
+    reason = (result as { value: string }).value.trim()
+  } catch {
+    return
+  }
+
+  voidingSettlementId.value = row.id
+  try {
+    await voidSettlement(row.id, reason)
+    ElMessage.success('结算记录已作废')
+    await Promise.all([loadData(), loadSettlementHistory()])
+  } catch (error: any) {
+    ElMessage.error(error?.message || '作废失败，请重试')
+  } finally {
+    voidingSettlementId.value = null
+  }
 }
 
 // 是否为管理员
@@ -1743,24 +1876,30 @@ function initChannelCategoryChart() {
     VAT_SPECIAL: '增值税专用发票'
   }
 
+  // 按 key 固定配色，避免后端返回顺序变化（如专票单数反超普票）时颜色对调
+  const channelColorMap: Record<string, string> = { API: '#12715b', MANUAL: '#d69a2d', UNKNOWN: '#9aa5b1' }
+  const categoryColorMap: Record<string, string> = { NORMAL: '#2a9d8f', VAT_SPECIAL: '#457b9d' }
+
   const channelList = (stats.value.channelStats && stats.value.channelStats.length > 0)
     ? stats.value.channelStats.map(c => ({
         name: channelMap[c.channel as keyof typeof channelMap] || c.channel,
         value: c.count,
-        amount: c.amount
+        amount: c.amount,
+        itemStyle: { color: channelColorMap[c.channel] || '#9aa5b1' }
       }))
     : [
-        { name: 'API 接口调用', value: stats.value.completedInvoices || 0, amount: stats.value.totalAmount || 0 }
+        { name: 'API 接口调用', value: stats.value.completedInvoices || 0, amount: stats.value.totalAmount || 0, itemStyle: { color: channelColorMap.API } }
       ]
 
   const categoryList = (stats.value.categoryStats && stats.value.categoryStats.length > 0)
     ? stats.value.categoryStats.map(c => ({
         name: categoryMap[c.category as keyof typeof categoryMap] || c.category,
         value: c.count,
-        amount: c.amount
+        amount: c.amount,
+        itemStyle: { color: categoryColorMap[c.category] || '#9aa5b1' }
       }))
     : [
-        { name: '增值税普通发票', value: stats.value.completedInvoices || 0, amount: stats.value.totalAmount || 0 }
+        { name: '增值税普通发票', value: stats.value.completedInvoices || 0, amount: stats.value.totalAmount || 0, itemStyle: { color: categoryColorMap.NORMAL } }
       ]
 
   const option = {
@@ -1798,10 +1937,7 @@ function initChannelCategoryChart() {
           color: '#fff',
           formatter: '{b}\n{d}%'
         },
-        data: channelList.map((item, idx) => ({
-          ...item,
-          itemStyle: { color: idx === 0 ? '#12715b' : '#d69a2d' }
-        }))
+        data: channelList
       },
       {
         name: '发票票种',
@@ -1815,10 +1951,7 @@ function initChannelCategoryChart() {
           color: '#4d5863',
           fontSize: 11
         },
-        data: categoryList.map((item, idx) => ({
-          ...item,
-          itemStyle: { color: idx === 0 ? '#2a9d8f' : '#457b9d' }
-        }))
+        data: categoryList
       }
     ]
   }
@@ -2027,15 +2160,14 @@ function initSettlementTrendChart() {
     settlementTrendChart = init(settlementTrendChartRef.value)
   }
 
-  let trends = stats.value.settlementTrends || []
+  let trends: SettlementTrendStat[] = stats.value.settlementTrends || []
   if (trends.length === 0) {
-    const curYear = new Date().getFullYear()
-    const curMonth = new Date().getMonth() + 1
+    // 无数据时生成近 6 个月空坐标（跨年时年份同步回退）
+    const now = new Date()
     trends = Array.from({ length: 6 }, (_, i) => {
-      const m = curMonth - (5 - i)
-      const monthStr = `${curYear}-${String(m > 0 ? m : m + 12).padStart(2, '0')}`
+      const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1)
       return {
-        month: monthStr,
+        month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
         invoicedAmount: 0,
         settledAmount: 0,
         unsettledBalance: 0
@@ -2043,10 +2175,50 @@ function initSettlementTrendChart() {
     })
   }
 
+  // 待付款 / 预结拆分：通道预结不跨通道抵扣；旧接口无拆分字段时退回净额口径
+  const payableOf = (t: SettlementTrendStat) => t.payableBalance ?? Math.max(t.unsettledBalance || 0, 0)
+  const preSettledOf = (t: SettlementTrendStat) => t.preSettledBalance ?? Math.max(-(t.unsettledBalance || 0), 0)
+
   const months = trends.map(t => t.month)
   const invoiced = trends.map(t => t.invoicedAmount)
   const settled = trends.map(t => t.settledAmount)
-  const balances = trends.map(t => t.unsettledBalance)
+  const payables = trends.map(payableOf)
+  const preSettleds = trends.map(preSettledOf)
+  const hasPreSettled = preSettleds.some(v => v > 0)
+  const channelLabelMap = Object.fromEntries(sellerCategoryStatsList.value.map(c => [c.key, c.label]))
+
+  const series: any[] = [
+    {
+      name: '当月开票额 (¥)',
+      type: 'bar',
+      itemStyle: { color: '#12715b', borderRadius: [4, 4, 0, 0] },
+      data: invoiced
+    },
+    {
+      name: '当月结算额 (¥)',
+      type: 'bar',
+      itemStyle: { color: '#2a9d8f', borderRadius: [4, 4, 0, 0] },
+      data: settled
+    },
+    {
+      name: '累计待付款 (¥)',
+      type: 'line',
+      smooth: true,
+      itemStyle: { color: '#d69a2d' },
+      lineStyle: { width: 3, color: '#d69a2d' },
+      data: payables
+    }
+  ]
+  if (hasPreSettled) {
+    series.push({
+      name: '预结待抵扣 (¥)',
+      type: 'line',
+      smooth: true,
+      itemStyle: { color: '#2563eb' },
+      lineStyle: { width: 2, color: '#2563eb', type: 'dashed' },
+      data: preSettleds
+    })
+  }
 
   const option = {
     tooltip: {
@@ -2057,13 +2229,21 @@ function initSettlementTrendChart() {
         if (!params || !params.length) return ''
         const m = params[0].axisValue
         const t = trends.find(item => item.month === m)
+        if (!t) return ''
+        const channelLines = Object.entries(t.settledByChannel || {})
+          .filter(([, amount]) => Number(amount) !== 0)
+          .map(([key, amount]) => `<div style="color: #74808b; padding-left: 10px;">· ${channelLabelMap[key] || key}: ¥${formatMoney(Number(amount))}</div>`)
+          .join('')
+        const preSettled = preSettledOf(t)
         return `
           <div style="font-weight: 600; margin-bottom: 4px;">📆 月份: ${m}</div>
-          <div style="color: #12715b;">已开票总额: <b>¥${formatMoney(t?.invoicedAmount || 0)}</b></div>
-          <div style="color: #2a9d8f;">供应商结算: <b>¥${formatMoney(t?.settledAmount || 0)}</b></div>
+          <div style="color: #12715b;">已开票总额: <b>¥${formatMoney(t.invoicedAmount || 0)}</b></div>
+          <div style="color: #2a9d8f;">供应商结算: <b>¥${formatMoney(t.settledAmount || 0)}</b></div>
+          ${channelLines}
           <div style="color: #d69a2d; margin-top: 2px; border-top: 1px dashed #eee; padding-top: 2px;">
-            待结对账结余: <b>¥${formatMoney(t?.unsettledBalance || 0)}</b>
+            月末累计待付款: <b>¥${formatMoney(payableOf(t))}</b>
           </div>
+          ${preSettled > 0 ? `<div style="color: #2563eb;">月末预结待抵扣: <b>¥${formatMoney(preSettled)}</b></div>` : ''}
         `
       }
     },
@@ -2088,28 +2268,7 @@ function initSettlementTrendChart() {
         formatter: (v: number) => (Math.abs(v) >= 10000 ? `${(v / 10000).toFixed(0)}w` : `${v}`)
       }
     },
-    series: [
-      {
-        name: '当月开票额 (¥)',
-        type: 'bar',
-        itemStyle: { color: '#12715b', borderRadius: [4, 4, 0, 0] },
-        data: invoiced
-      },
-      {
-        name: '当月结算额 (¥)',
-        type: 'bar',
-        itemStyle: { color: '#2a9d8f', borderRadius: [4, 4, 0, 0] },
-        data: settled
-      },
-      {
-        name: '累计待结款项 (¥)',
-        type: 'line',
-        smooth: true,
-        itemStyle: { color: '#d69a2d' },
-        lineStyle: { width: 3, color: '#d69a2d' },
-        data: balances
-      }
-    ]
+    series
   }
 
   settlementTrendChart.setOption(option, true)
@@ -2863,6 +3022,35 @@ onBeforeUnmount(() => {
   color: #cbd5e1;
 }
 
+.subcard-settle-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: #64748b;
+  margin-bottom: 8px;
+  padding: 6px 8px;
+  background: #f8fafc;
+  border-radius: 6px;
+}
+
+.subcard-settle-row .settle-cell b {
+  font-weight: 600;
+  margin-left: 2px;
+}
+
+.subcard-settle-row .settled b {
+  color: #059669;
+}
+
+.subcard-settle-row .unsettled b {
+  color: #d97706;
+}
+
+.subcard-settle-row .unsettled.negative b {
+  color: #2563eb;
+}
+
 .subcard-progress-track {
   height: 4px;
   background: #f1f5f4;
@@ -2942,6 +3130,21 @@ onBeforeUnmount(() => {
 .remark-cell {
   font-size: 12px;
   color: #74808b;
+}
+
+/* 作废结算记录：金额划线置灰，不计入已结汇总 */
+.amount-badge.amount-voided {
+  color: #a8b0b8;
+  text-decoration: line-through;
+  font-weight: 500;
+}
+
+.remark-cell.void-remark {
+  color: #b45309;
+}
+
+:deep(.settlement-row-voided) td {
+  background: #fafafa !important;
 }
 
 .settlement-pagination {

@@ -63,13 +63,18 @@
 
 ### 1.4 供应商结算
 
-管理员可登记对外部供应商的结算记录：
+管理员可登记对外部供应商的结算记录。结算**按通道分类型**进行，通道 = 出票主体（`DEFAULT` 普通公司 / `TECH` 科技公司）× 票种（`NORMAL` 普票 / `VAT_SPECIAL` 专票），共 4 个通道，每笔结算必须指定通道：
 
 ```
-当前未结款项 = 累计已开票金额 − 累计已结算金额
+通道未结款项 = 该通道累计已开票面金额 − 该通道累计有效已结算金额
+当前待付款   = 各通道「正数」未结款项之和
+预结待抵扣   = 各通道「负数」未结款项的绝对值之和
 ```
 
-支持提前给外部供应商结款（预结）：结算金额可大于实际已开票金额，差额计为负数（代表已预付待抵扣），并在后续新开票时自动抵扣。
+支持提前给外部供应商结款（预结）：结算金额可大于该通道已开票金额，差额计为负数（代表已预付待抵扣），只在**本通道**后续新开票时自动抵扣，不跨通道抵扣。
+V34 迁移前的历史结算记录统一归属「普通公司·普票」。
+提交结算前会二次确认通道、金额及结算后的通道未结。
+选错通道或填错金额时，管理员可在历史记录中「作废」该笔结算（必填原因，记录作废人与时间）：作废记录保留可追溯，但不再计入任何已结汇总，更正需重新发起结算；已作废记录不可再次作废。
 记录冗余存储操作人名称，即使用户被删除，历史操作人信息仍可追溯。
 
 ### 1.5 AI 智能识别
@@ -232,8 +237,11 @@ OpenAPI 不提供盖章额度查询；上传时额度不足只返回"盖章额�
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| POST | `/admin/supplier-settlement` | 创建结算记录 |
-| GET | `/admin/supplier-settlement` | 结算历史 |
+| POST | `/admin/supplier-settlement` | 创建结算记录，请求体：`amount`、`sellerCompany`（`DEFAULT`/`TECH`，必填）、`invoiceCategory`（`NORMAL`/`VAT_SPECIAL`，必填）、`remark`；支持 `Idempotency-Key` |
+| GET | `/admin/supplier-settlement` | 结算历史（含每笔的 `sellerCompany` / `invoiceCategory` 及作废信息 `voided` / `voidedAt` / `voidedByName` / `voidReason`） |
+| POST | `/admin/supplier-settlement/{id}/void` | 作废结算记录，请求体：`reason`（必填，≤200 字）；记录不存在返回 404，已作废返回 409 |
+
+各通道的已结 / 未结金额通过数据看板 `sellerCategoryStats[].settledAmount / unsettledAmount` 返回。
 
 完整 URL 前缀为全局 `context-path`：`/api`，即 `/api/admin/supplier-settlement`。
 
