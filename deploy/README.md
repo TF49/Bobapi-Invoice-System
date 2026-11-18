@@ -10,6 +10,11 @@
 - `docker-compose.yml`（或项目根目录的 `docker-compose.deploy.yml`）
 - `.env`（可根据 `.env.example` 复制并修改）
 
+> **不在部署包内**：服务器上的 `docker-compose.override.yml`（MySQL 内存优化、时区、关闭端口映射）由服务器单独维护，
+> 部署时**不要上传、不要覆盖、不要删除**。`docker compose` 会自动合并同目录下的 override 文件。
+> 仓库里的留档副本在 `deploy/server/docker-compose.override.yml`，仅供比对。
+> 不要在 `docker-compose.yml` / `docker-compose.deploy.yml` 里给 mysql 加 `command`——override 的 `command` 会整体替换主文件的。
+
 ## 部署步骤
 
 ### 1. 导入镜像

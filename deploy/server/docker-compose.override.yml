@@ -1,0 +1,21 @@
+# ============================================================================
+# 服务器 /www/fapiao/docker-compose.override.yml 的留档副本（内存优化）
+#
+# - 该文件由服务器单独维护，【不属于部署包】，部署时不要上传、不要覆盖、不要删除服务器上的同名文件。
+# - 故意放在 deploy/server/ 子目录：避免在 deploy/ 或根目录执行 docker compose 时被自动合并。
+# - override 中的 command 会整体替换主文件的 command，所以不要在 docker-compose.yml /
+#   docker-compose.deploy.yml 里给 mysql 再写 command，两边都写容易误以为改了主文件却不生效。
+# - `!reset` 语法需要 Docker Compose v2.24+。
+# ============================================================================
+services:
+  mysql:
+    ports: !reset []
+    environment:
+      TZ: Asia/Shanghai
+    command:
+      - --default-time-zone=+08:00     # 这一行千万不能丢，丢了新数据时间会差 8 小时
+      - --performance-schema=OFF
+      - --innodb-buffer-pool-size=32M
+      - --max-connections=50
+    healthcheck:
+      start_period: 180s
