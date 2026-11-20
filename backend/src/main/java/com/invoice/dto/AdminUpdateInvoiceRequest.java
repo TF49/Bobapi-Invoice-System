@@ -55,7 +55,7 @@ public class AdminUpdateInvoiceRequest {
     private String sellerCompany = "DEFAULT";
 
     /**
-     * 税率 / 是否免税：EXEMPT-免税，1%，3%，6%。不传（null）表示保持原值。
+     * 税率 / 是否免税：EXEMPT-免税，1%，3%，5%。不传（null）表示保持原值。
      */
     @Size(max = 10, message = "税率不能超过 10 个字符")
     private String taxRate;

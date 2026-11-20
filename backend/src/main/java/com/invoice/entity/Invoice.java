@@ -56,7 +56,7 @@ public class Invoice {
     private String sellerCompany;
 
     /**
-     * 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，6%
+     * 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，5%
      */
     private String taxRate;
 

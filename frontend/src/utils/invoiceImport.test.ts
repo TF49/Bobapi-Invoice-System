@@ -37,11 +37,11 @@ describe('invoice tax rate import', () => {
 
   it('normalizes aliases and rejects unsupported tax rates', () => {
     expect(normalizeTaxRate('免税')).toBe('EXEMPT')
-    expect(normalizeTaxRate('0.06')).toBe('6%')
+    expect(normalizeTaxRate('0.05')).toBe('5%')
     expect(normalizeTaxRate('1')).toBe('1%')
     expect(normalizeTaxRate('13%')).toBeNull()
-    expect(validateRow(row({ taxRate: '13%' }))).toBe('税率必须为免税、1%、3% 或 6%')
-    expect(validateRow(row({ taxRate: '6%' }))).toBeNull()
+    expect(validateRow(row({ taxRate: '13%' }))).toBe('税率必须为免税、1%、3% 或 5%')
+    expect(validateRow(row({ taxRate: '5%' }))).toBeNull()
   })
 })
 
@@ -114,7 +114,8 @@ describe('invoice batch import validation', () => {
     expect(validateRow(row({ invoiceType: '信息系统服务' }))).toBeNull()
     expect(validateRow(row({ invoiceType: 'AI算力' }))).toBeNull()
     expect(validateRow(row({ invoiceType: '网络技术服务' }))).toBeNull()
-    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务、AI算力或网络技术服务')
+    expect(validateRow(row({ invoiceType: '资料打印服务费' }))).toBeNull()
+    expect(validateRow(row({ invoiceType: '咨询服务费' }))).toBe('开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务、AI算力、网络技术服务或资料打印服务费')
   })
 
   it('compares duplicate rows after normalization', () => {

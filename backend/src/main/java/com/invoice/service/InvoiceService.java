@@ -76,12 +76,12 @@ public class InvoiceService {
     private static final int MAX_SPECIFICATION_LENGTH = 100;
     private static final int MAX_UNIT_LENGTH = 20;
     public static final String FIXED_INVOICE_TYPE = "技术服务费";
-    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费", "研发和技术服务", "信息系统服务", "AI算力", "网络技术服务");
+    public static final Set<String> ALLOWED_INVOICE_TYPES = Set.of("技术服务费", "AI订阅服务费", "计算服务费", "研发和技术服务", "信息系统服务", "AI算力", "网络技术服务", "资料打印服务费");
     public static final Set<String> ALLOWED_INVOICE_CATEGORIES = Set.of("NORMAL", "VAT_SPECIAL");
     public static final Set<String> ALLOWED_SELLER_COMPANIES = Set.of("DEFAULT", "TECH");
-    /** 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，6% */
+    /** 税率 / 是否免税：EXEMPT-免税（默认），1%，3%，5% */
     public static final String DEFAULT_TAX_RATE = "EXEMPT";
-    public static final Set<String> ALLOWED_TAX_RATES = Set.of("EXEMPT", "1%", "3%", "6%");
+    public static final Set<String> ALLOWED_TAX_RATES = Set.of("EXEMPT", "1%", "3%", "5%");
     private static final BigDecimal BASE_QUOTA_RATE = new BigDecimal("0.03");
     /** 专票额度扣除倍率（专票按开票金额的 3 倍扣除额度） */
     private static final BigDecimal VAT_SPECIAL_MULTIPLIER = new BigDecimal("3");
@@ -634,7 +634,7 @@ public class InvoiceService {
         return switch (trimmed) {
             case "1%", "1", "0.01" -> "1%";
             case "3%", "3", "0.03" -> "3%";
-            case "6%", "6", "0.06" -> "6%";
+            case "5%", "5", "0.05" -> "5%";
             default -> trimmed.toUpperCase(Locale.ROOT);
         };
     }
@@ -644,19 +644,19 @@ public class InvoiceService {
      */
     public String validateTaxRate(String taxRate) {
         if (taxRate == null || !ALLOWED_TAX_RATES.contains(taxRate)) {
-            return "税率不支持，仅支持 EXEMPT（免税）、1%、3%、6%";
+            return "税率不支持，仅支持 EXEMPT（免税）、1%、3%、5%";
         }
         return null;
     }
 
     /**
      * 校验税率与出票主体的组合，返回错误信息或 null：
-     * 普通公司（DEFAULT）仅支持免税；科技公司（TECH）支持免税、1%、3%、6%
+     * 普通公司（DEFAULT）仅支持免税；科技公司（TECH）支持免税、1%、3%、5%
      */
     public String validateTaxRate(String taxRate, String sellerCompany) {
         String validationMessage = validateTaxRate(taxRate);
         if (validationMessage == null && "DEFAULT".equals(sellerCompany) && !DEFAULT_TAX_RATE.equals(taxRate)) {
-            return "普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选";
+            return "普通公司仅支持免税，1%、3%、5% 税率仅科技公司可选";
         }
         return validationMessage;
     }
@@ -1025,7 +1025,7 @@ public class InvoiceService {
             return "开票类型不能为空";
         }
         if (!ALLOWED_INVOICE_TYPES.contains(invoiceType)) {
-            return "开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务、AI算力或网络技术服务";
+            return "开票类型必须为技术服务费、AI订阅服务费、计算服务费、研发和技术服务、信息系统服务、AI算力、网络技术服务或资料打印服务费";
         }
         if (invoiceType.length() > 100) {
             return "开票类型不能超过 100 个字符";

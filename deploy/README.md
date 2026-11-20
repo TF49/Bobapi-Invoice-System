@@ -40,7 +40,10 @@ docker compose up -d
 > 若该子网与服务器已有网段冲突，修改 compose 中的 `subnet`、frontend 的 `ipv4_address`，
 > 并把 `.env` 中的 `TRUSTED_PROXIES` 改成新的前端 IP。
 
-> **本版本数据库变更（供应商分类型结算）**：后端启动时 Flyway 自动执行 V34、V35，仅给 `supplier_settlement`
+> **本版本（新增发票类型「资料打印服务费」、科技公司税率 6% 调整为 5%）**：无数据库迁移、compose 文件无变化，
+> 只需替换两个镜像 tar 后 `docker compose up -d`。
+
+> **上一版本数据库变更（供应商分类型结算）**：后端启动时 Flyway 自动执行 V34、V35，仅给 `supplier_settlement`
 > 增加列（结算通道 `seller_company` / `invoice_category`，作废信息 `voided_at` / `voided_by` / `voided_by_name` / `void_reason`），
 > 不改动已有数据；历史结算记录全部归属「普通公司·普票」。升级前建议先备份数据库：
 > `docker exec invoice-mysql mysqldump -uroot -p<密码> invoice_system > backup-$(date +%F).sql`

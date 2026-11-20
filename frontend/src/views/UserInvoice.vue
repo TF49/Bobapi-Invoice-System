@@ -1064,6 +1064,7 @@
             <el-option label="信息系统服务" value="信息系统服务" />
             <el-option label="AI算力" value="AI算力" />
             <el-option label="网络技术服务" value="网络技术服务" />
+            <el-option label="资料打印服务费" value="资料打印服务费" />
           </el-select>
         </el-form-item>
         <el-form-item label="免税/税率" prop="taxRate">

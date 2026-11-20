@@ -80,7 +80,7 @@ CREATE TABLE `invoice` (
     `batch_id` BIGINT DEFAULT NULL COMMENT '批次ID（批量申请时关联）',
     `batch_row_number` INT DEFAULT NULL COMMENT '批次内原始行号（用于审计）',
     `seller_company` VARCHAR(50) NOT NULL DEFAULT 'DEFAULT' COMMENT '出票主体公司：DEFAULT-普通公司，TECH-科技公司',
-    `tax_rate` VARCHAR(10) NOT NULL DEFAULT 'EXEMPT' COMMENT '税率：EXEMPT-免税（默认），1%，3%，6%',
+    `tax_rate` VARCHAR(10) NOT NULL DEFAULT 'EXEMPT' COMMENT '税率：EXEMPT-免税（默认），1%，3%，5%',
     `fee_rate` DECIMAL(5, 4) NOT NULL DEFAULT 0.0300 COMMENT '实际执行费率：普通普票0.03/专票0.09，科技普票0.04/专票0.10',
     `deducted_quota` DECIMAL(12, 2) NOT NULL DEFAULT 0.00 COMMENT '实际扣除额度（用于发票取消或红冲时精准原样退还）',
     `submission_type` VARCHAR(20) NOT NULL DEFAULT 'UNKNOWN' COMMENT '提交方式：API-API提交，MANUAL-网页手动提交，UNKNOWN-历史无法确认',

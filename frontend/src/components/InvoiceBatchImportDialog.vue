@@ -40,7 +40,7 @@
           <el-radio-button value="DEFAULT">普通公司（普 3% / 专 9%）</el-radio-button>
           <el-radio-button value="TECH">科技公司（普票 4% / 专票 10%）</el-radio-button>
         </el-radio-group>
-        <span class="seller-section-tip">普通公司仅支持免税，1%、3%、6% 税率仅科技公司可选</span>
+        <span class="seller-section-tip">普通公司仅支持免税，1%、3%、5% 税率仅科技公司可选</span>
       </div>
 
       <!-- 状态提示 -->
